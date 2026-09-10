@@ -97,3 +97,8 @@ enabled=PackedStringArray("res://addons/jolt_physics/jolt_physics.gdextension")
 [autoload]
 
 InputManager="*res://autoload/input_manager.gd"
+GameState="*res://autoload/game_state.gd"
+RaceManager="*res://autoload/race_manager.gd"
+VehicleManager="*res://autoload/vehicle_manager.gd"
+WeatherManager="*res://autoload/weather_manager.gd"
+SaveManager="*res://autoload/save_manager.gd"
