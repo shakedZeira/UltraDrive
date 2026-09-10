@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/test_ground.gd" id="1_ground"]
+
+[node name="TestVehiclePhysics" type="Node3D"]
+script = ExtResource("1_ground")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.966, 0.259, 0, -0.259, 0.966, 0, 8, 15)
+fov = 70.0
