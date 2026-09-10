@@ -1,0 +1,41 @@
+[godot-jolt]
+version = "0.16.0-stable"
+build = "8eca5bb795"
+
+[configuration]
+
+entry_symbol = "godot_jolt_main"
+compatibility_minimum = "4.3"
+compatibility_maximum = "4.7"
+
+[libraries]
+
+windows.release.single.x86_64 = "bin/windows/godot-jolt_windows-x64.dll"
+windows.debug.single.x86_64 = "bin/windows/godot-jolt_windows-x64_editor.dll"
+
+windows.release.single.x86_32 = "bin/windows/godot-jolt_windows-x86.dll"
+windows.debug.single.x86_32 = "bin/windows/godot-jolt_windows-x86_editor.dll"
+
+linux.release.single.x86_64 = "bin/linux/godot-jolt_linux-x64.so"
+linux.debug.single.x86_64 = "bin/linux/godot-jolt_linux-x64_editor.so"
+
+linux.release.single.x86_32 = "bin/linux/godot-jolt_linux-x86.so"
+linux.debug.single.x86_32 = "bin/linux/godot-jolt_linux-x86_editor.so"
+
+macos.release.single = "bin/macos/godot-jolt_macos.framework"
+macos.debug.single = "bin/macos/godot-jolt_macos_editor.framework"
+
+ios.release.single = "bin/ios/godot-jolt_ios.framework"
+ios.debug.single = "bin/ios/godot-jolt_ios_editor.framework"
+
+android.release.single.arm64 = "bin/android/libgodot-jolt_android-arm64.so"
+android.debug.single.arm64 = "bin/android/libgodot-jolt_android-arm64_editor.so"
+
+android.release.single.arm32 = "bin/android/libgodot-jolt_android-arm32.so"
+android.debug.single.arm32 = "bin/android/libgodot-jolt_android-arm32_editor.so"
+
+android.release.single.x86_64 = "bin/android/libgodot-jolt_android-x64.so"
+android.debug.single.x86_64 = "bin/android/libgodot-jolt_android-x64_editor.so"
+
+android.release.single.x86_32 = "bin/android/libgodot-jolt_android-x86.so"
+android.debug.single.x86_32 = "bin/android/libgodot-jolt_android-x86_editor.so"

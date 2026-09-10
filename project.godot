@@ -88,3 +88,7 @@ renderer/rendering_method="forward_plus"
 textures/default_filters/anisotropic_filtering_level=4
 anti_aliasing/quality/msaa_3d=2
 environment/defaults/default_clear_color=Color(0.3, 0.3, 0.35, 1)
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/jolt_physics/jolt_physics.gdextension")
