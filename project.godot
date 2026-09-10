@@ -80,6 +80,7 @@ camera_mode={
 [physics]
 
 common/physics_ticks_per_second=120
+3d/physics_engine="jolt"
 3d/default_gravity=9.8
 
 [rendering]
