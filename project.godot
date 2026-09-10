@@ -93,3 +93,7 @@ environment/defaults/default_clear_color=Color(0.3, 0.3, 0.35, 1)
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/jolt_physics/jolt_physics.gdextension")
+
+[autoload]
+
+InputManager="*res://autoload/input_manager.gd"
