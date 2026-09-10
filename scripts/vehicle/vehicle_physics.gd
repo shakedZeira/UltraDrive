@@ -58,6 +58,9 @@ func _physics_process(delta: float) -> void:
     var target_steer := deg_to_rad(config.max_steer_angle) * steer_input * speed_factor
     steer_angle = move_toward(steer_angle, target_steer, config.steer_speed * delta)
 
+    wheel_fl.rotation.y = steer_angle
+    wheel_fr.rotation.y = steer_angle
+
     # --- Drivetrain ---
     var forward_speed := -global_basis.z.dot(linear_velocity)
     _drivetrain.set_wheel_speed(forward_speed)
