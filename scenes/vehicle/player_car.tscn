@@ -1,0 +1,44 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/vehicle/vehicle_physics.gd" id="1_vp"]
+[ext_resource type="Script" path="res://scripts/vehicle/wheel_physics.gd" id="2_wp"]
+[ext_resource type="Script" path="res://scripts/player/player_car_controller.gd" id="3_pc"]
+[ext_resource type="Resource" path="res://resources/cars/starter_car.tres" id="4_config"]
+
+[sub_resource type="BoxMesh" id="box_mesh"]
+size = Vector3(1.8, 0.5, 4.0)
+
+[sub_resource type="BoxShape3D" id="box_shape"]
+size = Vector3(1.8, 0.5, 4.0)
+
+[node name="PlayerCar" type="RigidBody3D"]
+script = ExtResource("1_vp")
+config = ExtResource("4_config")
+mass = 1100.0
+
+[node name="CarBody" type="MeshInstance3D" parent="."]
+mesh = SubResource("box_mesh")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("box_shape")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
+
+[node name="WheelFL" type="Node3D" parent="."]
+script = ExtResource("2_wp")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, -0.3, -1.25)
+
+[node name="WheelFR" type="Node3D" parent="."]
+script = ExtResource("2_wp")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, -0.3, -1.25)
+
+[node name="WheelRL" type="Node3D" parent="."]
+script = ExtResource("2_wp")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, -0.3, 1.25)
+
+[node name="WheelRR" type="Node3D" parent="."]
+script = ExtResource("2_wp")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, -0.3, 1.25)
+
+[node name="PlayerCarController" type="Node" parent="."]
+script = ExtResource("3_pc")
