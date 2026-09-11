@@ -68,6 +68,7 @@ func _physics_process(delta: float) -> void:
 
     # --- Tire Forces ---
     var grip_mult: float = config.arcade_mode["grip_multiplier"] if handling_mode == "arcade" else config.simulation_mode["grip_multiplier"]
+    grip_mult *= WeatherManager.get_road_grip_factor()
 
     # Process each wheel
     for i in range(4):
