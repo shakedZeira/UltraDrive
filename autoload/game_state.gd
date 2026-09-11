@@ -17,8 +17,12 @@ func _ready() -> void:
 
 func change_scene(scene_path: String) -> void:
     get_tree().change_scene_to_file(scene_path)
-    if current_mode != GameMode.MAIN_MENU:
-        is_paused = false
+    # Set mode from destination so the pause guard in _unhandled_input works
+    if "main_menu" in scene_path:
+        current_mode = GameMode.MAIN_MENU
+    else:
+        current_mode = GameMode.FREE_ROAM
+    is_paused = false
     scene_changed.emit(scene_path)
 
 func pause_game() -> void:
