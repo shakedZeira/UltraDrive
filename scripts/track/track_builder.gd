@@ -27,13 +27,24 @@ func build_track(points: Array[Vector3]) -> void:
     mesh_instance.material_override = material
     add_child(mesh_instance)
 
-    # Create collision body
+    # Create collision body (one oriented box per segment, following the track)
     var body := StaticBody3D.new()
-    var shape := BoxShape3D.new()
-    shape.size = Vector3(road_width, road_height, _path_length(closed_points))
-    var collision := CollisionShape3D.new()
-    collision.shape = shape
-    body.add_child(collision)
+    for i in range(closed_points.size() - 1):
+        var a: Vector3 = closed_points[i]
+        var b: Vector3 = closed_points[i + 1]
+        var segment: Vector3 = b - a
+        if segment.length() < 0.001:
+            continue
+        var shape := BoxShape3D.new()
+        shape.size = Vector3(road_width, road_height, segment.length())
+        var collision := CollisionShape3D.new()
+        collision.shape = shape
+        collision.position = (a + b) * 0.5
+        var fwd: Vector3 = segment.normalized()
+        var right: Vector3 = Vector3.UP.cross(fwd).normalized()
+        var up: Vector3 = fwd.cross(right)
+        collision.basis = Basis(right, up, -fwd)
+        body.add_child(collision)
     add_child(body)
 
 func _build_mesh(points: Array[Vector3]) -> ArrayMesh:
