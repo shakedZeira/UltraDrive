@@ -1,9 +1,26 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="PackedScene" path="res://scenes/track/test_circuit.tscn" id="1_circuit"]
 [ext_resource type="PackedScene" path="res://scenes/vehicle/player_car.tscn" id="2_car"]
 [ext_resource type="Script" path="res://scripts/camera/chase_camera.gd" id="3_chase"]
 [ext_resource type="PackedScene" path="res://scenes/ui/pause_menu.tscn" id="4_pause"]
+
+[sub_resource type="ProceduralSkyMaterial" id="sky_mat"]
+sky_top_color = Color(0.35, 0.55, 0.85, 1)
+sky_horizon_color = Color(0.65, 0.75, 0.85, 1)
+ground_bottom_color = Color(0.2, 0.17, 0.13, 1)
+ground_horizon_color = Color(0.65, 0.75, 0.85, 1)
+
+[sub_resource type="Sky" id="sky"]
+sky_material = SubResource("sky_mat")
+
+[sub_resource type="Environment" id="env"]
+background_mode = 2
+sky = SubResource("sky")
+ambient_light_source = 2
+ambient_light_color = Color(0.5, 0.5, 0.55, 1)
+ambient_light_energy = 0.5
+tonemap_mode = 2
 
 [node name="TestTrack" type="Node3D"]
 
@@ -16,5 +33,12 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 60, 2.2, 0)
 [node name="ChaseCamera" type="Node3D" parent="."]
 script = ExtResource("3_chase")
 target = NodePath("%PlayerCar")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 0, 10, 0)
+shadow_enabled = true
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("env")
 
 [node name="PauseMenu" parent="." instance=ExtResource("4_pause")]
