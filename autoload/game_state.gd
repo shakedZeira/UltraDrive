@@ -12,6 +12,9 @@ enum GameMode { MAIN_MENU, FREE_ROAM, RACE, LICENSE_TEST, GARAGE }
 var current_mode: GameMode = GameMode.MAIN_MENU
 var is_paused: bool = false
 
+func _ready() -> void:
+    process_mode = Node.PROCESS_MODE_ALWAYS
+
 func change_scene(scene_path: String) -> void:
     get_tree().change_scene_to_file(scene_path)
     if current_mode != GameMode.MAIN_MENU:
@@ -42,5 +45,7 @@ func set_mode(mode: GameMode) -> void:
     current_mode = mode
 
 func _unhandled_input(event: InputEvent) -> void:
+    if current_mode == GameMode.MAIN_MENU:
+        return
     if event.is_action_pressed("pause"):
         toggle_pause()
