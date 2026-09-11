@@ -12,12 +12,8 @@ func build_track(points: Array[Vector3]) -> void:
     if points.size() < 3:
         return
 
-    # Close the loop
-    var closed_points := points.duplicate()
-    closed_points.append(points[0])
-
     # Create visual mesh
-    var road_mesh := _build_mesh(closed_points)
+    var road_mesh := _build_mesh(points, false)
     var mesh_instance := MeshInstance3D.new()
     mesh_instance.mesh = road_mesh
 
@@ -37,7 +33,7 @@ func build_track(points: Array[Vector3]) -> void:
         Color(0.85, 0.85, 0.82),
     ]
     for e in range(edge_offsets.size()):
-        var edge_mesh := _build_edge_mesh(closed_points, edge_offsets[e], 1.0)
+        var edge_mesh := _build_edge_mesh(points, edge_offsets[e], 1.0)
         var edge_instance := MeshInstance3D.new()
         edge_instance.mesh = edge_mesh
         var edge_material := StandardMaterial3D.new()
@@ -50,53 +46,63 @@ func build_track(points: Array[Vector3]) -> void:
     var track_phys_mat := PhysicsMaterial.new()
     track_phys_mat.friction = 0.0
 
-    # Create collision body (one oriented box per segment, following the track)
+    # Create a single continuous trimesh collision from the exact same
+    # vertices as the visual mesh (winding flipped so the front face is up
+    # for Jolt). Per-segment boxes left seam sawtooth edges that snagged
+    # the chassis (invisible walls / stuck), and a naively duplicated
+    # closing point left a non-manifold X-fold with a traction hole right
+    # at the respawn point. The strip below closes the loop by sharing the
+    # seam vertices, so the surface is flat, gapless, and watertight.
     var body := StaticBody3D.new()
-    for i in range(closed_points.size() - 1):
-        var a: Vector3 = closed_points[i]
-        var b: Vector3 = closed_points[i + 1]
-        var segment: Vector3 = b - a
-        if segment.length() < 0.001:
-            continue
-        var shape := BoxShape3D.new()
-        shape.size = Vector3(road_width, road_height, segment.length())
-        var collision := CollisionShape3D.new()
-        collision.shape = shape
-        collision.position = (a + b) * 0.5
-        var fwd: Vector3 = segment.normalized()
-        var right: Vector3 = Vector3.UP.cross(fwd).normalized()
-        var up: Vector3 = fwd.cross(right)
-        collision.basis = Basis(right, up, -fwd)
-        body.add_child(collision)
+    var coll_mesh := _build_mesh(points, true)
+    var trimesh_shape: ConcavePolygonShape3D = coll_mesh.create_trimesh_shape()
+    var collision := CollisionShape3D.new()
+    collision.shape = trimesh_shape
+    body.add_child(collision)
     body.physics_material_override = track_phys_mat
     add_child(body)
 
-func _build_mesh(points: Array[Vector3]) -> ArrayMesh:
-    ## Builds a triangle strip mesh following the points.
+func _build_mesh(points: Array[Vector3], flip_winding: bool) -> ArrayMesh:
+    ## Builds a single closed triangle-strip mesh following the points.
+    ## The strip wraps around so the last segment connects back to the
+    ## first one, sharing the seam vertices (no gap, no fold).
+    var n := points.size()
     var vertices := PackedVector3Array()
     var indices := PackedInt32Array()
     var normals := PackedVector3Array()
 
-    # Triangle strip along the path
-    for i in range(points.size()):
+    # Vertex pair per path point (left / right of the centerline)
+    for i in range(n):
         var p := points[i]
-        var forward := (points[min(i + 1, points.size() - 1)] - points[max(i - 1, 0)]).normalized()
+        var prev := points[(i - 1 + n) % n]
+        var next := points[(i + 1) % n]
+        var forward := (next - prev).normalized()
         var right := forward.cross(Vector3.UP).normalized()
 
         vertices.append(p - right * road_width * 0.5)
         vertices.append(p + right * road_width * 0.5)
+        normals.append(Vector3.UP)
+        normals.append(Vector3.UP)
 
-        if i < points.size() - 1:
-            var base := i * 2
+    # Closed quad strip (triangle strip)
+    for i in range(n):
+        var j := (i + 1) % n
+        var base := i * 2
+        var next_base := j * 2
+        if flip_winding:
+            indices.append(next_base)
+            indices.append(base + 1)
+            indices.append(base)
+            indices.append(next_base)
+            indices.append(next_base + 1)
+            indices.append(base + 1)
+        else:
             indices.append(base)
             indices.append(base + 1)
-            indices.append(base + 2)
+            indices.append(next_base)
             indices.append(base + 1)
-            indices.append(base + 3)
-            indices.append(base + 2)
-
-        normals.append(Vector3.UP)
-        normals.append(Vector3.UP)
+            indices.append(next_base + 1)
+            indices.append(next_base)
 
     var mesh := ArrayMesh.new()
     var arrays := []
@@ -108,30 +114,34 @@ func _build_mesh(points: Array[Vector3]) -> ArrayMesh:
     return mesh
 
 func _build_edge_mesh(points: Array[Vector3], offset: float, width: float) -> ArrayMesh:
+    var n := points.size()
     var vertices := PackedVector3Array()
     var indices := PackedInt32Array()
     var normals := PackedVector3Array()
 
-    for i in range(points.size()):
+    for i in range(n):
         var p := points[i]
-        var forward := (points[min(i + 1, points.size() - 1)] - points[max(i - 1, 0)]).normalized()
+        var prev := points[(i - 1 + n) % n]
+        var next := points[(i + 1) % n]
+        var forward := (next - prev).normalized()
         var right := forward.cross(Vector3.UP).normalized()
         var center := p + Vector3.UP * 0.012 + right * offset
 
         vertices.append(center - right * width * 0.5)
         vertices.append(center + right * width * 0.5)
-
-        if i < points.size() - 1:
-            var base := i * 2
-            indices.append(base)
-            indices.append(base + 1)
-            indices.append(base + 2)
-            indices.append(base + 1)
-            indices.append(base + 3)
-            indices.append(base + 2)
-
         normals.append(Vector3.UP)
         normals.append(Vector3.UP)
+
+    for i in range(n):
+        var j := (i + 1) % n
+        var base := i * 2
+        var next_base := j * 2
+        indices.append(base)
+        indices.append(base + 1)
+        indices.append(next_base)
+        indices.append(base + 1)
+        indices.append(next_base + 1)
+        indices.append(next_base)
 
     var mesh := ArrayMesh.new()
     var arrays := []

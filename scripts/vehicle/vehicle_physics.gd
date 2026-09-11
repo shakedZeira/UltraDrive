@@ -36,6 +36,7 @@ func _ready() -> void:
     mass = config.mass_kg
     center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
     center_of_mass = config.center_of_mass_offset
+    linear_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
     linear_damp = 0.0  # we handle air resistance ourselves
     angular_damp = 0.5
 
@@ -172,5 +173,11 @@ func respawn_at(pos: Vector3) -> void:
     linear_velocity = Vector3.ZERO
     angular_velocity = Vector3.ZERO
     _drivetrain.reset()
-    global_position = pos
-    global_position.y += 1.0  # lift slightly above ground
+    # Teleport through the physics server so Jolt accepts the new transform
+    # as authoritative instead of fighting the direct setter mid-step.
+    # Keep the car yaw but level out any roll/pitch so we never respawn
+    # on our roof after tumbling through the void.
+    var yaw := global_basis.get_euler().y
+    var tfm := Transform3D(Basis(Vector3.UP, yaw), pos + Vector3.UP * 1.0)
+    sleeping = false
+    PhysicsServer3D.body_set_state(get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, tfm)
