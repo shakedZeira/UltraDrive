@@ -17,6 +17,7 @@ extends RigidBody3D
 var current_speed_kmh: float = 0.0
 var steer_angle: float = 0.0
 var handling_mode: String = "arcade"  # "arcade" or "simulation"
+var input_override: Vector2 = Vector2.ZERO  # (steer, throttle-brake)
 
 # --- Internal ---
 var _drivetrain: Drivetrain
@@ -39,13 +40,16 @@ func _ready() -> void:
 
     _prev_position = global_position
 
+func set_input_override(value: Vector2) -> void:
+    input_override = value
+
 func _physics_process(delta: float) -> void:
     if config == null:
         return
 
-    var throttle := InputManager.get_throttle()
-    var brake_input := InputManager.get_brake()
-    var steer_input := InputManager.get_steer()
+    var throttle := InputManager.get_throttle() if input_override == Vector2.ZERO else clampf(input_override.y, -1.0, 1.0)
+    var brake_input := InputManager.get_brake() if input_override == Vector2.ZERO else maxf(-input_override.y, 0.0)
+    var steer_input := InputManager.get_steer() if input_override == Vector2.ZERO else clampf(input_override.x, -1.0, 1.0)
     var handbrake := InputManager.is_handbrake()
 
     # --- Reset car ---
