@@ -40,3 +40,7 @@ func toggle_pause() -> void:
 
 func set_mode(mode: GameMode) -> void:
     current_mode = mode
+
+func _unhandled_input(event: InputEvent) -> void:
+    if event.is_action_pressed("pause"):
+        toggle_pause()

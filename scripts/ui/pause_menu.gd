@@ -1,6 +1,10 @@
 # scripts/ui/pause_menu.gd
 extends Control
 
+func _ready() -> void:
+    GameState.game_paused.connect(show)
+    GameState.game_resumed.connect(hide)
+
 func _on_resume_pressed() -> void:
     GameState.resume_game()
     hide()
