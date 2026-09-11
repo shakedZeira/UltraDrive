@@ -22,10 +22,28 @@ func build_track(points: Array[Vector3]) -> void:
     mesh_instance.mesh = road_mesh
 
     var material := StandardMaterial3D.new()
-    material.albedo_color = Color(0.25, 0.25, 0.27)
+    material.albedo_color = Color(0.32, 0.32, 0.34)
     material.roughness = 0.9
     mesh_instance.material_override = material
     add_child(mesh_instance)
+
+    var edge_offsets: Array[float] = [
+        road_width * 0.5 - 0.5,
+        -(road_width * 0.5 - 0.5),
+    ]
+    var edge_colors: Array[Color] = [
+        Color(0.72, 0.12, 0.12),
+        Color(0.85, 0.85, 0.82),
+    ]
+    for e in range(edge_offsets.size()):
+        var edge_mesh := _build_edge_mesh(closed_points, edge_offsets[e], 1.0)
+        var edge_instance := MeshInstance3D.new()
+        edge_instance.mesh = edge_mesh
+        var edge_material := StandardMaterial3D.new()
+        edge_material.albedo_color = edge_colors[e]
+        edge_material.roughness = 0.7
+        edge_instance.material_override = edge_material
+        add_child(edge_instance)
 
     var track_phys_mat := PhysicsMaterial.new()
     track_phys_mat.friction = 0.0
@@ -65,6 +83,41 @@ func _build_mesh(points: Array[Vector3]) -> ArrayMesh:
 
         vertices.append(p - right * road_width * 0.5)
         vertices.append(p + right * road_width * 0.5)
+
+        if i < points.size() - 1:
+            var base := i * 2
+            indices.append(base)
+            indices.append(base + 1)
+            indices.append(base + 2)
+            indices.append(base + 1)
+            indices.append(base + 3)
+            indices.append(base + 2)
+
+        normals.append(Vector3.UP)
+        normals.append(Vector3.UP)
+
+    var mesh := ArrayMesh.new()
+    var arrays := []
+    arrays.resize(Mesh.ARRAY_MAX)
+    arrays[Mesh.ARRAY_VERTEX] = vertices
+    arrays[Mesh.ARRAY_INDEX] = indices
+    arrays[Mesh.ARRAY_NORMAL] = normals
+    mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+    return mesh
+
+func _build_edge_mesh(points: Array[Vector3], offset: float, width: float) -> ArrayMesh:
+    var vertices := PackedVector3Array()
+    var indices := PackedInt32Array()
+    var normals := PackedVector3Array()
+
+    for i in range(points.size()):
+        var p := points[i]
+        var forward := (points[min(i + 1, points.size() - 1)] - points[max(i - 1, 0)]).normalized()
+        var right := forward.cross(Vector3.UP).normalized()
+        var center := p + Vector3.UP * 0.012 + right * offset
+
+        vertices.append(center - right * width * 0.5)
+        vertices.append(center + right * width * 0.5)
 
         if i < points.size() - 1:
             var base := i * 2
