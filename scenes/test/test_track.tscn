@@ -10,10 +10,11 @@
 [node name="TrackCircuit" parent="." instance=ExtResource("1_circuit")]
 
 [node name="PlayerCar" parent="." instance=ExtResource("2_car")]
+unique_name_in_owner = true
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 60, 2.2, 0)
 
 [node name="ChaseCamera" type="Node3D" parent="."]
 script = ExtResource("3_chase")
-target = NodePath("../PlayerCar")
+target = NodePath("%PlayerCar")
 
 [node name="PauseMenu" parent="." instance=ExtResource("4_pause")]

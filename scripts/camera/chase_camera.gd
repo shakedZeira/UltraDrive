@@ -20,7 +20,12 @@ func _ready() -> void:
     _camera.current = true
 
     if target == null:
-        target = get_parent() as Node3D
+        var parent := get_parent() as Node3D
+        if parent is VehiclePhysics:
+            target = parent
+        else:
+            var found := get_parent().find_children("*", "VehiclePhysics", false, false)
+            target = found[0] as Node3D if found.size() > 0 else parent
 
 func _physics_process(delta: float) -> void:
     if target == null:
