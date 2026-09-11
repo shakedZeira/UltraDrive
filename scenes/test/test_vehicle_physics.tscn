@@ -1,6 +1,8 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/test_ground.gd" id="1_ground"]
+[ext_resource type="PackedScene" path="res://scenes/vehicle/player_car.tscn" id="2_car"]
+[ext_resource type="Script" path="res://scripts/camera/chase_camera.gd" id="3_chase"]
 
 [node name="TestVehiclePhysics" type="Node3D"]
 script = ExtResource("1_ground")
@@ -8,3 +10,11 @@ script = ExtResource("1_ground")
 [node name="Camera3D" type="Camera3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 0.966, 0.259, 0, -0.259, 0.966, 0, 8, 15)
 fov = 70.0
+current = false
+
+[node name="PlayerCar" parent="." instance=ExtResource("2_car")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+
+[node name="ChaseCamera" type="Node3D" parent="."]
+script = ExtResource("3_chase")
+target = NodePath("../PlayerCar")
