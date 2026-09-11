@@ -67,7 +67,7 @@ func _physics_process(delta: float) -> void:
     var drive_info := _drivetrain.update(delta, throttle, config)
 
     # --- Tire Forces ---
-    var grip_mult := config.arcade_mode["grip_multiplier"] if handling_mode == "arcade" else config.simulation_mode["grip_multiplier"]
+    var grip_mult: float = config.arcade_mode["grip_multiplier"] if handling_mode == "arcade" else config.simulation_mode["grip_multiplier"]
 
     # Process each wheel
     for i in range(4):
