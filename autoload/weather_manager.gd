@@ -26,6 +26,9 @@ func set_weather(weather: Weather) -> void:
         current_weather = weather
         weather_changed.emit(weather)
 
+func get_time_of_day() -> float:
+    return time_of_day
+
 func get_road_grip_factor() -> float:
     return ROAD_GRIP.get(current_weather, 1.0)
 

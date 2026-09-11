@@ -22,7 +22,6 @@ var input_override: Vector2 = Vector2.ZERO  # (steer, throttle-brake)
 # --- Internal ---
 var _drivetrain: Drivetrain
 var _wheels: Array[WheelPhysics]
-var _prev_position: Vector3
 var _spawn_point: Vector3
 
 func _ready() -> void:
@@ -45,7 +44,6 @@ func _ready() -> void:
     contact_mat.friction = 0.0
     physics_material_override = contact_mat
 
-    _prev_position = global_position
     _spawn_point = global_position
 
 func set_input_override(value: Vector2) -> void:
@@ -113,7 +111,7 @@ func _physics_process(delta: float) -> void:
 
             # Braking
             var brake_force := brake_input * config.max_brake_torque / (0.33 * 2.0)
-            if i < 2:  # front wheels get AC drive no drive, only brake
+            if i < 2:  # front wheels do not drive, only brake
                 drive_force = 0.0
             drive_force -= brake_force
 
@@ -135,7 +133,6 @@ func _physics_process(delta: float) -> void:
 
     # --- Update speed ---
     current_speed_kmh = linear_velocity.length() * 3.6
-    _prev_position = global_position
 
 # --- Public API ---
 

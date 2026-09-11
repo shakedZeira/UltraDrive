@@ -151,9 +151,3 @@ func _build_edge_mesh(points: Array[Vector3], offset: float, width: float) -> Ar
     arrays[Mesh.ARRAY_NORMAL] = normals
     mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
     return mesh
-
-func _path_length(points: Array[Vector3]) -> float:
-    var total := 0.0
-    for i in range(1, points.size()):
-        total += points[i - 1].distance_to(points[i])
-    return total
