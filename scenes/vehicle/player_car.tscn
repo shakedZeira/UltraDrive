@@ -15,6 +15,7 @@ size = Vector3(1.8, 0.5, 4.0)
 script = ExtResource("1_vp")
 config = ExtResource("4_config")
 mass = 1100.0
+can_sleep = false
 
 [node name="CarBody" type="MeshInstance3D" parent="."]
 mesh = SubResource("box_mesh")
@@ -26,19 +27,19 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
 
 [node name="WheelFL" type="Node3D" parent="."]
 script = ExtResource("2_wp")
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, -0.3, -1.25)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 0.2, -1.25)
 
 [node name="WheelFR" type="Node3D" parent="."]
 script = ExtResource("2_wp")
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, -0.3, -1.25)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 0.2, -1.25)
 
 [node name="WheelRL" type="Node3D" parent="."]
 script = ExtResource("2_wp")
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, -0.3, 1.25)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 0.2, 1.25)
 
 [node name="WheelRR" type="Node3D" parent="."]
 script = ExtResource("2_wp")
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, -0.3, 1.25)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 0.2, 1.25)
 
 [node name="PlayerCarController" type="Node" parent="."]
 script = ExtResource("3_pc")

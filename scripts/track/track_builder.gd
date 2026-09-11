@@ -27,6 +27,9 @@ func build_track(points: Array[Vector3]) -> void:
     mesh_instance.material_override = material
     add_child(mesh_instance)
 
+    var track_phys_mat := PhysicsMaterial.new()
+    track_phys_mat.friction = 0.0
+
     # Create collision body (one oriented box per segment, following the track)
     var body := StaticBody3D.new()
     for i in range(closed_points.size() - 1):
@@ -45,6 +48,7 @@ func build_track(points: Array[Vector3]) -> void:
         var up: Vector3 = fwd.cross(right)
         collision.basis = Basis(right, up, -fwd)
         body.add_child(collision)
+    body.physics_material_override = track_phys_mat
     add_child(body)
 
 func _build_mesh(points: Array[Vector3]) -> ArrayMesh:

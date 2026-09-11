@@ -38,6 +38,11 @@ func _ready() -> void:
     linear_damp = 0.0  # we handle air resistance ourselves
     angular_damp = 0.5
 
+    # Low-friction contact material; traction comes from the virtual tire model.
+    var contact_mat := PhysicsMaterial.new()
+    contact_mat.friction = 0.0
+    physics_material_override = contact_mat
+
     _prev_position = global_position
 
 func set_input_override(value: Vector2) -> void:
@@ -107,7 +112,7 @@ func _physics_process(delta: float) -> void:
 
             # --- Apply forces to RigidBody3D ---
             apply_central_force(-global_basis.z * drive_force * 0.5)
-            apply_central_force(wheel.global_basis.x * lat_force * 0.5)
+            apply_force(wheel.global_basis.x * lat_force * 0.5, wheel.global_position - global_position)
 
     # --- Air Resistance ---
     var drag_magnitude := 0.5 * 1.225 * config.drag_coefficient * config.frontal_area * linear_velocity.length_squared()

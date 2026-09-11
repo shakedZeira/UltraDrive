@@ -54,7 +54,7 @@ func process_wheel(delta: float, config: CarConfig, handbrake: bool) -> Dictiona
         var damper_force := config.damper_compression * maxf(suspension_velocity, 0.0) \
                           + config.damper_rebound * minf(suspension_velocity, 0.0)
 
-        normal_force = maxf(spring_force + damper_force, 0.0)
+        normal_force = maxf(spring_force + damper_force, config.mass_kg * 9.8 / 4.0)
     else:
         normal_force = 0.0
         suspension_length = config.suspension_travel
