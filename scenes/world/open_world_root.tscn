@@ -1,0 +1,26 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/chunk_streamer.gd" id="1_cs"]
+[ext_resource type="Script" path="res://scripts/camera/chase_camera.gd" id="2_cc"]
+
+[sub_resource type="Terrain3DMaterial" id="Terrain3DMaterial_ow"]
+auto_shader = true
+world_background = 2
+
+[node name="OpenWorldRoot" type="Node3D"]
+
+[node name="ChunkStreamer" type="Node" parent="."]
+script = ExtResource("1_cs")
+
+[node name="Terrain3D" type="Terrain3D" parent="."]
+data_directory = "res://scenes/world/data"
+material = SubResource("Terrain3DMaterial_ow")
+collision_mask = 1
+top_level = true
+
+[node name="PlayerSpawn" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 128, 2.2, 128)
+
+[node name="CameraRig" type="Node3D" parent="."]
+script = ExtResource("2_cc")
+target = NodePath("../PlayerSpawn")
