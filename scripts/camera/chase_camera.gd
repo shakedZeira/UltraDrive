@@ -32,7 +32,7 @@ func _physics_process(delta: float) -> void:
 
     # --- Target position (behind and above car) ---
     var target_pos := target.global_position \
-                    - target.global_basis.z * camera_distance \
+                    + target.global_basis.z * camera_distance \
                     + Vector3.UP * camera_height
 
     # --- Smooth follow ---
