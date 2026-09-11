@@ -9,8 +9,7 @@ func _on_continue_pressed() -> void:
         SceneTransition.flash_to_scene("res://scenes/test/test_track.tscn")
 
 func _on_settings_pressed() -> void:
-    # TODO: Phase 8 settings menu
-    pass
+    SceneTransition.flash_to_scene("res://scenes/ui/settings_menu.tscn")
 
 func _on_quit_pressed() -> void:
     get_tree().quit()
