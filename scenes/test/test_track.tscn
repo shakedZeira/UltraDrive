@@ -1,9 +1,10 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="PackedScene" path="res://scenes/track/test_circuit.tscn" id="1_circuit"]
 [ext_resource type="PackedScene" path="res://scenes/vehicle/player_car.tscn" id="2_car"]
 [ext_resource type="Script" path="res://scripts/camera/chase_camera.gd" id="3_chase"]
 [ext_resource type="PackedScene" path="res://scenes/ui/pause_menu.tscn" id="4_pause"]
+[ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="5_hud"]
 
 [sub_resource type="ProceduralSkyMaterial" id="sky_mat"]
 sky_top_color = Color(0.35, 0.55, 0.85, 1)
@@ -42,3 +43,5 @@ shadow_enabled = true
 environment = SubResource("env")
 
 [node name="PauseMenu" parent="." instance=ExtResource("4_pause")]
+
+[node name="HUD" parent="." instance=ExtResource("5_hud")]

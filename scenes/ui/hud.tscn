@@ -1,0 +1,74 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/race/race_ui.gd" id="1_hud"]
+[ext_resource type="Script" path="res://scripts/ui/minimap.gd" id="2_minimap"]
+
+[node name="HUD" type="CanvasLayer"]
+script = ExtResource("1_hud")
+
+[node name="Root" type="Control" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="SpeedLabel" type="Label" parent="Root"]
+unique_name_in_owner = true
+offset_left = 20.0
+offset_top = 860.0
+offset_right = 200.0
+offset_bottom = 900.0
+
+[node name="GearLabel" type="Label" parent="Root"]
+unique_name_in_owner = true
+offset_left = 220.0
+offset_top = 860.0
+offset_right = 320.0
+offset_bottom = 900.0
+
+[node name="LapLabel" type="Label" parent="Root"]
+unique_name_in_owner = true
+anchors_preset = 1
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -100.0
+offset_top = -500.0
+offset_right = 100.0
+offset_bottom = -460.0
+
+[node name="PositionLabel" type="Label" parent="Root"]
+unique_name_in_owner = true
+anchors_preset = 1
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -100.0
+offset_top = -540.0
+offset_right = 100.0
+offset_bottom = -500.0
+
+[node name="TimeLabel" type="Label" parent="Root"]
+unique_name_in_owner = true
+offset_left = 340.0
+offset_top = 860.0
+offset_right = 500.0
+offset_bottom = 900.0
+
+[node name="Minimap" type="Control" parent="Root"]
+unique_name_in_owner = true
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -220.0
+offset_top = -710.0
+offset_right = -20.0
+offset_bottom = -510.0
+grow_horizontal = 0
+grow_vertical = 0
+script = ExtResource("2_minimap")
