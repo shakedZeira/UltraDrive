@@ -13,6 +13,7 @@ func _ready() -> void:
     rect.name = "FadeRect"
     rect.color = transition_color
     rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+    rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
     add_child(rect)
 
 func flash_to_scene(scene_path: String, fade_time: float = 0.5) -> void:
