@@ -17,6 +17,7 @@ func _ready() -> void:
     _camera = Camera3D.new()
     _camera.fov = fov_min
     add_child(_camera)
+    _camera.current = true
 
     if target == null:
         target = get_parent() as Node3D
