@@ -32,7 +32,7 @@ func set_player_position(player_pos: Vector3) -> void:
     # Unload distant chunks
     var to_remove: Array[String] = []
     for key in _loaded_chunks:
-        var parts := key.split(",")
+        var parts: PackedStringArray = key.split(",")
         var cx := int(parts[0])
         var cz := int(parts[1])
         if abs(cx - player_chunk_x) > load_radius + 1 or abs(cz - player_chunk_z) > load_radius + 1:
