@@ -48,8 +48,8 @@ func toggle_pause() -> void:
 func set_mode(mode: GameMode) -> void:
     current_mode = mode
 
-func _unhandled_input(event: InputEvent) -> void:
+func _physics_process(_delta: float) -> void:
     if current_mode == GameMode.MAIN_MENU:
         return
-    if event.is_action_pressed("pause"):
+    if Input.is_action_just_pressed("pause"):
         toggle_pause()
