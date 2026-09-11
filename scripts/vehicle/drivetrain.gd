@@ -3,10 +3,13 @@ extends RefCounted
 
 ## Simulates engine, transmission, and differential.
 ## Call update() every physics frame.
+## Gears are 1-based (1 = 1st, ... , gear_ratios.size() = top gear), reverse
+## is -1. There is no neutral/0: this is an automatic arcade car that shifts
+## itself, so it always sits in a drive gear and never shows "0" or "N".
 
 # --- State ---
 var engine_rpm: float = 800.0
-var current_gear: int = 0  # 0 = 1st, -1 = reverse
+var current_gear: int = 1  # 1-based: 1 = 1st, ... , -1 = reverse (no neutral)
 var drive_torque: float = 0.0
 var is_shifting: bool = false
 var shift_timer: float = 0.0
@@ -26,13 +29,18 @@ func update(delta: float, throttle: float, config: CarConfig) -> Dictionary:
             is_shifting = false
 
     # --- Calculate engine RPM from wheel speed ---
+    # get_gear_ratio() returns the combined ratio (gear x final drive),
+    # which correctly relates wheel speed to engine RPM.
     var gear_ratio := config.get_gear_ratio(current_gear)
     var wheel_radius := 0.33
     var rpm_from_wheels := absf(_wheel_speed) / maxf(wheel_radius, 0.01) \
                          * gear_ratio * 60.0 / TAU
 
-    # Blend RPM with throttle response (engine spins up faster with throttle)
-    var target_rpm := lerpf(config.idle_rpm, rpm_from_wheels, throttle)
+    # Blend RPM with throttle response (engine spins up faster with throttle).
+    # Engine speed always tracks wheel speed (even off-throttle) so the
+    # transmission only downshifts when road speed genuinely falls, and does
+    # not slam into 1st gear from highway speed when the throttle is lifted.
+    var target_rpm := maxf(rpm_from_wheels, config.idle_rpm)
     engine_rpm = move_toward(engine_rpm, target_rpm, config.peak_rpm * delta * 2.0)
 
     # --- Auto-clamp RPM ---
@@ -46,16 +54,22 @@ func update(delta: float, throttle: float, config: CarConfig) -> Dictionary:
         engine_torque = -config.engine_brake_torque * (engine_rpm / config.peak_rpm)
 
     # --- Apply gear ratio and final drive ---
+    # gear_ratio already includes the final drive, so NO extra multiplication.
     if not is_shifting:
-        drive_torque = engine_torque * absf(gear_ratio) * config.final_drive_ratio
+        drive_torque = engine_torque * absf(gear_ratio)
     else:
         drive_torque = 0.0  # no torque during shift
 
-    # --- Auto-shift (simple RPM-based) ---
-    if not is_shifting and current_gear >= 0:
-        if engine_rpm >= config.redline_rpm * 0.95 and current_gear < config.gear_ratios.size() - 1:
+    # --- Auto-shift (speed-based, automatic transmission) ---
+    # Speeds come from the config tables; reverse (-1) is never auto-shifted.
+    if not is_shifting and current_gear > 0:
+        var speed_kmh := absf(_wheel_speed) * 3.6
+        var max_gear := config.gear_ratios.size()
+        if current_gear < max_gear \
+                and speed_kmh >= config.get_upshift_speed_kmh(current_gear):
             shift_up(config)
-        elif engine_rpm < config.idle_rpm * 1.2 and current_gear > 0:
+        elif current_gear > 1 \
+                and speed_kmh < config.get_downshift_speed_kmh(current_gear):
             shift_down(config)
 
     return {
@@ -65,12 +79,12 @@ func update(delta: float, throttle: float, config: CarConfig) -> Dictionary:
     }
 
 func shift_up(config: CarConfig) -> void:
-    if current_gear < config.gear_ratios.size() - 1:
+    if current_gear >= 1 and current_gear < config.gear_ratios.size():
         current_gear += 1
         _start_shift(config)
 
 func shift_down(config: CarConfig) -> void:
-    if current_gear > -1:  # -1 = reverse
+    if current_gear > 1:  # never drop below 1st; reverse (-1) is a separate state
         current_gear -= 1
         _start_shift(config)
 
@@ -84,6 +98,6 @@ func set_wheel_speed(speed: float) -> void:
 
 func reset() -> void:
     engine_rpm = 800.0
-    current_gear = 0
+    current_gear = 1
     drive_torque = 0.0
     is_shifting = false

@@ -26,6 +26,14 @@ extends Resource
 @export var reverse_ratio: float = 3.2
 @export var shift_time: float = 0.15  # seconds to shift gears
 
+# --- Automatic transmission shift points (km/h) ---
+# upshift_speeds_kmh[i] is the speed at which the auto-box shifts up from
+# gear (i + 1) to gear (i + 2). downshift_speeds_kmh[i] is the speed below
+# which it drops back from gear (i + 2) to gear (i + 1). Down points are
+# lower than up points so the box does not hunt between gears.
+@export var upshift_speeds_kmh: Array[float] = [25.0, 55.0, 85.0, 120.0, 160.0]
+@export var downshift_speeds_kmh: Array[float] = [15.0, 38.0, 60.0, 90.0, 120.0]
+
 # --- Differential ---
 @export_enum("Open", "LSD", "Locked") var diff_type: int = 1
 @export var lsd_preload: float = 50.0    # Nm (for LSD only)
@@ -95,12 +103,26 @@ func get_engine_torque(rpm: float) -> float:
         return max_torque * (1.0 - t2 * t2)
 
 func get_gear_ratio(gear: int) -> float:
-    ## Returns gear ratio for given gear index (0-based). Negative = reverse.
+    ## Returns the combined gear ratio (gear x final drive) for a 1-based
+    ## gear: 1 = 1st, 2 = 2nd, ... , gear_ratios.size() = top gear, -1 = reverse.
+    ## gear_ratios[] is 0-indexed, so the array index is gear - 1.
     if gear < 0:
         return reverse_ratio * final_drive_ratio
-    if gear >= gear_ratios.size():
-        return gear_ratios[gear_ratios.size() - 1] * final_drive_ratio
-    return gear_ratios[gear] * final_drive_ratio
+    var idx := clampi(gear - 1, 0, gear_ratios.size() - 1)
+    return gear_ratios[idx] * final_drive_ratio
+
+func get_upshift_speed_kmh(gear: int) -> float:
+    ## Speed at which the automatic transmission upshifts out of `gear`
+    ## (1-based; from `gear` to `gear + 1`). Gear numbers past the end of the
+    ## table clamp to the last entry.
+    var idx := clampi(gear - 1, 0, upshift_speeds_kmh.size() - 1)
+    return upshift_speeds_kmh[idx]
+
+func get_downshift_speed_kmh(gear: int) -> float:
+    ## Speed below which the automatic transmission downshifts out of `gear`
+    ## (1-based; from `gear` to `gear - 1`).
+    var idx := clampi(gear - 2, 0, downshift_speeds_kmh.size() - 1)
+    return downshift_speeds_kmh[idx]
 
 func get_max_speed() -> float:
     ## Approximate top speed in m/s based on highest gear ratio.

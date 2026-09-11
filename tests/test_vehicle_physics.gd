@@ -23,12 +23,30 @@ func test_engine_torque_at_redline() -> void:
     assert_that(torque).is_equal(0.0)
 
 func test_gear_ratio_first_gear() -> void:
-    var ratio := car_config.get_gear_ratio(0)
+    var ratio := car_config.get_gear_ratio(1)
     assert_that(ratio).is_equal(car_config.gear_ratios[0] * car_config.final_drive_ratio)
+
+func test_gear_ratio_top_gear() -> void:
+    var top: int = car_config.gear_ratios.size()
+    var ratio := car_config.get_gear_ratio(top)
+    assert_that(ratio).is_equal(car_config.gear_ratios[top - 1] * car_config.final_drive_ratio)
 
 func test_gear_ratio_reverse() -> void:
     var ratio := car_config.get_gear_ratio(-1)
     assert_that(ratio).is_equal(car_config.reverse_ratio * car_config.final_drive_ratio)
+
+func test_upshift_thresholds_rise_with_gears() -> void:
+    var last := 0.0
+    for i in range(car_config.upshift_speeds_kmh.size()):
+        var s: float = car_config.get_upshift_speed_kmh(i + 1)
+        assert_that(s).is_greater(last)
+        last = s
+
+func test_downshift_is_below_upshift() -> void:
+    for i in range(min(car_config.downshift_speeds_kmh.size(), car_config.upshift_speeds_kmh.size())):
+        var down: float = car_config.get_downshift_speed_kmh(i + 2)
+        var up: float = car_config.get_upshift_speed_kmh(i + 1)
+        assert_that(down).is_less(up)
 
 func test_pacejika_returns_zero_at_zero_slip() -> void:
     var force := TireModel.calculate_lateral_force(0.0, 5000.0, car_config)
@@ -43,7 +61,7 @@ func test_pacejika_peak_near_configured_slip_angle() -> void:
     var force := TireModel.calculate_lateral_force(peak_slip, 5000.0, car_config)
     assert_that(force).is_greater(4000.0)
 
-func test_drivetrain_starts_at_idle() -> void:
+func test_drivetrain_starts_in_first_gear() -> void:
     var dt := Drivetrain.new()
     assert_that(dt.engine_rpm).is_equal(800.0)
-    assert_that(dt.current_gear).is_equal(0)
+    assert_that(dt.current_gear).is_equal(1)

@@ -36,6 +36,4 @@ func _position_text(car: VehiclePhysics) -> String:
 func _gear_to_string(gear: int) -> String:
 	if gear == -1:
 		return "R"
-	elif gear == 0:
-		return "N"
-	return str(gear + 1)
+	return str(gear)  # 1-based: 1, 2, 3, ... (no neutral, never "0"/"N")
