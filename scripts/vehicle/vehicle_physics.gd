@@ -23,6 +23,7 @@ var input_override: Vector2 = Vector2.ZERO  # (steer, throttle-brake)
 var _drivetrain: Drivetrain
 var _wheels: Array[WheelPhysics]
 var _prev_position: Vector3
+var _spawn_point: Vector3
 
 func _ready() -> void:
     if config == null:
@@ -44,12 +45,17 @@ func _ready() -> void:
     physics_material_override = contact_mat
 
     _prev_position = global_position
+    _spawn_point = global_position
 
 func set_input_override(value: Vector2) -> void:
     input_override = value
 
 func _physics_process(delta: float) -> void:
     if config == null:
+        return
+
+    if global_position.y < -20.0:
+        respawn_at(_spawn_point)
         return
 
     var throttle := InputManager.get_throttle() if input_override == Vector2.ZERO else clampf(input_override.y, -1.0, 1.0)
@@ -59,7 +65,7 @@ func _physics_process(delta: float) -> void:
 
     # --- Reset car ---
     if InputManager.is_reset():
-        reset_car()
+        respawn_at(_spawn_point)
         return
 
     # --- Steering ---
@@ -160,4 +166,11 @@ func reset_car() -> void:
     linear_velocity = Vector3.ZERO
     angular_velocity = Vector3.ZERO
     _drivetrain.reset()
+    global_position.y += 1.0  # lift slightly above ground
+
+func respawn_at(pos: Vector3) -> void:
+    linear_velocity = Vector3.ZERO
+    angular_velocity = Vector3.ZERO
+    _drivetrain.reset()
+    global_position = pos
     global_position.y += 1.0  # lift slightly above ground
