@@ -1,0 +1,58 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/garage_ui.gd" id="1_garage"]
+
+[node name="Garage" type="Control"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_garage")
+
+[node name="HSplit" type="HBoxContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 20
+
+[node name="CarList" type="ItemList" parent="HSplit"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(240, 300)
+size_flags_horizontal = 0
+size_flags_vertical = 3
+
+[node name="Details" type="VBoxContainer" parent="HSplit"]
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 12
+
+[node name="CarNameLabel" type="Label" parent="HSplit/Details"]
+unique_name_in_owner = true
+theme_override_font_sizes/font_size = 24
+text = "Select a car"
+
+[node name="StatsLabel" type="Label" parent="HSplit/Details"]
+unique_name_in_owner = true
+text = ""
+
+[node name="Buttons" type="HBoxContainer" parent="HSplit/Details"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="SelectButton" type="Button" parent="HSplit/Details/Buttons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(120, 40)
+text = "Select"
+
+[node name="BackButton" type="Button" parent="HSplit/Details/Buttons"]
+custom_minimum_size = Vector2(120, 40)
+text = "Back"
+
+[connection signal="pressed" from="HSplit/Details/Buttons/BackButton" to="." method="_on_back_pressed"]
