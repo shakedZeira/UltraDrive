@@ -14,7 +14,7 @@ func _ready() -> void:
     body_entered.connect(_on_body_entered)
     add_to_group("checkpoints")
     collision_layer = 0
-    collision_mask = 16  # layer 5 (Checkpoints)
+    collision_mask = 1 | 16  # layer 1 (default bodies) + layer 5
 
 func _on_body_entered(body: Node3D) -> void:
     if active and body is VehiclePhysics:
