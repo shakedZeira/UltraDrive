@@ -1,8 +1,9 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="PackedScene" path="res://scenes/track/test_circuit.tscn" id="1_circuit"]
 [ext_resource type="PackedScene" path="res://scenes/vehicle/player_car.tscn" id="2_car"]
 [ext_resource type="Script" path="res://scripts/camera/chase_camera.gd" id="3_chase"]
+[ext_resource type="PackedScene" path="res://scenes/ui/pause_menu.tscn" id="4_pause"]
 
 [node name="TestTrack" type="Node3D"]
 
@@ -14,3 +15,5 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 60, 2.2, 0)
 [node name="ChaseCamera" type="Node3D" parent="."]
 script = ExtResource("3_chase")
 target = NodePath("../PlayerCar")
+
+[node name="PauseMenu" parent="." instance=ExtResource("4_pause")]
