@@ -85,14 +85,14 @@ func get_engine_torque(rpm: float) -> float:
         return max_torque * 0.5
     if rpm > redline_rpm:
         return 0.0
-    # Parabolic torque curve peaking at peak_rpm
-    var t := (rpm - idle_rpm) / (peak_rpm - idle_rpm)
-    if t <= 1.0:
-        return max_torque * (1.0 - pow(t - 1.0, 2.0))
+    if rpm <= peak_rpm:
+        # Linear ramp from half torque at idle to full torque at peak RPM
+        var t := (rpm - idle_rpm) / (peak_rpm - idle_rpm)
+        return max_torque * (0.5 + 0.5 * t)
     else:
-        # Past peak, taper off
+        # Parabolic drop to zero torque at redline
         var t2 := (rpm - peak_rpm) / (redline_rpm - peak_rpm)
-        return max_torque * (1.0 - t2 * 0.8)
+        return max_torque * (1.0 - t2 * t2)
 
 func get_gear_ratio(gear: int) -> float:
     ## Returns gear ratio for given gear index (0-based). Negative = reverse.
