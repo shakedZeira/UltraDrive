@@ -22,8 +22,9 @@ func build_track(points: Array[Vector3]) -> void:
     mesh_instance.mesh = road_mesh
 
     var material := StandardMaterial3D.new()
-    material.albedo_color = Color(0.32, 0.32, 0.34)
+    material.albedo_color = Color(0.45, 0.45, 0.48)
     material.roughness = 0.9
+    material.cull_mode = BaseMaterial3D.CULL_DISABLED
     mesh_instance.material_override = material
     add_child(mesh_instance)
 
@@ -42,6 +43,7 @@ func build_track(points: Array[Vector3]) -> void:
         var edge_material := StandardMaterial3D.new()
         edge_material.albedo_color = edge_colors[e]
         edge_material.roughness = 0.7
+        edge_material.cull_mode = BaseMaterial3D.CULL_DISABLED
         edge_instance.material_override = edge_material
         add_child(edge_instance)
 

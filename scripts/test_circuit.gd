@@ -1,6 +1,19 @@
 extends Node3D
 
 func _ready() -> void:
+    # Add a large ground plane for visual contrast under the track
+    var ground_mesh := PlaneMesh.new()
+    ground_mesh.size = Vector2(300, 300)
+    var ground_instance := MeshInstance3D.new()
+    ground_instance.mesh = ground_mesh
+    var ground_material := StandardMaterial3D.new()
+    ground_material.albedo_color = Color(0.25, 0.30, 0.18)
+    ground_material.roughness = 1.0
+    ground_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+    ground_instance.material_override = ground_material
+    ground_instance.position = Vector3(0, 0, 0)
+    add_child(ground_instance)
+
     # Build an oval track
     var builder := TrackBuilder.new()
     builder.road_width = 12.0
