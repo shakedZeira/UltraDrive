@@ -27,7 +27,12 @@ grow_vertical = 2
 custom_minimum_size = Vector2(0, 40)
 text = "Play"
 
+[node name="GarageButton" type="Button" parent="MenuLayout"]
+custom_minimum_size = Vector2(0, 40)
+text = "Garage"
+
 [node name="ContinueButton" type="Button" parent="MenuLayout"]
+unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 40)
 text = "Continue"
 
@@ -40,6 +45,7 @@ custom_minimum_size = Vector2(0, 40)
 text = "Quit"
 
 [connection signal="pressed" from="MenuLayout/PlayButton" to="." method="_on_play_pressed"]
+[connection signal="pressed" from="MenuLayout/GarageButton" to="." method="_on_garage_pressed"]
 [connection signal="pressed" from="MenuLayout/ContinueButton" to="." method="_on_continue_pressed"]
 [connection signal="pressed" from="MenuLayout/SettingsButton" to="." method="_on_settings_pressed"]
 [connection signal="pressed" from="MenuLayout/QuitButton" to="." method="_on_quit_pressed"]
