@@ -1,11 +1,10 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/vehicle/vehicle_physics.gd" id="1_vp"]
 [ext_resource type="Script" path="res://scripts/vehicle/wheel_physics.gd" id="2_wp"]
 [ext_resource type="Script" path="res://scripts/player/player_car_controller.gd" id="3_pc"]
 [ext_resource type="Resource" path="res://resources/cars/starter_car.tres" id="4_config"]
 [ext_resource type="Script" path="res://scripts/vehicle/car_audio.gd" id="5_audio"]
-[ext_resource type="PackedScene" path="res://assets/cars/sports_coupe.glb" id="6_glb"]
 
 [sub_resource type="BoxShape3D" id="box_shape"]
 size = Vector3(1.8, 0.5, 4.0)
@@ -17,9 +16,6 @@ mass = 1100.0
 can_sleep = false
 
 [node name="CarBody" type="Node3D" parent="."]
-
-[node name="SportsCoupe" parent="CarBody" instance=ExtResource("6_glb")]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 0)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 shape = SubResource("box_shape")

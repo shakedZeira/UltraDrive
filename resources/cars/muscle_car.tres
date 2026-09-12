@@ -1,0 +1,29 @@
+[gd_resource type="Resource" script_class="CarConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/vehicle/car_config.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+car_name = "Thunderhead"
+car_class = "C"
+visual_path = "res://assets/cars/muscle_car.glb"
+engine_timbre = "muscle"
+mass_kg = 1420.0
+max_torque = 420.0
+peak_rpm = 5200.0
+redline_rpm = 6200.0
+gear_ratios = Array[float]([4.2, 2.7, 1.9, 1.4, 1.05])
+final_drive_ratio = 3.4
+upshift_speeds_kmh = Array[float]([22.0, 48.0, 78.0, 110.0, 150.0])
+downshift_speeds_kmh = Array[float]([12.0, 32.0, 55.0, 82.0, 115.0])
+spring_rate = 34000.0
+max_brake_torque = 2200.0
+max_steer_angle = 32.0
+steer_speed = 2.4
+tire_B = 9.5
+tire_C = 1.8
+tire_D = 0.92
+tire_E = 0.94
+drag_coefficient = 0.38
+frontal_area = 2.4
+countersteer_assist = 900.0

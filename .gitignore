@@ -1,3 +1,15 @@
 .godot/
 save/
 .superpowers/
+*.uid
+docs/
+reports/
+zen_keys.txt
+import_log.txt
+headless_run.txt
+gdunit_run*.txt
+_gdunit_*.txt
+gdunit_headless.txt
+*gdunit_run*.cmd
+# Godot engine temp files left behind by addon import/reload
+~*.TMP
