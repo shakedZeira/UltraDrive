@@ -232,7 +232,7 @@ size = Vector2i(620, 500)
 render_target_update_mode = 4
 
 [node name="Camera3D" type="Camera3D" parent="Margin/MainRow/PreviewPanel/PreviewViewport/SubViewport"]
-transform = Transform3D(0.6508, 0, -0.7592, -0.211, 0.9607, -0.1809, 0.7294, 0.2779, 0.6252, 4.2, 1.6, 3.6)
+transform = Transform3D(0.650791, -0.160962, 0.741998, 0.0, 0.97727, 0.212, -0.759257, -0.137967, 0.635999, 4.2, 1.6, 3.6)
 current = true
 fov = 55.0
 near = 0.05

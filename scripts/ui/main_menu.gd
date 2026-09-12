@@ -7,7 +7,7 @@ func _ready() -> void:
     continue_button.disabled = not SaveManager.has_save(0)
 
 func _on_play_pressed() -> void:
-    SceneTransition.flash_to_scene("res://scenes/test/test_track.tscn")
+    SceneTransition.flash_to_scene("res://scenes/ui/track_select.tscn")
 
 func _on_garage_pressed() -> void:
     SceneTransition.flash_to_scene("res://scenes/ui/garage.tscn")
