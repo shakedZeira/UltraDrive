@@ -1,0 +1,123 @@
+extends Node3D
+
+## Free 360° orbit camera: the right stick sweeps the camera around the car
+## in camera-local yaw/pitch (full circle, clamped pitch), FOV widens with speed
+## exactly like chase_camera.gd. Inactive by default so the chase camera stays
+## current; pushing the right stick grabs the view and it stays grabbed until
+## "camera_mode" (C / view button) toggles back to chase.
+
+@export var target: Node3D
+@export var orbit_distance: float = 6.0
+@export var yaw: float = 0.0
+@export var pitch: float = 0.2
+@export var pitch_min: float = -0.5
+@export var pitch_max: float = 1.35
+@export var orbit_speed_yaw: float = 2.6
+@export var orbit_speed_pitch: float = 1.6
+@export var input_deadzone: float = 0.15
+@export var keep_target_height: float = 1.0
+@export var center_height: float = 0.6
+@export var follow_speed: float = 8.0
+@export var fov_min: float = 70.0
+@export var fov_max: float = 90.0
+@export var fov_speed_factor: float = 0.05
+@export var chase_camera_path: NodePath
+
+var _camera: Camera3D
+var _active := false
+
+
+func _ready() -> void:
+	_camera = Camera3D.new()
+	_camera.fov = fov_min
+	add_child(_camera)
+	_camera.current = false  # chase camera stays the default view
+
+	if target == null:
+		var parent := get_parent() as Node3D
+		if parent is VehiclePhysics:
+			target = parent
+		else:
+			var found := get_parent().find_children("*", "VehiclePhysics", false, false)
+			target = found[0] as Node3D if found.size() > 0 else parent
+
+	if target != null:
+		_preserve_orbit_angles()
+
+	if not is_instance_valid(get_node_or_null(chase_camera_path)):
+		_active = true
+		_camera.current = true  # standalone orbit (no chase sibling)
+
+
+func _physics_process(delta: float) -> void:
+	if target == null:
+		return
+
+	var axis_x := Input.get_axis("camera_orbit_left", "camera_orbit_right")
+	var axis_y := Input.get_axis("camera_orbit_up", "camera_orbit_down")
+	var stick_active := absf(axis_x) > input_deadzone or absf(axis_y) > input_deadzone
+
+	if Input.is_action_just_pressed("camera_mode") and not stick_active:
+		_active = not _active
+	elif stick_active and not _active:
+		_active = true
+		_preserve_orbit_angles()
+
+	if not _active:
+		_deactivate_camera()
+		return
+
+	if stick_active:
+		yaw -= axis_x * orbit_speed_yaw * delta
+		pitch += axis_y * orbit_speed_pitch * delta
+		pitch = clampf(pitch, pitch_min, pitch_max)
+
+	_apply_orbit(delta)
+
+
+func _apply_orbit(delta: float) -> void:
+	var center := _get_orbit_center()
+	var dir := Vector3(cos(pitch) * cos(yaw), sin(pitch), cos(pitch) * sin(yaw))
+	var orbit_pos := center - dir * orbit_distance
+	global_position = global_position.lerp(orbit_pos, follow_speed * delta)
+
+	var look_target := target.global_position + Vector3.UP * keep_target_height
+	if (look_target - global_position).length() > 0.01:
+		_camera.look_at(look_target)
+
+	_camera.current = true
+
+	var car := target as VehiclePhysics
+	var speed_kmh := 0.0
+	if car:
+		speed_kmh = car.get_speed_kmh()
+
+	var target_fov := lerpf(fov_min, fov_max, clampf(speed_kmh / 200.0, 0.0, 1.0))
+	_camera.fov = lerpf(_camera.fov, target_fov, fov_speed_factor)
+
+
+func _preserve_orbit_angles() -> void:
+	var center := _get_orbit_center()
+	var d := center - global_position
+	if d.length() < 0.01:
+		return
+	d = d.normalized()
+	yaw = atan2(d.z, d.x)
+	pitch = asin(clampf(d.y, -1.0, 1.0))
+
+
+func _get_orbit_center() -> Vector3:
+	return target.global_position + Vector3.UP * center_height
+
+
+func _deactivate_camera() -> void:
+	if not _camera.current:
+		return
+	_camera.current = false
+	var chase := get_node_or_null(chase_camera_path) as Node3D
+	if chase == null:
+		return
+	for cam in chase.find_children("*", "Camera3D", false, false):
+		if cam is Camera3D:
+			cam.current = true
+			break

@@ -1,6 +1,158 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=16 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/garage_ui.gd" id="1_garage"]
+
+[sub_resource type="StyleBoxFlat" id="panel_box"]
+content_margin_left = 12.0
+content_margin_top = 12.0
+content_margin_right = 12.0
+content_margin_bottom = 12.0
+bg_color = Color(0.07, 0.09, 0.145, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.16, 0.2, 0.3, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+
+[sub_resource type="StyleBoxFlat" id="badge_box"]
+content_margin_left = 16.0
+content_margin_top = 6.0
+content_margin_right = 16.0
+content_margin_bottom = 6.0
+bg_color = Color(0.92, 0.72, 0.25, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="circle_box"]
+bg_color = Color(0.92, 0.72, 0.25, 1)
+corner_radius_top_left = 17
+corner_radius_top_right = 17
+corner_radius_bottom_right = 17
+corner_radius_bottom_left = 17
+
+[sub_resource type="StyleBoxFlat" id="btn_gold"]
+content_margin_left = 32.0
+content_margin_top = 14.0
+content_margin_right = 32.0
+content_margin_bottom = 14.0
+bg_color = Color(0.9, 0.68, 0.23, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="btn_gold_hover"]
+content_margin_left = 32.0
+content_margin_top = 14.0
+content_margin_right = 32.0
+content_margin_bottom = 14.0
+bg_color = Color(1, 0.78, 0.3, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="btn_gold_down"]
+content_margin_left = 32.0
+content_margin_top = 14.0
+content_margin_right = 32.0
+content_margin_bottom = 14.0
+bg_color = Color(0.78, 0.58, 0.18, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="btn_dark"]
+content_margin_left = 32.0
+content_margin_top = 14.0
+content_margin_right = 32.0
+content_margin_bottom = 14.0
+bg_color = Color(0.09, 0.12, 0.19, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.24, 0.28, 0.4, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="btn_dark_hover"]
+content_margin_left = 32.0
+content_margin_top = 14.0
+content_margin_right = 32.0
+content_margin_bottom = 14.0
+bg_color = Color(0.13, 0.17, 0.26, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.3, 0.34, 0.46, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="btn_dark_down"]
+content_margin_left = 32.0
+content_margin_top = 14.0
+content_margin_right = 32.0
+content_margin_bottom = 14.0
+bg_color = Color(0.06, 0.08, 0.13, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.24, 0.28, 0.4, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="Gradient" id="gradient"]
+offsets = PackedFloat32Array(0, 0.5, 1)
+colors = PackedColorArray(0.09, 0.12, 0.2, 1, 0.06, 0.08, 0.13, 1, 0.055, 0.07, 0.12, 1)
+
+[sub_resource type="GradientTexture2D" id="grad_tex"]
+gradient = SubResource("gradient")
+width = 32
+height = 32
+
+[sub_resource type="SystemFont" id="font_bold"]
+font_names = PackedStringArray("Segoe UI", "Arial")
+font_weight = 700
+
+[sub_resource type="Environment" id="env"]
+background_mode = 1
+background_color = Color(0.05, 0.06, 0.1, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.14, 0.16, 0.24, 1)
+ambient_light_energy = 1.0
+tonemap_mode = 3
+glow_enabled = true
+glow_intensity = 0.35
+glow_strength = 0.7
+glow_hdr_threshold = 1.0
+ssao_enabled = true
+ssao_intensity = 1.5
+ssao_radius = 0.5
+
+[sub_resource type="StandardMaterial3D" id="floor_mat"]
+albedo_color = Color(0.06, 0.08, 0.12, 1)
+roughness = 0.6
+metallic = 0.0
+
+[sub_resource type="PlaneMesh" id="floor_mesh"]
+material = SubResource("floor_mat")
+size = Vector2(30, 30)
 
 [node name="Garage" type="Control"]
 anchors_preset = 15
@@ -10,49 +162,225 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_garage")
 
-[node name="HSplit" type="HBoxContainer" parent="."]
+[node name="Background" type="ColorRect" parent="."]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 20.0
-offset_top = 20.0
-offset_right = -20.0
-offset_bottom = -20.0
 grow_horizontal = 2
 grow_vertical = 2
-theme_override_constants/separation = 20
+mouse_filter = 2
+color = Color(0.055, 0.07, 0.12, 1)
 
-[node name="CarList" type="ItemList" parent="HSplit"]
+[node name="Gradient" type="TextureRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = SubResource("grad_tex")
+stretch_mode = 5
+
+[node name="Margin" type="MarginContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 28.0
+offset_top = 18.0
+offset_right = -28.0
+offset_bottom = -96.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 0
+theme_override_constants/margin_top = 0
+theme_override_constants/margin_right = 0
+theme_override_constants/margin_bottom = 0
+
+[node name="MainRow" type="HBoxContainer" parent="Margin"]
+layout_mode = 2
+theme_override_constants/separation = 30
+
+[node name="PreviewPanel" type="Panel" parent="Margin/MainRow"]
+custom_minimum_size = Vector2(640, 540)
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_styles/panel = SubResource("panel_box")
+
+[node name="PreviewLabel" type="Label" parent="Margin/MainRow/PreviewPanel"]
+offset_left = 16.0
+offset_top = 12.0
+text = "VEHICLE PREVIEW"
+theme_override_colors/font_color = Color(0.5, 0.55, 0.66, 1)
+theme_override_font_sizes/font_size = 11
+
+[node name="PreviewViewport" type="SubViewportContainer" parent="Margin/MainRow/PreviewPanel"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = 30.0
+offset_right = -10.0
+offset_bottom = -10.0
+grow_horizontal = 2
+grow_vertical = 2
+stretch = true
+mouse_filter = 2
+
+[node name="SubViewport" type="SubViewport" parent="Margin/MainRow/PreviewPanel/PreviewViewport"]
+own_world_3d = true
+size = Vector2i(620, 500)
+render_target_update_mode = 4
+
+[node name="Camera3D" type="Camera3D" parent="Margin/MainRow/PreviewPanel/PreviewViewport/SubViewport"]
+transform = Transform3D(0.6508, 0, -0.7592, -0.211, 0.9607, -0.1809, 0.7294, 0.2779, 0.6252, 4.2, 1.6, 3.6)
+current = true
+fov = 55.0
+near = 0.05
+
+[node name="Sun" type="DirectionalLight3D" parent="Margin/MainRow/PreviewPanel/PreviewViewport/SubViewport"]
+transform = Transform3D(0.707107, -0.40558, 0.579228, 0, 0.819152, 0.573576, -0.707107, -0.40558, 0.579228, 0, 10, 0)
+light_color = Color(1, 0.93, 0.82, 1)
+light_energy = 1.5
+shadow_enabled = true
+
+[node name="RimLight" type="OmniLight3D" parent="Margin/MainRow/PreviewPanel/PreviewViewport/SubViewport"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.5, 2.6, -3.2)
+light_color = Color(1, 0.85, 0.55, 1)
+light_energy = 1.5
+omni_range = 14.0
+
+[node name="FillLight" type="OmniLight3D" parent="Margin/MainRow/PreviewPanel/PreviewViewport/SubViewport"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.2, 2.0, 2.8)
+light_color = Color(0.7, 0.8, 1, 1)
+light_energy = 0.6
+omni_range = 10.0
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="Margin/MainRow/PreviewPanel/PreviewViewport/SubViewport"]
+environment = SubResource("env")
+
+[node name="Floor" type="MeshInstance3D" parent="Margin/MainRow/PreviewPanel/PreviewViewport/SubViewport"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, 0)
+mesh = SubResource("floor_mesh")
+
+[node name="Turntable" type="Node3D" parent="Margin/MainRow/PreviewPanel/PreviewViewport/SubViewport"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(240, 300)
-size_flags_horizontal = 0
-size_flags_vertical = 3
 
-[node name="Details" type="VBoxContainer" parent="HSplit"]
+[node name="CarVisual" type="Node3D" parent="Margin/MainRow/PreviewPanel/PreviewViewport/SubViewport/Turntable"]
+unique_name_in_owner = true
+
+[node name="RightPanel" type="VBoxContainer" parent="Margin/MainRow"]
+custom_minimum_size = Vector2(380, 0)
+layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 12
 
-[node name="CarNameLabel" type="Label" parent="HSplit/Details"]
-unique_name_in_owner = true
-theme_override_font_sizes/font_size = 24
-text = "Select a car"
+[node name="GarageTitleLabel" type="Label" parent="Margin/MainRow/RightPanel"]
+text = "GARAGE"
+theme_override_colors/font_color = Color(0.902, 0.698, 0.235, 1)
+theme_override_font_sizes/font_size = 22
+theme_override_fonts/font = SubResource("font_bold")
 
-[node name="StatsLabel" type="Label" parent="HSplit/Details"]
+[node name="CarNameLabel" type="Label" parent="Margin/MainRow/RightPanel"]
+unique_name_in_owner = true
+text = "SELECT A CAR"
+theme_override_colors/font_color = Color(0.95, 0.96, 0.98, 1)
+theme_override_font_sizes/font_size = 40
+theme_override_fonts/font = SubResource("font_bold")
+
+[node name="BadgeRow" type="HBoxContainer" parent="Margin/MainRow/RightPanel"]
+theme_override_constants/separation = 10
+
+[node name="ClassCircle" type="PanelContainer" parent="Margin/MainRow/RightPanel/BadgeRow"]
+custom_minimum_size = Vector2(34, 34)
+theme_override_styles/panel = SubResource("circle_box")
+
+[node name="ClassCircleLabel" type="Label" parent="Margin/MainRow/RightPanel/BadgeRow/ClassCircle"]
+unique_name_in_owner = true
+text = "D"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_colors/font_color = Color(0.09, 0.1, 0.14, 1)
+theme_override_font_sizes/font_size = 18
+theme_override_fonts/font = SubResource("font_bold")
+
+[node name="ClassBadge" type="PanelContainer" parent="Margin/MainRow/RightPanel/BadgeRow"]
+theme_override_styles/panel = SubResource("badge_box")
+
+[node name="ClassBadgeLabel" type="Label" parent="Margin/MainRow/RightPanel/BadgeRow/ClassBadge"]
+unique_name_in_owner = true
+text = "CLASS D"
+theme_override_colors/font_color = Color(0.09, 0.1, 0.14, 1)
+theme_override_font_sizes/font_size = 15
+theme_override_fonts/font = SubResource("font_bold")
+
+[node name="StatsBox" type="VBoxContainer" parent="Margin/MainRow/RightPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="SpecsLabel" type="Label" parent="Margin/MainRow/RightPanel"]
 unique_name_in_owner = true
 text = ""
+theme_override_colors/font_color = Color(0.5, 0.55, 0.66, 1)
+theme_override_font_sizes/font_size = 14
 
-[node name="Buttons" type="HBoxContainer" parent="HSplit/Details"]
-layout_mode = 2
-theme_override_constants/separation = 12
+[node name="ButtonsRow" type="HBoxContainer" parent="Margin/MainRow/RightPanel"]
+theme_override_constants/separation = 14
 
-[node name="SelectButton" type="Button" parent="HSplit/Details/Buttons"]
+[node name="SelectButton" type="Button" parent="Margin/MainRow/RightPanel/ButtonsRow"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(120, 40)
-text = "Select"
+custom_minimum_size = Vector2(160, 46)
+text = "SELECT"
+theme_override_colors/font_color = Color(0.09, 0.1, 0.14, 1)
+theme_override_colors/font_hover_color = Color(0.09, 0.1, 0.14, 1)
+theme_override_colors/font_pressed_color = Color(0.09, 0.1, 0.14, 1)
+theme_override_font_sizes/font_size = 16
+theme_override_fonts/font = SubResource("font_bold")
+theme_override_styles/normal = SubResource("btn_gold")
+theme_override_styles/hover = SubResource("btn_gold_hover")
+theme_override_styles/pressed = SubResource("btn_gold_down")
+theme_override_styles/focus = SubResource("btn_gold")
 
-[node name="BackButton" type="Button" parent="HSplit/Details/Buttons"]
-custom_minimum_size = Vector2(120, 40)
-text = "Back"
+[node name="BackButton" type="Button" parent="Margin/MainRow/RightPanel/ButtonsRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(160, 46)
+text = "BACK"
+theme_override_colors/font_color = Color(0.85, 0.88, 0.95, 1)
+theme_override_colors/font_hover_color = Color(0.95, 0.96, 0.98, 1)
+theme_override_colors/font_pressed_color = Color(0.7, 0.74, 0.82, 1)
+theme_override_font_sizes/font_size = 16
+theme_override_styles/normal = SubResource("btn_dark")
+theme_override_styles/hover = SubResource("btn_dark_hover")
+theme_override_styles/pressed = SubResource("btn_dark_down")
+theme_override_styles/focus = SubResource("btn_dark")
 
-[connection signal="pressed" from="HSplit/Details/Buttons/BackButton" to="." method="_on_back_pressed"]
+[node name="Footer" type="Label" parent="."]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 28.0
+offset_top = -20.0
+offset_right = 400.0
+offset_bottom = -4.0
+grow_vertical = 0
+text = "PICK A CAR, THEN SELECT TO ACTIVATE"
+theme_override_colors/font_color = Color(0.4, 0.45, 0.55, 1)
+theme_override_font_sizes/font_size = 12
+
+[node name="CarRail" type="HBoxContainer" parent="."]
+unique_name_in_owner = true
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -360.0
+offset_top = -82.0
+offset_right = 360.0
+offset_bottom = -18.0
+grow_horizontal = 2
+grow_vertical = 0
+alignment = 1
+theme_override_constants/separation = 12

@@ -1,10 +1,11 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=11 format=3]
 
 [ext_resource type="PackedScene" path="res://scenes/track/test_circuit.tscn" id="1_circuit"]
 [ext_resource type="PackedScene" path="res://scenes/vehicle/player_car.tscn" id="2_car"]
 [ext_resource type="Script" path="res://scripts/camera/chase_camera.gd" id="3_chase"]
 [ext_resource type="PackedScene" path="res://scenes/ui/pause_menu.tscn" id="4_pause"]
 [ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="5_hud"]
+[ext_resource type="Script" path="res://scripts/camera/orbit_camera.gd" id="6_orbit"]
 
 [sub_resource type="ProceduralSkyMaterial" id="sky_mat"]
 sky_top_color = Color(0.16, 0.31, 0.62, 1)
@@ -63,6 +64,12 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 60, 2.2, 0)
 [node name="ChaseCamera" type="Node3D" parent="."]
 script = ExtResource("3_chase")
 target = NodePath("%PlayerCar")
+
+[node name="OrbitCamera" type="Node3D" parent="."]
+script = ExtResource("6_orbit")
+target = NodePath("%PlayerCar")
+chase_camera_path = NodePath("../ChaseCamera")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 60, 4.7, 6)
 
 [node name="Sun" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.707107, -0.40558, 0.579228, 0, 0.819152, 0.573576, -0.707107, -0.40558, 0.579228, 0, 10, 0)
