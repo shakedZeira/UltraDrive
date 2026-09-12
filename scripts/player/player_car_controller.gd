@@ -2,7 +2,7 @@ extends Node
 
 ## Controls the player's car. Attach as child of VehiclePhysics.
 
-const CAR_ORIENT := Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 0)
+const CAR_ORIENT := Transform3D(Basis(Vector3(-1.0, 0.0, 0.0), Vector3(0.0, 1.0, 0.0), Vector3(0.0, 0.0, -1.0)), Vector3.ZERO)
 const DEFAULT_VISUAL := "res://assets/cars/sports_coupe.glb"
 
 @onready var car: VehiclePhysics = get_parent()
@@ -25,6 +25,7 @@ func _apply_visual() -> void:
 	if body == null:
 		return
 	for child in body.get_children():
+		body.remove_child(child)
 		child.queue_free()
 	var visual := load(visual_path) as PackedScene
 	if visual == null:
