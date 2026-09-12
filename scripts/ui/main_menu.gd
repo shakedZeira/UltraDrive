@@ -9,6 +9,9 @@ func _ready() -> void:
 func _on_play_pressed() -> void:
     SceneTransition.flash_to_scene("res://scenes/ui/track_select.tscn")
 
+func _on_free_roam_pressed() -> void:
+    SceneTransition.flash_to_scene("res://scenes/world/open_world_root.tscn")
+
 func _on_garage_pressed() -> void:
     SceneTransition.flash_to_scene("res://scenes/ui/garage.tscn")
 

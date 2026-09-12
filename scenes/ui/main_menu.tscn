@@ -27,6 +27,10 @@ grow_vertical = 2
 custom_minimum_size = Vector2(0, 40)
 text = "Play"
 
+[node name="FreeRoamButton" type="Button" parent="MenuLayout"]
+custom_minimum_size = Vector2(0, 40)
+text = "Free Roam"
+
 [node name="GarageButton" type="Button" parent="MenuLayout"]
 custom_minimum_size = Vector2(0, 40)
 text = "Garage"
@@ -45,6 +49,7 @@ custom_minimum_size = Vector2(0, 40)
 text = "Quit"
 
 [connection signal="pressed" from="MenuLayout/PlayButton" to="." method="_on_play_pressed"]
+[connection signal="pressed" from="MenuLayout/FreeRoamButton" to="." method="_on_free_roam_pressed"]
 [connection signal="pressed" from="MenuLayout/GarageButton" to="." method="_on_garage_pressed"]
 [connection signal="pressed" from="MenuLayout/ContinueButton" to="." method="_on_continue_pressed"]
 [connection signal="pressed" from="MenuLayout/SettingsButton" to="." method="_on_settings_pressed"]

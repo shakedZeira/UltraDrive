@@ -42,6 +42,9 @@ func set_player_position(player_pos: Vector3) -> void:
         _loaded_chunks[key].queue_free()
         _loaded_chunks.erase(key)
 
+func get_loaded_chunk_count() -> int:
+    return _loaded_chunks.size()
+
 func _load_chunk(cx: int, cz: int) -> void:
     var chunk: Node3D
     if chunk_scene:

@@ -80,6 +80,20 @@ func test_mountain_pass_has_checkpoints_and_spawn() -> void:
 	if spawn != null:
 		assert_that(spawn.global_position != Vector3.ZERO).is_true()
 
+func test_mountain_pass_road_sits_above_terrain_floor() -> void:
+	var runner := scene_runner("res://scenes/track/mountain_pass.tscn")
+	await runner.simulate_frames(3)
+	var scene := runner.scene()
+	assert_that(scene).is_not_null()
+	var ground := scene.get_node("GrassGround") as MeshInstance3D
+	assert_that(ground).is_not_null()
+	var floor_y: float = ground.global_position.y
+	var points: Array = scene.get("road_points")
+	assert_that(points.size()).is_equal(36)
+	for i in points.size():
+		var center: Vector3 = points[i]
+		assert_that(center.y).is_greater(floor_y + 0.5)
+
 func _collect_label_text(card: Node) -> String:
 	var parts: Array[String] = []
 	_collect_labels(card, parts)
