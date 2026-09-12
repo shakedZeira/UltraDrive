@@ -24,6 +24,11 @@ const TREE_SHADER_PATH := "res://shaders/foliage_wind.gdshader"
 var _rng := RandomNumberGenerator.new()
 var _tree_roots: Array[Vector2] = []
 
+## Optional map-height lookup, given a world (x, z) position as Vector2,
+## returning the ground surface Y at that spot. When unset, items sit at Y 0
+## (the flat-floor default used by the oval circuit).
+var ground_height_provider: Callable = Callable()
+
 func _ready() -> void:
 	_rng.seed = seed
 	add_child(_build_grass())
@@ -73,7 +78,7 @@ func _build_trees() -> MultiMeshInstance3D:
 		var yaw := _rng.randf_range(0.0, TAU)
 		var scale := _rng.randf_range(0.8, 1.3)
 		var basis := Basis(Vector3.UP, yaw).scaled(Vector3.ONE * scale)
-		mm.set_instance_transform(i, Transform3D(basis, Vector3(pos.x, GROUND_OFFSET_Y, pos.y)))
+		mm.set_instance_transform(i, Transform3D(basis, Vector3(pos.x, _ground_height(pos) + GROUND_OFFSET_Y, pos.y)))
 
 	var mmi := MultiMeshInstance3D.new()
 	mmi.name = "TreesMMI"
@@ -125,7 +130,13 @@ func _grass_transform() -> Transform3D:
 	var yaw := _rng.randf_range(0.0, TAU)
 	var scale := _rng.randf_range(0.8, 1.6)
 	var basis := Basis(Vector3.UP, yaw).scaled(Vector3.ONE * scale)
-	return Transform3D(basis, Vector3(pos.x, GROUND_OFFSET_Y, pos.y))
+	return Transform3D(basis, Vector3(pos.x, _ground_height(pos) + GROUND_OFFSET_Y, pos.y))
+
+## Ground surface Y at a map position; falls back to 0 for flat circuits.
+func _ground_height(pos: Vector2) -> float:
+	if ground_height_provider.is_valid():
+		return ground_height_provider.call(pos)
+	return 0.0
 
 func _tree_pos() -> Vector2:
 	# Rejection sampling keeps roughly 8 m between tree trunks.

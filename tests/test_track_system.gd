@@ -85,14 +85,14 @@ func test_mountain_pass_road_sits_above_terrain_floor() -> void:
 	await runner.simulate_frames(3)
 	var scene := runner.scene()
 	assert_that(scene).is_not_null()
-	var ground := scene.get_node("GrassGround") as MeshInstance3D
-	assert_that(ground).is_not_null()
-	var floor_y: float = ground.global_position.y
+	var terrain := scene.get_node("GrassGround") as Terrain3D
+	assert_that(terrain).is_not_null()
 	var points: Array = scene.get("road_points")
 	assert_that(points.size()).is_equal(36)
 	for i in points.size():
 		var center: Vector3 = points[i]
-		assert_that(center.y).is_greater(floor_y + 0.5)
+		var terrain_y: float = terrain.data.get_height(center)
+		assert_that(terrain_y).is_less(center.y - 0.5)
 
 func _collect_label_text(card: Node) -> String:
 	var parts: Array[String] = []
