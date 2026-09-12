@@ -48,5 +48,5 @@ text = "Resume"
 custom_minimum_size = Vector2(0, 40)
 text = "Quit to Menu"
 
-[connection signal="pressed" from="Menu/Panel/VBox/ResumeButton" to="." method="_on_resume_pressed"]
-[connection signal="pressed" from="Menu/Panel/VBox/QuitToMenuButton" to="." method="_on_quit_to_menu_pressed"]
+[connection signal="pressed" from="Menu/Panel/VBox/ResumeButton" to="Menu" method="_on_resume_pressed"]
+[connection signal="pressed" from="Menu/Panel/VBox/QuitToMenuButton" to="Menu" method="_on_quit_to_menu_pressed"]

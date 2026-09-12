@@ -7,6 +7,15 @@ extends Node
 var _owned_cars: Array[String] = []
 var _active_car: String = "starter_car"
 
+## Builds a Garage populated from the persisted save. Seeds the starter car
+## on first run so the garage is never empty.
+static func new_from_save() -> Garage:
+	var garage := Garage.new()
+	garage.load_data(SaveManager.load_game(0))
+	if garage._owned_cars.is_empty():
+		garage.add_car("starter_car")
+	return garage
+
 func add_car(car_id: String) -> void:
 	if car_id not in _owned_cars:
 		_owned_cars.append(car_id)

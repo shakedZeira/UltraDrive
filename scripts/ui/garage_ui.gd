@@ -12,7 +12,7 @@ var _garage: Garage
 var _selected_car: String = ""
 
 func _ready() -> void:
-	_garage = Garage.new()
+	_garage = Garage.new_from_save()
 	_load_car_list()
 	select_button.pressed.connect(_on_select_pressed)
 	car_list.item_selected.connect(_on_car_selected)
