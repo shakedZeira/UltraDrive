@@ -28,6 +28,7 @@ extends Resource
 @export var gear_ratios: Array[float] = [3.5, 2.1, 1.4, 1.0, 0.75, 0.6]
 @export var final_drive_ratio: float = 3.7
 @export var reverse_ratio: float = 3.2
+@export var max_reverse_speed_kmh: float = 25.0  # hard cap; reverse stays well below 1st gear
 @export var shift_time: float = 0.15  # seconds to shift gears
 
 # --- Automatic transmission shift points (km/h) ---

@@ -79,6 +79,8 @@ func _physics_process(delta: float) -> void:
     var forward_speed := -global_basis.z.dot(linear_velocity)
     _drivetrain.set_wheel_speed(forward_speed)
     var drive_info := _drivetrain.update(delta, throttle, config)
+    # Brake/drive direction runs through the gearbox: reverse flips it.
+    var gear_dir := -1.0 if _drivetrain.current_gear < 0 else 1.0
 
     # --- Tire Forces ---
     var grip_mult: float = config.arcade_mode["grip_multiplier"] if handling_mode == "arcade" else config.simulation_mode["grip_multiplier"]
@@ -110,7 +112,7 @@ func _physics_process(delta: float) -> void:
                 drive_force = drive_info["drive_torque"] / (0.33 * 2.0)
 
             # Braking
-            var brake_force := brake_input * config.max_brake_torque / (0.33 * 2.0)
+            var brake_force := gear_dir * brake_input * config.max_brake_torque / (0.33 * 2.0)
             if i < 2:  # front wheels do not drive, only brake
                 drive_force = 0.0
             drive_force -= brake_force

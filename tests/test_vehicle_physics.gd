@@ -65,3 +65,50 @@ func test_drivetrain_starts_in_first_gear() -> void:
     var dt := Drivetrain.new()
     assert_that(dt.engine_rpm).is_equal(800.0)
     assert_that(dt.current_gear).is_equal(1)
+
+func test_drivetrain_reverse_ratio_is_weaker_than_first_gear() -> void:
+    var reverse_ratio := car_config.get_gear_ratio(-1)
+    var first_ratio := car_config.get_gear_ratio(1)
+    assert_that(reverse_ratio).is_equal(car_config.reverse_ratio * car_config.final_drive_ratio)
+    assert_that(reverse_ratio).is_less(first_ratio)
+
+func test_drivetrain_enters_reverse_when_wheel_speed_backward() -> void:
+    var dt := Drivetrain.new()
+    dt.set_wheel_speed(-2.0)
+    dt.update(1.0 / 60.0, 1.0, car_config)
+    assert_that(dt.current_gear).is_equal(-1)
+
+func test_drivetrain_returns_to_first_gear_when_forward() -> void:
+    var dt := Drivetrain.new()
+    dt.set_wheel_speed(-2.0)
+    dt.update(1.0 / 60.0, 1.0, car_config)
+    assert_that(dt.current_gear).is_equal(-1)
+    dt.set_wheel_speed(2.0)
+    dt.update(1.0 / 60.0, 1.0, car_config)
+    assert_that(dt.current_gear).is_equal(1)
+
+func test_reverse_speed_limiter_cuts_drive_torque_at_cap() -> void:
+    var dt := Drivetrain.new()
+    var cap_ms := car_config.max_reverse_speed_kmh / 3.6
+    dt.set_wheel_speed(-(cap_ms + 0.1))
+    dt.update(1.0 / 60.0, 1.0, car_config)
+    assert_that(dt.current_gear).is_equal(-1)
+    assert_that(dt.reverse_limiter_active).is_true()
+    assert_that(dt.drive_torque).is_equal(0.0)
+
+func test_reverse_limiter_inactive_below_cap() -> void:
+    var dt := Drivetrain.new()
+    dt.set_wheel_speed(-1.0)
+    dt.update(1.0 / 60.0, 1.0, car_config)
+    assert_that(dt.reverse_limiter_active).is_false()
+    assert_that(dt.drive_torque).is_less(0.0)
+
+func test_forward_gears_never_shift_while_in_reverse() -> void:
+    var dt := Drivetrain.new()
+    dt.set_wheel_speed(-20.0)
+    dt.update(1.0 / 60.0, 1.0, car_config)
+    assert_that(dt.current_gear).is_equal(-1)
+    # A second frame keeps reverse locked even though -20 m/s (72 km/h) backward
+    # would have upshifted a forward gear past 1st.
+    dt.update(1.0 / 60.0, 1.0, car_config)
+    assert_that(dt.current_gear).is_equal(-1)

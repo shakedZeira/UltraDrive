@@ -13,6 +13,7 @@ var current_gear: int = 1  # 1-based: 1 = 1st, ... , -1 = reverse (no neutral)
 var drive_torque: float = 0.0
 var is_shifting: bool = false
 var shift_timer: float = 0.0
+var reverse_limiter_active: bool = false
 
 # --- Internal ---
 var _wheel_speed: float = 0.0  # m/s (set by VehiclePhysics)
@@ -27,6 +28,16 @@ func update(delta: float, throttle: float, config: CarConfig) -> Dictionary:
         shift_timer -= delta
         if shift_timer <= 0.0:
             is_shifting = false
+
+    # --- Reverse detection ---
+    # _wheel_speed is signed: positive = forward, negative = backward. Engage
+    # reverse whenever the car actually rolls backward and drop back to 1st the
+    # moment it moves forward again (deadband prevents flicker at standstill).
+    if current_gear >= 1:
+        if _wheel_speed < -0.5:
+            current_gear = -1
+    elif _wheel_speed > 0.5:
+        current_gear = 1
 
     # --- Calculate engine RPM from wheel speed ---
     # get_gear_ratio() returns the combined ratio (gear x final drive),
@@ -59,6 +70,22 @@ func update(delta: float, throttle: float, config: CarConfig) -> Dictionary:
         drive_torque = engine_torque * absf(gear_ratio)
     else:
         drive_torque = 0.0  # no torque during shift
+
+    # Reverse routes engine torque backward through the gearbox, so throttle
+    # accelerates the car rearward and engine braking resists rearward roll.
+    if current_gear < 0:
+        drive_torque = -drive_torque
+
+    # --- Reverse speed limiter ---
+    # Hard cap so reverse can never out-accelerate or out-top-speed 1st gear;
+    # drive torque cuts out once the cap is reached (low-speed creep is fine).
+    if current_gear < 0:
+        var reverse_speed_kmh := absf(_wheel_speed) * 3.6
+        reverse_limiter_active = reverse_speed_kmh >= config.max_reverse_speed_kmh
+        if reverse_limiter_active:
+            drive_torque = 0.0
+    else:
+        reverse_limiter_active = false
 
     # --- Auto-shift (speed-based, automatic transmission) ---
     # Speeds come from the config tables; reverse (-1) is never auto-shifted.
@@ -101,3 +128,4 @@ func reset() -> void:
     current_gear = 1
     drive_torque = 0.0
     is_shifting = false
+    reverse_limiter_active = false
