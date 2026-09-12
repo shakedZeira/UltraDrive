@@ -7,8 +7,22 @@ func _ready() -> void:
     var ground_instance := MeshInstance3D.new()
     ground_instance.mesh = ground_mesh
     var ground_material := StandardMaterial3D.new()
-    ground_material.albedo_color = Color(0.25, 0.30, 0.18)
+    ground_material.albedo_color = Color(0.24, 0.34, 0.19)
     ground_material.roughness = 1.0
+
+    # PBR grass look: noise-driven roughness variation plus a subtle bumpy
+    # normal map so the plain stays variegated instead of a flat green void.
+    var grass_roughness := _make_noise_texture(99, 0.05)
+    ground_material.roughness_texture = grass_roughness
+    ground_material.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+
+    var grass_normal := _make_noise_texture(101, 0.08)
+    grass_normal.as_normal_map = true
+    grass_normal.bump_strength = 0.5
+    ground_material.normal_enabled = true
+    ground_material.normal_texture = grass_normal
+    ground_material.normal_scale = 0.15
+
     ground_material.cull_mode = BaseMaterial3D.CULL_DISABLED
     ground_instance.material_override = ground_material
     ground_instance.position = Vector3(0, 0, 0)
@@ -26,6 +40,10 @@ func _ready() -> void:
         var angle := TAU * i / segments
         points.append(Vector3(cos(angle) * radius, 0.1, sin(angle) * radius * 0.6))
     builder.build_track(points)
+
+    # Scatter countryside foliage (grass tufts + low-poly trees) around the oval
+    var foliage := Foliage.new()
+    add_child(foliage)
 
     # Add checkpoints around the track
     for i in range(8):
@@ -47,3 +65,13 @@ func _ready() -> void:
 func _on_checkpoint_body_entered(body: Node3D, index: int) -> void:
     if body is VehiclePhysics:
         print("[Track] Checkpoint %d passed by %s" % [index, body.name])
+
+func _make_noise_texture(noise_seed: int, frequency: float) -> NoiseTexture2D:
+    var noise := FastNoiseLite.new()
+    noise.seed = noise_seed
+    noise.frequency = frequency
+    var texture := NoiseTexture2D.new()
+    texture.noise = noise
+    texture.width = 512
+    texture.height = 512
+    return texture
