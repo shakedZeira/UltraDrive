@@ -1,14 +1,13 @@
 # scripts/race/race_ui.gd
 extends CanvasLayer
 
-## In-race HUD: speedometer, tachometer, gear, position, lap time.
+## In-race HUD: drives the Forza-style gauge cluster (tach/speed/gear) plus
+## position, lap and lap-time readouts.
 
-@onready var speed_label: Label = %SpeedLabel
-@onready var gear_label: Label = %GearLabel
+@onready var cluster: Tachometer = %Cluster
 @onready var lap_label: Label = %LapLabel
 @onready var position_label: Label = %PositionLabel
 @onready var time_label: Label = %TimeLabel
-@onready var rev_label: Label = %RevLabel
 
 func _process(_delta: float) -> void:
 	var car := VehicleManager.get_player_car()
@@ -16,9 +15,13 @@ func _process(_delta: float) -> void:
 		return
 
 	var info := car.get_drive_info()
-	speed_label.text = "%d" % int(info["speed_kmh"])
-	gear_label.text = _gear_to_string(info["gear"])
-	rev_label.text = "%d RPM" % int(info["rpm"])
+	cluster.set_rpm(float(info["rpm"]))
+	cluster.set_gear(int(info["gear"]))
+	cluster.set_speed_kmh(float(info["speed_kmh"]))
+	var cfg := car.config
+	if cfg != null:
+		cluster.set_engine_range(cfg.idle_rpm, cfg.redline_rpm)
+		cluster.set_car_class(cfg.car_class)
 	position_label.text = _position_text(car)
 	var lap_counter := RaceManager.get_lap_counter(car)
 	lap_label.text = "LAP %d" % (lap_counter.get_current_lap() if lap_counter else 1)
@@ -32,8 +35,3 @@ func _position_text(car: VehiclePhysics) -> String:
 		return "P1"
 	var index := standings.find(car)
 	return "P%d" % (index + 1) if index != -1 else "-"
-
-func _gear_to_string(gear: int) -> String:
-	if gear == -1:
-		return "R"
-	return str(gear)  # 1-based: 1, 2, 3, ... (no neutral, never "0"/"N")
