@@ -26,7 +26,7 @@ supported!"), which has nothing to do with your code.
 3) GDUnit suite (headless, PRECEDED by step 2 so gdUnit4 is had its first-run):
    `"D:\Godot\Godot_v4.7.2-stable_win64.exe" --headless --ignoreHeadlessMode -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd -a res://tests > _gdunit.txt 2>&1`
    Then `findstr /c:"Overall Summary:" _gdunit.txt`.
-   EXPECT: `Overall Summary: 22 test cases | 0 errors | 0 failures | ...` (22/22).
+   EXPECT: `Overall Summary: 33 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans` (33/33 — suite grew with D4).
 
 NOTE: if you run the GDUnit `-s` command ALONE (without the earlier headless
 run), it may bail with exit 103/exit 1 "Headless mode is not supported". The
