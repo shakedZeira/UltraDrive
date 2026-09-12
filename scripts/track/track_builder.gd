@@ -18,9 +18,18 @@ func build_track(points: Array[Vector3]) -> void:
     mesh_instance.mesh = road_mesh
 
     var material := StandardMaterial3D.new()
-    material.albedo_color = Color(0.45, 0.45, 0.48)
-    material.roughness = 0.9
+    material.albedo_color = Color(0.16, 0.17, 0.19, 1)
+    material.roughness = 0.92
     material.cull_mode = BaseMaterial3D.CULL_DISABLED
+    var noise := FastNoiseLite.new()
+    noise.seed = 1337
+    noise.frequency = 0.08
+    var roughness_tex := NoiseTexture2D.new()
+    roughness_tex.noise = noise
+    roughness_tex.width = 512
+    roughness_tex.height = 512
+    material.roughness_texture = roughness_tex
+    material.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
     mesh_instance.material_override = material
     add_child(mesh_instance)
 
@@ -29,7 +38,7 @@ func build_track(points: Array[Vector3]) -> void:
         -(road_width * 0.5 - 0.5),
     ]
     var edge_colors: Array[Color] = [
-        Color(0.72, 0.12, 0.12),
+        Color(0.82, 0.13, 0.13),
         Color(0.85, 0.85, 0.82),
     ]
     for e in range(edge_offsets.size()):
@@ -38,7 +47,7 @@ func build_track(points: Array[Vector3]) -> void:
         edge_instance.mesh = edge_mesh
         var edge_material := StandardMaterial3D.new()
         edge_material.albedo_color = edge_colors[e]
-        edge_material.roughness = 0.7
+        edge_material.roughness = 0.5
         edge_material.cull_mode = BaseMaterial3D.CULL_DISABLED
         edge_instance.material_override = edge_material
         add_child(edge_instance)
