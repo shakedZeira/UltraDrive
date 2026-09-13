@@ -13,10 +13,14 @@ enum TransmissionMode { AUTO, MANUAL }
 var current_mode: GameMode = GameMode.MAIN_MENU
 var transmission_mode: TransmissionMode = TransmissionMode.AUTO
 var quality_preset: int = 1
+var probe_enabled: bool = true
 var is_paused: bool = false
 
 func _ready() -> void:
     process_mode = Node.PROCESS_MODE_ALWAYS
+    var data := SaveManager.load_game(0)
+    if data.has("probe_enabled"):
+        probe_enabled = bool(data["probe_enabled"])
 
 func change_scene(scene_path: String) -> void:
     get_tree().change_scene_to_file(scene_path)
@@ -58,6 +62,12 @@ func set_quality_preset(preset: int) -> void:
     quality_preset = preset
     var data := SaveManager.load_game(0)
     data["quality_preset"] = quality_preset
+    SaveManager.save_game(0, data)
+
+func set_probe_enabled(enabled: bool) -> void:
+    probe_enabled = enabled
+    var data := SaveManager.load_game(0)
+    data["probe_enabled"] = probe_enabled
     SaveManager.save_game(0, data)
 
 func _physics_process(_delta: float) -> void:

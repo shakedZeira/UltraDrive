@@ -20,6 +20,14 @@ const SUN_GROUP := "sun"
 const SUN_MIN_ELEVATION := 0.08
 const SUN_TRANSFORM_LERP_FACTOR := 0.35
 
+## Static open-world ReflectionProbes (Task 6): one over the hub ring, one over
+## the mountain pass. UPDATE_ONCE so each bakes once and never re-renders; with
+## the single per-car UPDATE_ALWAYS probe the blended total is 3, under the
+## project's 4-probe reflection probe blend cap.
+const HUB_PROBE_ORIGIN := Vector3(128.0, 2.0, 128.0)
+const PASS_PROBE_ORIGIN := Vector3(3800.0, 14.0, 3200.0)
+const STATIC_PROBE_SIZE := Vector3(60.0, 30.0, 60.0)
+
 var _streamer: ChunkStreamer
 var _terrain_seeder: TerrainSeeder
 var _player: Node3D
@@ -31,6 +39,7 @@ func _ready() -> void:
 	_bootstrap_roads()
 	_push_player_position()
 	_bootstrap_sun_driver()
+	_bootstrap_static_probes()
 
 func _physics_process(_delta: float) -> void:
 	if _player == null:
@@ -151,6 +160,23 @@ func _bootstrap_sun_driver() -> void:
 	if WeatherManager.time_of_day_changed.is_connected(_on_time_of_day_changed) == false:
 		WeatherManager.time_of_day_changed.connect(_on_time_of_day_changed)
 	_drive_suns(WeatherManager.get_time_of_day(), true)
+
+## Bakes static UPDATE_ONCE ReflectionProbes at the hub and the mountain pass.
+## Called after the first terrain bake so the probes capture settled ground.
+func _bootstrap_static_probes() -> void:
+	add_child(WorldDriver.make_static_probe(HUB_PROBE_ORIGIN, STATIC_PROBE_SIZE))
+	add_child(WorldDriver.make_static_probe(PASS_PROBE_ORIGIN, STATIC_PROBE_SIZE))
+
+## Factory for a static (UPDATE_ONCE) ReflectionProbe at an absolute world
+## origin with AMBIENT_ENVIRONMENT ambient sampled from the sky. Exposed as a
+## static helper so tests can assert the config without needing a world.
+static func make_static_probe(origin: Vector3, size: Vector3) -> ReflectionProbe:
+	var probe := ReflectionProbe.new()
+	probe.position = origin
+	probe.size = size
+	probe.update_mode = ReflectionProbe.UPDATE_ONCE
+	probe.ambient_mode = ReflectionProbe.AMBIENT_ENVIRONMENT
+	return probe
 
 func _on_time_of_day_changed(hour: float) -> void:
 	_drive_suns(hour, false)

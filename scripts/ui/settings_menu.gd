@@ -53,6 +53,13 @@ static func preset_for(index: int) -> Dictionary:
 		return QUALITY_PRESETS[index]
 	return QUALITY_PRESETS[1]
 
+## The probe_enabled flag carried by the preset ladder (High=true,
+## Low/Medium=false), unknown indices falling back to the medium preset.
+## Drives the per-car ReflectionProbe through GameState.set_probe_enabled().
+static func probe_enabled_for(index: int) -> bool:
+	var preset: Dictionary = preset_for(index)
+	return bool(preset["probe_enabled"])
+
 static func apply_quality_preset(env: Environment, viewport: Viewport, preset: Dictionary) -> void:
 	if env:
 		env.ssao_enabled = preset["ssao_enabled"]
@@ -109,6 +116,7 @@ func _on_quality_selected(index: int) -> void:
 		env = world_env.environment
 	apply_quality_preset(env, viewport, preset)
 	GameState.set_quality_preset(index)
+	GameState.set_probe_enabled(probe_enabled_for(index))
 
 func _on_volume_changed(value: float) -> void:
 	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Master"), linear_to_db(value))

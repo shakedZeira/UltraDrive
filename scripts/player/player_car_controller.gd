@@ -12,6 +12,8 @@ var _spin_angle: float = 0.0
 var _visual_wheels: Dictionary = {}
 var _taillight_material: StandardMaterial3D = null
 var _visual_ready: bool = false
+var _probe: ReflectionProbe = null
+var _probe_synced_enabled: bool = true
 
 func _ready() -> void:
 	VehicleManager.register_player_car(car)
@@ -33,6 +35,33 @@ func _process(delta: float) -> void:
 	_spin_angle = _spin_angle + CarVisuals.wheel_spin_rate(speed_kmh, CarVisuals.WHEEL_RADIUS) * delta
 	CarVisuals.apply_wheel_visuals(_visual_wheels, steer, _spin_angle)
 	CarVisuals.apply_brake_glow(_taillight_material, brake)
+	_sync_probe()
+
+## Rebuilds the per-car ReflectionProbe under the visual body after its
+## children were cleared in _apply_visual. Centered on the body (so it follows
+## the car), sized to the mesh, real-time when GameState.probe_enabled.
+func _ensure_car_probe(body: Node3D) -> void:
+	var probe := ReflectionProbe.new()
+	probe.name = "CarProbe"
+	probe.size = CarVisuals.CAR_PROBE_SIZE
+	probe.origin_offset = CarVisuals.CAR_PROBE_ORIGIN_OFFSET
+	probe.box_projection = true
+	body.add_child(probe)
+	_probe = probe
+	_probe_synced_enabled = GameState.probe_enabled
+	CarVisuals.refresh_probe(probe, _probe_synced_enabled)
+
+## Mirrors GameState.probe_enabled onto the live probe whenever it changes at
+## runtime (e.g. quality preset switched mid-drive). Polled per frame; the
+## single bool compare is negligible vs. the probe's own update cost.
+func _sync_probe() -> void:
+	if _probe == null:
+		return
+	var enabled := GameState.probe_enabled
+	if enabled == _probe_synced_enabled:
+		return
+	_probe_synced_enabled = enabled
+	CarVisuals.refresh_probe(_probe, enabled)
 
 func _apply_visual() -> void:
 	var config := car.config as CarConfig
@@ -53,6 +82,7 @@ func _apply_visual() -> void:
 	body.add_child(instance)
 	CarVisuals.apply_paint(instance, CarVisuals.DEFAULT_PAINT)
 	_cache_visuals(instance)
+	_ensure_car_probe(body)
 
 func _cache_visuals(instance: Node3D) -> void:
 	_visual_wheels = CarVisuals.resolve_wheel_nodes(instance, _car_id)

@@ -35,6 +35,33 @@ const STEER_VISUAL_MAX_RAD := 0.35
 const BRAKE_GLOW_MIN := 1.8
 const BRAKE_GLOW_MAX := 5.0
 
+# --- Per-car gameplay ReflectionProbe (Task 6) ---
+
+## Full box extents (m) for the car-body probe. Larger than the mesh so
+## reflections read from every chase-cam angle without clipping the box.
+const CAR_PROBE_SIZE := Vector3(8.0, 4.0, 8.0)
+
+## Cubemap face resolution (px). 256 keeps UPDATE_ALWAYS cheap enough for the
+## single per-car probe mandated by the project's 4-probe blend budget.
+const CAR_PROBE_RESOLUTION := 256
+
+## Moves the probe's capture camera above the body center so the world, not
+## the car's own roof, dominates the cubemap. Must lie inside CAR_PROBE_SIZE.
+const CAR_PROBE_ORIGIN_OFFSET := Vector3(0.0, 0.8, 0.0)
+
+## Deterministic toggle. enabled=true: visible, UPDATE_ALWAYS (live cubemap so
+## paint reflects the world every frame). enabled=false: hidden, UPDATE_ONCE
+## (a hidden probe contributes nothing to the blend budget and never re-renders).
+static func refresh_probe(probe: ReflectionProbe, enabled: bool) -> void:
+	if probe == null:
+		return
+	if enabled:
+		probe.visible = true
+		probe.update_mode = ReflectionProbe.UPDATE_ALWAYS
+	else:
+		probe.visible = false
+		probe.update_mode = ReflectionProbe.UPDATE_ONCE
+
 ## Per-car wheel node-name table keyed off Garage car ids. "starter_car"
 ## renders the sports_coupe GLB. muscle_car and rally_hatch split each corner
 ## into separate Rim/Tire meshes. Corner shorthand: fl/fr/rl/rr.
