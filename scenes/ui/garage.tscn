@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=3]
+[gd_scene load_steps=18 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/garage_ui.gd" id="1_garage"]
 
@@ -130,11 +130,22 @@ height = 32
 font_names = PackedStringArray("Segoe UI", "Arial")
 font_weight = 700
 
+[sub_resource type="ProceduralSkyMaterial" id="sky_mat"]
+sky_top_color = Color(0.07, 0.1, 0.18, 1)
+sky_horizon_color = Color(0.28, 0.32, 0.44, 1)
+ground_bottom_color = Color(0.03, 0.04, 0.06, 1)
+ground_horizon_color = Color(0.18, 0.2, 0.3, 1)
+sun_angle_max = 20.0
+sun_energy = 1.2
+
+[sub_resource type="Sky" id="sky"]
+sky_material = SubResource("sky_mat")
+radiance_size = 256
+
 [sub_resource type="Environment" id="env"]
-background_mode = 1
-background_color = Color(0.05, 0.06, 0.1, 1)
-ambient_light_source = 2
-ambient_light_color = Color(0.14, 0.16, 0.24, 1)
+background_mode = 2
+sky = SubResource("sky")
+ambient_light_source = 3
 ambient_light_energy = 1.0
 tonemap_mode = 3
 glow_enabled = true
@@ -228,7 +239,7 @@ mouse_filter = 2
 
 [node name="SubViewport" type="SubViewport" parent="Margin/MainRow/PreviewPanel/PreviewViewport"]
 own_world_3d = true
-size = Vector2i(620, 500)
+size = Vector2i(1024, 768)
 render_target_update_mode = 4
 
 [node name="Camera3D" type="Camera3D" parent="Margin/MainRow/PreviewPanel/PreviewViewport/SubViewport"]
@@ -245,15 +256,15 @@ shadow_enabled = true
 
 [node name="RimLight" type="OmniLight3D" parent="Margin/MainRow/PreviewPanel/PreviewViewport/SubViewport"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.5, 2.6, -3.2)
-light_color = Color(1, 0.85, 0.55, 1)
-light_energy = 1.5
-omni_range = 14.0
+light_color = Color(0.55, 0.68, 1.0, 1)
+light_energy = 1.2
+omni_range = 16.0
 
 [node name="FillLight" type="OmniLight3D" parent="Margin/MainRow/PreviewPanel/PreviewViewport/SubViewport"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.2, 2.0, 2.8)
-light_color = Color(0.7, 0.8, 1, 1)
-light_energy = 0.6
-omni_range = 10.0
+light_color = Color(1.0, 0.85, 0.65, 1)
+light_energy = 2.2
+omni_range = 12.0
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="Margin/MainRow/PreviewPanel/PreviewViewport/SubViewport"]
 environment = SubResource("env")
@@ -261,6 +272,12 @@ environment = SubResource("env")
 [node name="Floor" type="MeshInstance3D" parent="Margin/MainRow/PreviewPanel/PreviewViewport/SubViewport"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, 0)
 mesh = SubResource("floor_mesh")
+
+[node name="ReflectionProbe" type="ReflectionProbe" parent="Margin/MainRow/PreviewPanel/PreviewViewport/SubViewport"]
+size = Vector3(20, 9, 20)
+update_mode = 0
+ambient_mode = 2
+resolution = 256
 
 [node name="Turntable" type="Node3D" parent="Margin/MainRow/PreviewPanel/PreviewViewport/SubViewport"]
 unique_name_in_owner = true
