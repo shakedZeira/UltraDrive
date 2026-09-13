@@ -20,6 +20,121 @@ const DEFAULT_PAINT := {
 	"tail_emission_strength": 5.0,
 }
 
+# --- Wheel dynamics / brake-glow (Task 4) ---
+
+## Wheel radius (m) shared by every car visual; matches the physics tire
+## radius hard-coded in VehiclePhysics (0.33 m).
+const WHEEL_RADIUS := 0.33
+
+## Maximum visual steering angle (rad), applied to the front wheels from the
+## normalized -1..1 steer exposed by get_drive_info().
+const STEER_VISUAL_MAX_RAD := 0.35
+
+## Taillight emission_energy_multiplier range: idle running lights at
+## BRAKE_GLOW_MIN, full brake at BRAKE_GLOW_MAX.
+const BRAKE_GLOW_MIN := 1.8
+const BRAKE_GLOW_MAX := 5.0
+
+## Per-car wheel node-name table keyed off Garage car ids. "starter_car"
+## renders the sports_coupe GLB. muscle_car and rally_hatch split each corner
+## into separate Rim/Tire meshes. Corner shorthand: fl/fr/rl/rr.
+const WHEEL_GROUPS := {
+	"starter_car": {
+		"fl": ["Wheel_FL"],
+		"fr": ["Wheel_FR"],
+		"rl": ["Wheel_RL"],
+		"rr": ["Wheel_RR"],
+	},
+	"muscle_car": {
+		"fl": ["MCW_Rim_FL", "MCW_Tire_FL"],
+		"fr": ["MCW_Rim_FR", "MCW_Tire_FR"],
+		"rl": ["MCW_Rim_RL", "MCW_Tire_RL"],
+		"rr": ["MCW_Rim_RR", "MCW_Tire_RR"],
+	},
+	"rally_hatch": {
+		"fl": ["Rim_LF", "Tire_LF"],
+		"fr": ["Rim_RF", "Tire_RF"],
+		"rl": ["Rim_LR", "Tire_LR"],
+		"rr": ["Rim_RR", "Tire_RR"],
+	},
+}
+
+## Resolves the wheel Node3D groups for a car under a visual root. Returns a
+## Dictionary of corner -> Array[Node3D] with only the corners whose nodes
+## actually exist; never errors on missing nodes or unknown car ids.
+static func resolve_wheel_nodes(visual_root: Node3D, car_id: String) -> Dictionary:
+	var wheels := {}
+	if visual_root == null:
+		return wheels
+	var table: Dictionary = WHEEL_GROUPS.get(car_id, {})
+	for corner: String in ["fl", "fr", "rl", "rr"]:
+		var names: Array = table.get(corner, [])
+		var nodes: Array[Node3D] = []
+		for raw_name: Variant in names:
+			var node_name := String(raw_name)
+			var node := visual_root.get_node_or_null(node_name) as Node3D
+			if node != null:
+				nodes.append(node)
+		if not nodes.is_empty():
+			wheels[corner] = nodes
+	return wheels
+
+## Spins every wheel around its local axle (X) by spin_angle and steers the
+## front pair (fl/fr) around the vertical axis (Y) by steer (-1..1). Wheels
+## roll forward by rotating negatively about +X (car nose faces +Z in GLB
+## space; the axle runs along local X per the GLB wheel geometry).
+static func apply_wheel_visuals(wheels: Dictionary, steer: float, spin_angle: float) -> void:
+	var steer_rad := clampf(steer, -1.0, 1.0) * STEER_VISUAL_MAX_RAD
+	for corner: Variant in wheels.keys():
+		var corner_name := String(corner)
+		var nodes: Array = wheels.get(corner, [])
+		var front_pair: bool = corner_name == "fl" or corner_name == "fr"
+		for node: Variant in nodes:
+			var wheel := node as Node3D
+			if wheel == null:
+				continue
+			wheel.rotation = Vector3(-spin_angle, steer_rad if front_pair else 0.0, 0.0)
+
+## Revolutions-per-second-esque angular spin rate (rad/s) for a moving wheel.
+## speed_kmh is translated to m/s and divided by the wheel radius.
+static func wheel_spin_rate(speed_kmh: float, wheel_radius: float) -> float:
+	if wheel_radius <= 0.0:
+		return 0.0
+	return speed_kmh / 3.6 / wheel_radius
+
+## Depth-first search for the first StandardMaterial3D whose resource_name
+## contains name_filter (case-insensitive). Checks surface override materials
+## first so the live clone produced by apply_paint() is found.
+static func find_named_material(root: Node3D, name_filter: String) -> StandardMaterial3D:
+	if root == null:
+		return null
+	var needle := name_filter.to_lower()
+	if root is MeshInstance3D:
+		var mesh_instance := root as MeshInstance3D
+		var mesh: Mesh = mesh_instance.mesh
+		if mesh != null:
+			for surface_index in range(mesh.get_surface_count()):
+				var material: Material = mesh_instance.get_surface_override_material(surface_index)
+				if material == null:
+					material = mesh.surface_get_material(surface_index)
+				if material is StandardMaterial3D and material.resource_name.to_lower().contains(needle):
+					return material as StandardMaterial3D
+	for child: Variant in root.get_children():
+		if child is Node3D:
+			var found: StandardMaterial3D = find_named_material(child as Node3D, name_filter)
+			if found != null:
+				return found
+	return null
+
+## Ramps the taillight emission energy with brake (0..1): BRAKE_GLOW_MIN when
+## coasting, BRAKE_GLOW_MAX at full brake. Enables emission if the material
+## did not already keep it. Never allocates per call.
+static func apply_brake_glow(material: StandardMaterial3D, brake: float) -> void:
+	if material == null:
+		return
+	material.emission_enabled = true
+	material.emission_energy_multiplier = lerpf(BRAKE_GLOW_MIN, BRAKE_GLOW_MAX, clampf(brake, 0.0, 1.0))
+
 static func apply_paint(visual_root: Node3D, profile: Dictionary) -> void:
 	if visual_root == null:
 		return

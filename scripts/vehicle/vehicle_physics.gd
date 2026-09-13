@@ -19,6 +19,10 @@ var steer_angle: float = 0.0
 var handling_mode: String = "arcade"  # "arcade" or "simulation"
 var input_override: Vector2 = Vector2.ZERO  # (steer, throttle-brake)
 
+# --- Input state (exposed via get_drive_info) ---
+var _brake_input: float = 0.0
+var _steer_input: float = 0.0
+
 # --- Internal ---
 var _drivetrain: Drivetrain
 var _wheels: Array[WheelPhysics]
@@ -61,6 +65,8 @@ func _physics_process(delta: float) -> void:
     var brake_input := InputManager.get_brake() if input_override == Vector2.ZERO else maxf(-input_override.y, 0.0)
     var steer_input := InputManager.get_steer() if input_override == Vector2.ZERO else clampf(input_override.x, -1.0, 1.0)
     var handbrake := InputManager.is_handbrake()
+    _brake_input = clampf(brake_input, 0.0, 1.0)
+    _steer_input = clampf(steer_input, -1.0, 1.0)
 
     # --- Reset car ---
     if InputManager.is_reset():
@@ -78,6 +84,12 @@ func _physics_process(delta: float) -> void:
     # --- Drivetrain ---
     var forward_speed := -global_basis.z.dot(linear_velocity)
     _drivetrain.set_wheel_speed(forward_speed)
+    _drivetrain.manual_mode = GameState.transmission_mode == GameState.TransmissionMode.MANUAL
+    if input_override == Vector2.ZERO and _drivetrain.manual_mode:
+        if InputManager.is_shift_up_just_pressed():
+            _drivetrain.shift_up(config)
+        elif InputManager.is_shift_down_just_pressed():
+            _drivetrain.shift_down(config)
     var drive_info := _drivetrain.update(delta, throttle, config)
     # Brake/drive direction runs through the gearbox: reverse flips it.
     var gear_dir := -1.0 if _drivetrain.current_gear < 0 else 1.0
@@ -151,11 +163,18 @@ func get_steer_angle() -> float:
     return rad_to_deg(steer_angle)
 
 func get_drive_info() -> Dictionary:
+    var rpm := 0.0
+    var gear := 0
+    if _drivetrain != null:
+        rpm = _drivetrain.engine_rpm
+        gear = _drivetrain.current_gear
     return {
-        "rpm": _drivetrain.engine_rpm,
-        "gear": _drivetrain.current_gear,
+        "rpm": rpm,
+        "gear": gear,
         "speed_kmh": current_speed_kmh,
         "handling_mode": handling_mode,
+        "brake": clampf(_brake_input, 0.0, 1.0),
+        "steer": clampf(_steer_input, -1.0, 1.0),
     }
 
 func set_handling_mode(mode: String) -> void:

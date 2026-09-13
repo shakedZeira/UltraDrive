@@ -146,3 +146,98 @@ func test_paint_surface_count_reports_set_overrides() -> void:
 
 	assert_that(CarVisuals.paint_surface_count(root)).is_equal(5)
 	assert_that(carpet_mi.get_surface_override_material(0)).is_null()
+
+func test_wheel_groups_define_all_four_corners_for_every_car() -> void:
+	for car_id: Variant in ["starter_car", "muscle_car", "rally_hatch"]:
+		var corner_names: Dictionary = CarVisuals.WHEEL_GROUPS.get(car_id, {})
+		for corner: Variant in ["fl", "fr", "rl", "rr"]:
+			assert_that(corner_names.has(corner)).is_true()
+
+func test_wheel_spin_rate_scales_speed_over_circumference() -> void:
+	assert_that(CarVisuals.wheel_spin_rate(36.0, 0.33)).is_equal_approx(30.303, 0.01)
+	assert_that(CarVisuals.wheel_spin_rate(0.0, 0.33)).is_equal(0.0)
+	assert_that(CarVisuals.wheel_spin_rate(36.0, 0.0)).is_equal(0.0)
+
+func _add_wheel(parent_node: Node3D, wheel_name: String) -> Node3D:
+	var wheel_node := Node3D.new()
+	wheel_node.name = wheel_name
+	parent_node.add_child(wheel_node)
+	_managed_nodes.append(wheel_node)
+	return wheel_node
+
+func test_resolve_wheel_nodes_returns_single_nodes_for_coupe() -> void:
+	var root := _new_root()
+	_add_wheel(root, "Wheel_FL")
+	_add_wheel(root, "Wheel_FR")
+	_add_wheel(root, "Wheel_RL")
+	_add_wheel(root, "Wheel_RR")
+	var wheels: Dictionary = CarVisuals.resolve_wheel_nodes(root, "starter_car")
+	assert_that(wheels.size()).is_equal(4)
+	assert_that((wheels.get("fl") as Array[Node3D]).size()).is_equal(1)
+	assert_that((wheels.get("rr") as Array[Node3D]).size()).is_equal(1)
+
+func test_resolve_wheel_nodes_builds_rim_and_tire_groups() -> void:
+	var root := _new_root()
+	_add_wheel(root, "Rim_LF")
+	_add_wheel(root, "Tire_LF")
+	_add_wheel(root, "Rim_RF")
+	_add_wheel(root, "Tire_RF")
+	_add_wheel(root, "Rim_LR")
+	_add_wheel(root, "Tire_LR")
+	_add_wheel(root, "Rim_RR")
+	_add_wheel(root, "Tire_RR")
+	var wheels: Dictionary = CarVisuals.resolve_wheel_nodes(root, "rally_hatch")
+	assert_that(wheels.size()).is_equal(4)
+	assert_that((wheels.get("fl") as Array[Node3D]).size()).is_equal(2)
+	assert_that((wheels.get("rl") as Array[Node3D]).size()).is_equal(2)
+
+func test_resolve_wheel_nodes_ignores_missing_and_unknown() -> void:
+	var root := _new_root()
+	_add_wheel(root, "Wheel_FL")
+	var known: Dictionary = CarVisuals.resolve_wheel_nodes(root, "starter_car")
+	assert_that(known.size()).is_equal(1)
+	var unknown: Dictionary = CarVisuals.resolve_wheel_nodes(root, "unknown_car")
+	assert_that(unknown.is_empty()).is_true()
+	var empty_root: Dictionary = CarVisuals.resolve_wheel_nodes(null, "starter_car")
+	assert_that(empty_root.is_empty()).is_true()
+
+func test_apply_wheel_visuals_spins_all_and_steers_front_pair() -> void:
+	var root := _new_root()
+	var fl := _add_wheel(root, "Wheel_FL")
+	var fr := _add_wheel(root, "Wheel_FR")
+	var rl := _add_wheel(root, "Wheel_RL")
+	var rr := _add_wheel(root, "Wheel_RR")
+	var wheels: Dictionary = CarVisuals.resolve_wheel_nodes(root, "starter_car")
+	CarVisuals.apply_wheel_visuals(wheels, 1.0, 0.5)
+	assert_that(fl.rotation.x).is_equal_approx(-0.5, 0.001)
+	assert_that(rl.rotation.x).is_equal_approx(-0.5, 0.001)
+	assert_that(rr.rotation.x).is_equal_approx(-0.5, 0.001)
+	assert_that(fl.rotation.y).is_equal_approx(CarVisuals.STEER_VISUAL_MAX_RAD, 0.001)
+	assert_that(fr.rotation.y).is_equal_approx(CarVisuals.STEER_VISUAL_MAX_RAD, 0.001)
+	assert_that(rl.rotation.y).is_equal(0.0)
+	CarVisuals.apply_wheel_visuals(wheels, -1.0, -0.25)
+	assert_that(fl.rotation.y).is_equal_approx(-CarVisuals.STEER_VISUAL_MAX_RAD, 0.001)
+	assert_that(fl.rotation.x).is_equal_approx(0.25, 0.001)
+
+func test_find_named_material_locates_taillight_on_tree() -> void:
+	var root := _new_root()
+	var material := StandardMaterial3D.new()
+	root.add_child(_new_mesh_instance(material, "Taillight"))
+	var found := CarVisuals.find_named_material(root, "taillight")
+	assert_that(found).is_not_null()
+	assert_that(found.resource_name).is_equal("Taillight")
+
+func test_find_named_material_returns_null_when_absent() -> void:
+	var root := _new_root()
+	root.add_child(_new_mesh_instance(StandardMaterial3D.new(), "Paint"))
+	assert_that(CarVisuals.find_named_material(root, "taillight")).is_null()
+
+func test_apply_brake_glow_ramps_emission_energy_with_brake() -> void:
+	var material := StandardMaterial3D.new()
+	material.resource_name = "Taillight"
+	material.emission_enabled = false
+	CarVisuals.apply_brake_glow(material, 1.0)
+	assert_that(material.emission_enabled).is_true()
+	assert_that(material.emission_energy_multiplier).is_equal_approx(CarVisuals.BRAKE_GLOW_MAX, 0.001)
+	CarVisuals.apply_brake_glow(material, 0.0)
+	assert_that(material.emission_energy_multiplier).is_equal_approx(CarVisuals.BRAKE_GLOW_MIN, 0.001)

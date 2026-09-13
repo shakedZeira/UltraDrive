@@ -112,3 +112,21 @@ func test_forward_gears_never_shift_while_in_reverse() -> void:
     # would have upshifted a forward gear past 1st.
     dt.update(1.0 / 60.0, 1.0, car_config)
     assert_that(dt.current_gear).is_equal(-1)
+
+func test_drive_info_exposes_brake_and_steer_keys() -> void:
+    var car := VehiclePhysics.new()
+    var info := car.get_drive_info()
+    assert_that(info.has("brake")).is_true()
+    assert_that(info.has("steer")).is_true()
+    assert_that(info["brake"]).is_equal_approx(0.0, 0.001)
+    assert_that(info["steer"]).is_equal_approx(0.0, 0.001)
+    car.free()
+
+func test_drive_info_keeps_existing_keys() -> void:
+    var car := VehiclePhysics.new()
+    var info := car.get_drive_info()
+    assert_that(info.has("rpm")).is_true()
+    assert_that(info.has("gear")).is_true()
+    assert_that(info.has("speed_kmh")).is_true()
+    assert_that(info.has("handling_mode")).is_true()
+    car.free()
