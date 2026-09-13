@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=14 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/world_driver.gd" id="1_driver"]
 [ext_resource type="Script" path="res://scripts/world/chunk_streamer.gd" id="2_cs"]
@@ -7,6 +7,9 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/pause_menu.tscn" id="5_pause"]
 [ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="6_hud"]
 [ext_resource type="Script" path="res://scripts/camera/orbit_camera.gd" id="7_orbit"]
+[ext_resource type="Script" path="res://scripts/world/terrain_seeder.gd" id="8_seeder"]
+[ext_resource type="Script" path="res://scripts/world/road_network.gd" id="9_net"]
+[ext_resource type="PackedScene" path="res://scenes/world/regions/mountain_pass_zone.tscn" id="10_zone"]
 
 [sub_resource type="ProceduralSkyMaterial" id="sky_mat"]
 sky_top_color = Color(0.16, 0.31, 0.62, 1)
@@ -59,6 +62,22 @@ script = ExtResource("1_driver")
 
 [node name="ChunkStreamer" type="Node" parent="."]
 script = ExtResource("2_cs")
+terrain = NodePath("../Terrain3D")
+
+[node name="Terrain3D" type="Terrain3D" parent="."]
+collision_mode = 3
+show_checkered = false
+show_colormap = true
+
+[node name="TerrainSeeder" type="Node" parent="."]
+script = ExtResource("8_seeder")
+terrain = NodePath("../Terrain3D")
+
+[node name="RoadNetwork" type="Node" parent="."]
+script = ExtResource("9_net")
+
+[node name="MountainPassZone" parent="." instance=ExtResource("10_zone")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3800, 14, 3200)
 
 [node name="PlayerSpawn" type="Marker3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 128, 2.2, 128)
@@ -77,7 +96,7 @@ target = NodePath("%PlayerCar")
 chase_camera_path = NodePath("../ChaseCamera")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 128, 4.7, 134)
 
-[node name="Sun" type="DirectionalLight3D" parent="."]
+[node name="Sun" type="DirectionalLight3D" parent="." groups=["sun"]]
 transform = Transform3D(0.707107, -0.40558, 0.579228, 0, 0.819152, 0.573576, -0.707107, -0.40558, 0.579228, 0, 10, 0)
 shadow_enabled = true
 light_color = Color(1, 0.93, 0.82, 1)
