@@ -2,10 +2,10 @@
 
 [sub_resource type="StandardMaterial3D" id="car_paint"]
 albedo_color = Color(0.82, 0.13, 0.12, 1)
-metallic = 0.45
-roughness = 0.3
+metallic = 0.92
+roughness = 0.35
 clearcoat = 1.0
-clearcoat_roughness = 0.06
+clearcoat_roughness = 0.03
 
 [resource]
 resource_local_to_scene = false

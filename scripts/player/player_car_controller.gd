@@ -33,3 +33,4 @@ func _apply_visual() -> void:
 	var instance: Node3D = visual.instantiate()
 	instance.transform = CAR_ORIENT
 	body.add_child(instance)
+	CarVisuals.apply_paint(instance, CarVisuals.DEFAULT_PAINT)
