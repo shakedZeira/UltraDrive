@@ -8,8 +8,11 @@ signal game_paused
 signal game_resumed
 
 enum GameMode { MAIN_MENU, FREE_ROAM, RACE, LICENSE_TEST, GARAGE }
+enum TransmissionMode { AUTO, MANUAL }
 
 var current_mode: GameMode = GameMode.MAIN_MENU
+var transmission_mode: TransmissionMode = TransmissionMode.AUTO
+var quality_preset: int = 1
 var is_paused: bool = false
 
 func _ready() -> void:
@@ -47,6 +50,15 @@ func toggle_pause() -> void:
 
 func set_mode(mode: GameMode) -> void:
     current_mode = mode
+
+func set_transmission_mode(mode: TransmissionMode) -> void:
+    transmission_mode = mode
+
+func set_quality_preset(preset: int) -> void:
+    quality_preset = preset
+    var data := SaveManager.load_game(0)
+    data["quality_preset"] = quality_preset
+    SaveManager.save_game(0, data)
 
 func _physics_process(_delta: float) -> void:
     if current_mode == GameMode.MAIN_MENU:

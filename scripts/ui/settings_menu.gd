@@ -5,30 +5,119 @@ extends Control
 
 @onready var quality_option: OptionButton = %QualityOption
 @onready var volume_slider: HSlider = %VolumeSlider
+@onready var transmission_option: OptionButton = %TransmissionOption
 
-const QUALITY_PRESETS := {
-	0: {"msaa": 0, "ssao": false, "glow": false},
-	1: {"msaa": 2, "ssao": false, "glow": true},
-	2: {"msaa": 4, "ssao": true, "glow": true},
+## Quality ladder shared by the settings menu and the test suite. Each preset
+## is applied to the current scene Environment + root Viewport.
+const QUALITY_PRESETS: Dictionary = {
+	0: {
+		"ssao_enabled": false,
+		"glow_enabled": false,
+		"volumetric_fog_enabled": false,
+		"ssr_enabled": false,
+		"sdfgi_enabled": false,
+		"msaa_3d": 0,
+		"tonemap_mode": Environment.TONE_MAPPER_ACES,
+		"probe_enabled": false,
+		"scaling_3d_mode": 0,
+		"scaling_3d_scale": 1.0,
+	},
+	1: {
+		"ssao_enabled": true,
+		"glow_enabled": true,
+		"volumetric_fog_enabled": false,
+		"ssr_enabled": false,
+		"sdfgi_enabled": true,
+		"msaa_3d": 2,
+		"tonemap_mode": Environment.TONE_MAPPER_ACES,
+		"probe_enabled": false,
+		"scaling_3d_mode": 0,
+		"scaling_3d_scale": 1.0,
+	},
+	2: {
+		"ssao_enabled": true,
+		"glow_enabled": true,
+		"volumetric_fog_enabled": true,
+		"ssr_enabled": true,
+		"sdfgi_enabled": true,
+		"msaa_3d": 0,
+		"tonemap_mode": Environment.TONE_MAPPER_ACES,
+		"probe_enabled": true,
+		"scaling_3d_mode": 1,
+		"scaling_3d_scale": 0.9,
+	},
 }
+
+static func preset_for(index: int) -> Dictionary:
+	if QUALITY_PRESETS.has(index):
+		return QUALITY_PRESETS[index]
+	return QUALITY_PRESETS[1]
+
+static func apply_quality_preset(env: Environment, viewport: Viewport, preset: Dictionary) -> void:
+	if env:
+		env.ssao_enabled = preset["ssao_enabled"]
+		env.glow_enabled = preset["glow_enabled"]
+		env.volumetric_fog_enabled = preset["volumetric_fog_enabled"]
+		env.ssr_enabled = preset["ssr_enabled"]
+		env.sdfgi_enabled = preset["sdfgi_enabled"]
+		env.tonemap_mode = preset["tonemap_mode"]
+	if viewport:
+		viewport.msaa_3d = _msaa_enum_for(preset["msaa_3d"])
+		viewport.scaling_3d_mode = _scaling_mode_for(preset["scaling_3d_mode"])
+		var scale: float = preset["scaling_3d_scale"]
+		viewport.scaling_3d_scale = clampf(scale, 0.5, 2.0)
+
+## Maps the project-settings msaa_3d units (0=off/1=2x/2=4x/3=8x) to the
+## Viewport.MSAA enum. The old dead "msaa" caps at 4x; anything out of range
+## falls back to disabled.
+static func _msaa_enum_for(level: int) -> Viewport.MSAA:
+	match level:
+		3:
+			return Viewport.MSAA_8X
+		2:
+			return Viewport.MSAA_4X
+		1:
+			return Viewport.MSAA_2X
+		_:
+			return Viewport.MSAA_DISABLED
+
+## Preset scaling mode: 0 = bilinear (scale 1.0 = effectively off),
+## 1 = FSR 2.2. Note SCALING_3D_MODE_FSR2 is enum value 2, not 1.
+static func _scaling_mode_for(mode: int) -> Viewport.Scaling3DMode:
+	if mode == 1:
+		return Viewport.SCALING_3D_MODE_FSR2
+	return Viewport.SCALING_3D_MODE_BILINEAR
 
 func _ready() -> void:
 	quality_option.add_item("Low", 0)
 	quality_option.add_item("Medium", 1)
 	quality_option.add_item("High", 2)
-	quality_option.select(1)
+	quality_option.select(GameState.quality_preset)
 	quality_option.item_selected.connect(_on_quality_selected)
 	volume_slider.value_changed.connect(_on_volume_changed)
+	transmission_option.add_item("Automatic")
+	transmission_option.add_item("Manual")
+	transmission_option.select(GameState.transmission_mode)
+	transmission_option.item_selected.connect(_on_transmission_selected)
 
 func _on_quality_selected(index: int) -> void:
-	var preset: Dictionary = QUALITY_PRESETS.get(index, QUALITY_PRESETS[1])
-	var env: WorldEnvironment = get_viewport().world_environment
-	if env and env.environment:
-		env.environment.ssao_enabled = preset["ssao"]
-		env.environment.glow_enabled = preset["glow"]
+	var preset: Dictionary = preset_for(index)
+	var viewport: Viewport = get_viewport()
+	var env: Environment = null
+	var world_env: WorldEnvironment = viewport.world_environment
+	if world_env:
+		env = world_env.environment
+	apply_quality_preset(env, viewport, preset)
+	GameState.set_quality_preset(index)
 
 func _on_volume_changed(value: float) -> void:
 	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Master"), linear_to_db(value))
+
+func _on_transmission_selected(index: int) -> void:
+	if index == 1:
+		GameState.set_transmission_mode(GameState.TransmissionMode.MANUAL)
+	else:
+		GameState.set_transmission_mode(GameState.TransmissionMode.AUTO)
 
 func _on_back_pressed() -> void:
 	SceneTransition.flash_to_scene("res://scenes/ui/main_menu.tscn")
