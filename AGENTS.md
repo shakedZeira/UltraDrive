@@ -28,7 +28,8 @@ supported!"), which has nothing to do with your code.
    path (before it, the engine bails with exit 103):
    `"D:\Godot\Godot_v4.7.2-stable_win64.exe" --headless -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd --ignoreHeadlessMode -a res://tests > _gdunit.txt 2>&1`
    Then `findstr /c:"Overall Summary:" _gdunit.txt`.
-   EXPECT: `Overall Summary: 39 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 5 orphans` (39/39 — D4 HUD + D5 reverse grew the suite; 5 orphans are benign).
+   EXPECT: `Overall Summary: 144 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 16 orphans` (144/144 — open-world seeding (terrain_baker + mountain_pass_zone) plus D5 control-mapping / world-map / transmission / streaming suites, the D6 race-loop suite `test_race_loop.gd` (14 tests; lap clock, checkpoint gating/caching/re-arm, RaceManager lifecycle, standings ordering, Play->HUD commit; kept leak-free via a suite `after_test` that sync-frees managed stub cars/checkpoints and resets RaceManager) and the graphics-lift suites added by the 2026-09-13 plan: `test_car_visuals` (paint dresser + visual wheels/brake-glow), `test_settings_presets` (quality ladder), `test_car_audio` (3-bed crossfade), `test_chase_camera`, `test_weather_sun` (sun driver) and `test_reflection_probes` (probe toggle/budget); 16 orphans are benign).
+   GDUnit gotchas: it treats GDScript warnings as errors (e.g. `var x := some_func_returning_Variant()` fails to load) and its vector `is_equal_approx` requires a SAME-TYPE approx arg, not a float (`assert_that(vec).is_equal_approx(vec, Vector2(0.001, 0.001))`).
 
 NOTE: if you run the GDUnit `-s` command ALONE (without the earlier headless
 run), it may bail with exit 103/exit 1 "Headless mode is not supported". The
@@ -66,6 +67,73 @@ once, then step 3.
   `ground_height_provider: Callable(Vector2 -> float)` to sit on real terrain;
   falls back to Y 0 on flat circuits.
 
+## OPEN WORLD SEEDING (D4/D5)
+- `scenes/world/open_world_root.tscn` (WorldDriver root): runtime
+  `Terrain3D` node + `TerrainSeeder` (`terrain_seeder.gd`). **Critical ordering:**
+  setting `collision_mode` REINITIALIZES terrain data and RESETS region_size to
+  256, so seeder._ready sets `collision_mode` FIRST, then
+  `region_size = Terrain3D.SIZE_1024` (Terrain3DData has NO region_size property;
+  data is null until node _ready). Hybrid async pipeline (D5): the PLAYER region
+  sync-bakes on first push (~3.3 s as `_bake_sync`); neighbours stream from a
+  worker Thread (Mutex/Semaphore), drained ≤ 2 regions/frame via `_process()`.
+  `set_roads()` then `_push_player_position()` order matters so the bake
+  conforms under roads BEFORE the first height lookup. Prefetch: `_prefetch_ring`
+  (`PREFETCH_RADIUS 2`) re-primes after `set_roads()` resets `_ring_sig`.
+  Region heats warp: never pass a >1-element `get_region_locations()` Array to a
+  single `%s` format arg ("not all arguments converted"). Any script error
+  during a headless diag leaves Godot hanging forever — always run a watchdog.
+  NOTE: the Terrain3D `get_regionp`/`has_regionp`/`add_region_blankp`/
+  `remove_regionp` signatures were VERIFIED green in D5 (streaming suite).
+- `scripts/world/terrain_baker.gd` (pure RefCounted, deterministic): per-region
+  seeded fBm base (region hash + 131/977, freq 0.003, 3 octaves), blended biome
+  table (spawn/rolling/highland/fallback 2/6/20/1), alpine dome (5632,5632,
+  amp 42, radius 5000), 3×3 blur, spawn plateau (128,128, r40, 2.2), clamp
+  [-5,60]. Road conforming = `set_map(TYPE_HEIGHT)` bulk image path with
+  **spatial clipping** (`_clip_chains`, AABB+margin) + per-texel segment-splat
+  min (NOT a full-world O(cells×segments) field — that was the Wave 3 hang,
+  126s/region → 2s). Roads are only wrapped as closed chambers when first/last
+  points nearly touch (`_chain_is_closed`, ~2×avg spacing) so the open
+  hub(128,128)→pass(3800,3200) connector never carves a phantom diagonal.
+- Roads: `road_network.gd` (`add_road(points, width=8, closed=true)`,
+  `get_roads()`, `is_on_road`) builds `track_builder.gd` meshes (`build_track`
+  now takes `closed`; pass false for connector ribbons). `world_driver.gd`
+  `_bootstrap_roads()` adds hub ring + pass connector + pass loop and calls
+  `terrain_seeder.set_roads(...)` BEFORE the first `_push_player_position()`
+  so the bake conforms under every road. `scenes/world/regions/mountain_pass_zone.tscn`
+  is a lean instance of `mountain_pass.gd` with `build_own_ground`/
+  `build_foliage`/`reposition_player` exports off (standalone scene defaults on).
+- Cold open-world start used to be ≈ 35-40s (3×3×1024² sync bake, ~3.3s/region
+  base floor); D5 made it ~3.3s to get driveable (player region sync) with the
+  ring streaming async behind you. FastNoiseLite `get_image` bulk-noise is a
+  possible ~4× cut but quantizes to 8-bit — not yet done.
+- Minimap roads + pause map (D5): `scripts/ui/map_roads.gd` (static `MapRoads`:
+  `resolve_road_source` finds the `road_network` group or tree-walks
+  `get_roads()`, `compute_fit`, `world_to_screen`, `clip_circle`) is shared by
+  `scripts/ui/minimap.gd` and `scripts/ui/world_map.gd` (class `WorldMap`, map
+  overlay in `scenes/ui/pause_menu.tscn`). POI dots come from static
+  `scripts/world/poi_registry.gd`. Roads silently no-op when no source exists.
+- Open-world dressing: `scripts/world/prop_scatterer.gd` (PropScatterer —
+  runtime MultiMesh props: guardrail/tent/power-pole/rock, built from fused
+  primitives, rejection-sampled clear of roads via `is_on_road`, deterministic
+  per seed) configurable per zone with `/self/` bridge presets.
+
+## RACE LOOP (D6)
+- `RaceManager` (autoload) owns race state: `queue_race(laps)` /
+  `consume_pending_race()` bridge track-select (`laps_default` from the track
+  registry) to the HUD — `race_ui.gd` consumes the pending lap count and calls
+  `start_race(VehicleManager.get_all_cars(), laps)` on its first frame.
+  Checkpoints are pooled from the `checkpoints` group through a cached
+  `_all_checkpoints()` list invalidated on `GameState.scene_changed`.
+- `checkpoint.gd` counts each vehicle once per armed cycle (an internal
+  `_counted` map) instead of enter/leave edge detection; `reset()` re-arms.
+  `lap_counter.gd` validates progression against the expected next index
+  (wrap-around allowed) and tracks race/lap start times separately. Standings
+  tie-break by lap, then checkpoint index, then distance to the next gate.
+  Finish: `race_ui.gd` swaps the HUD to a FINISH banner with total time.
+- Tested by `tests/suites/test_race_loop.gd` (14 tests) with `checkpoint_stub.gd`;
+  kept leak-free via a suite `after_test` that sync-frees managed stub
+  cars/checkpoints and resets RaceManager.
+
 ## PROJECT CONVENTIONS
 - Runtime entry: `res://scenes/main.tscn`. Player on track:
   `res://scenes/vehicle/player_car.tscn` (VehiclePhysics, mass ~1100kg, 4×
@@ -80,6 +148,14 @@ once, then step 3.
 - Progression classes: D/C/B/A/S via `car_config.gd` (`car_class`, mass, torque,
   gear_ratios, upshift/downshift kmh). Reverse (`-1`) is a real gear: drives
   backward, torque is flipped, capped at `max_reverse_speed_kmh` (25).
+- Transmission (D5): `GameState.transmission_mode` is AUTO (default) or MANUAL
+  (settings `%TransmissionOption`). Manual shifting on the controller:
+  `shift_up` = physical button 3 (PS Triangle/Xbox Y), `shift_down` = button 0
+  (PS X/Xbox A), keyboard E/Q; handbrake was moved to button 10 (RB/R1) to free
+  the old Triangle binding. In MANUAL every gear change is player-input driven;
+  in AUTO upshifts are RPM-based at `auto_shift_rpm_fraction` (0.92 × redline,
+  so the rally car doesn't shift at ~2,850 rpm in 1st) and downshifts stay
+  speed-table based; an over-rev guard rejects a downshift above `redline*1.05`.
 - HUD: gauges are a Forza/GT-style cluster (`scripts/race/tachometer.gd`,
   `%Cluster` in `scenes/ui/hud.tscn`) driven by `scripts/race/race_ui.gd` from
   `car.get_drive_info()` (`speed_kmh`, `gear`, `rpm`) + config `idle_rpm`/

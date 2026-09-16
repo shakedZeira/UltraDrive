@@ -13,3 +13,9 @@ gdunit_headless.txt
 *gdunit_run*.cmd
 # Godot engine temp files left behind by addon import/reload
 ~*.TMP
+# Transient headless diagnostics + test-run outputs
+_gdunit.txt
+_mpz.txt
+_ow.txt
+_tb.txt
+diag/
