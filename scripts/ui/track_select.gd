@@ -107,7 +107,10 @@ func _on_card_pressed(track_id: String) -> void:
 func _on_play_pressed() -> void:
 	if _selected_id == "":
 		return
-	launch_callback.call(TrackRegistry.get_scene_path(_selected_id))
+	var scene_path := TrackRegistry.get_scene_path(_selected_id)
+	var laps := int(TrackRegistry.get_track(_selected_id).get("laps_default", 3))
+	RaceManager.queue_race(laps)
+	launch_callback.call(scene_path)
 
 func _on_back_pressed() -> void:
 	launch_callback.call("res://scenes/ui/main_menu.tscn")

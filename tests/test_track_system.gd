@@ -54,6 +54,7 @@ func test_track_select_play_loads_selected_scene() -> void:
 	])
 	scene._on_back_pressed()
 	assert_that(launched[launched.size() - 1]).is_equal("res://scenes/ui/main_menu.tscn")
+	RaceManager.consume_pending_race()
 
 func test_track_select_highlight_updates_on_select() -> void:
 	var runner := scene_runner("res://scenes/ui/track_select.tscn")

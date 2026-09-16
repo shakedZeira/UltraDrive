@@ -9,23 +9,28 @@ extends Area3D
 @export var is_start_line: bool = false
 
 var active: bool = false
+var _counted: Dictionary = {}
 
 func _ready() -> void:
-    body_entered.connect(_on_body_entered)
-    add_to_group("checkpoints")
-    collision_layer = 0
-    collision_mask = 1 | 16  # layer 1 (default bodies) + layer 5
-
-func _on_body_entered(body: Node3D) -> void:
-    if active and body is VehiclePhysics:
-        active = false
+	add_to_group("checkpoints")
+	collision_layer = 0
+	collision_mask = 1 | 16  # layer 1 (default bodies) + layer 5
 
 func is_passed(vehicle: VehiclePhysics) -> bool:
-    ## Returns true if this checkpoint detects the given vehicle passing.
-    ## Called by RaceManager. Returns true once per passing (then resets active).
-    if active and !(vehicle in get_overlapping_bodies()):
-        return false
-    return not active and (vehicle in get_overlapping_bodies())
+	## Returns true once per pass while armed (after reset()).
+	## Each vehicle is counted at most once per armed cycle.
+	if not active:
+		return false
+	if not (vehicle in _overlapping_bodies()):
+		return false
+	if _counted.has(vehicle):
+		return false
+	_counted[vehicle] = true
+	return true
+
+func _overlapping_bodies() -> Array:
+	return get_overlapping_bodies()
 
 func reset() -> void:
-    active = true
+	active = true
+	_counted.clear()
