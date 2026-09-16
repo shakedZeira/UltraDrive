@@ -2,7 +2,6 @@
 save/
 .superpowers/
 *.uid
-docs/
 reports/
 zen_keys.txt
 import_log.txt

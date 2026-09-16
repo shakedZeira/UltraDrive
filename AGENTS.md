@@ -164,3 +164,9 @@ once, then step 3.
   where the scene needs two frames; keep using `assert_that(...).is_equal`.
 - The FUN files (the reasons the game exists) live in the playtest flows:
   garage→select car→drive; right-joystick orbit camera; FH5/GT7-style garage.
+- Planning docs are version-controlled under `docs/` (gitignored `reports/`
+  stays local): `docs/ROADMAP.md` (master roadmap; "No tech ceiling" — ambitions
+  are never trimmed to Godot/current architecture, engine/tooling changes are in
+  scope when they serve a goal), `docs/plans/*` (phase/feature gap-fill plans),
+  `docs/research/*` (competitor + self-audit research). Read the roadmap section
+  relevant to any new work before planning.
