@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/track/mountain_pass.gd" id="1_mp"]
+
+[node name="MountainPassZone" type="Node3D"]
+script = ExtResource("1_mp")
+build_own_ground = false
+build_foliage = false
+reposition_player = false

@@ -7,12 +7,19 @@ extends Node
 
 var _roads: Array[Array] = []  # each: Array[Vector3] of spline points
 
-func add_road(points: Array[Vector3], width: float = 8.0) -> void:
+func _ready() -> void:
+    # Lets minimaps/maps find the road source without knowing the scene layout.
+    add_to_group("road_network")
+
+func add_road(points: Array[Vector3], width: float = 8.0, closed: bool = true) -> void:
     var builder := TrackBuilder.new()
     builder.road_width = width
-    builder.build_track(points)
+    builder.build_track(points, closed)
     add_child(builder)
     _roads.append(points)
+
+func get_roads() -> Array[Array]:
+    return _roads
 
 func get_nearest_road_pos(pos: Vector3) -> Vector3:
     var best := pos

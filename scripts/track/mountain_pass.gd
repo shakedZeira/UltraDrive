@@ -37,21 +37,31 @@ const GRASS_COLOR := Color(0.30, 0.36, 0.27)
 ## Centerline points used to build the road (exposed for tests).
 var road_points: Array[Vector3] = []
 
+## Export gates. Defaults keep the standalone scene (and its tests) behaving
+## exactly as before; the open world's lean MountainPassZone turns all three
+## off because the world already owns its ground, foliage and player spawn.
+@export var build_own_ground: bool = true
+@export var build_foliage: bool = true
+@export var reposition_player: bool = true
+
 
 func _ready() -> void:
 	road_points = _generate_road_points()
-	var terrain := _build_conforming_ground(road_points)
+	var terrain: Terrain3D = null
+	if build_own_ground:
+		terrain = _build_conforming_ground(road_points)
 
 	var builder := TrackBuilder.new()
 	builder.road_width = 11.0
 	add_child(builder)
 	builder.build_track(road_points)
 
-	var foliage := Foliage.new()
-	foliage.radius = 150.0
-	foliage.inner_clear_radius = 92.0
-	foliage.ground_height_provider = _make_ground_height_provider(terrain)
-	add_child(foliage)
+	if build_foliage:
+		var foliage := Foliage.new()
+		foliage.radius = 150.0
+		foliage.inner_clear_radius = 92.0
+		foliage.ground_height_provider = _make_ground_height_provider(terrain)
+		add_child(foliage)
 
 	var checkpoint_count := 8
 	var step := road_points.size() / checkpoint_count
@@ -68,7 +78,8 @@ func _ready() -> void:
 		cp.body_entered.connect(_on_checkpoint_body_entered.bind(cp.index))
 		add_child(cp)
 
-	_reposition_player_to_start(road_points)
+	if reposition_player:
+		_reposition_player_to_start(road_points)
 
 
 ## Keeps foliage grounded on the new terrain. The provider is handed to the

@@ -7,13 +7,17 @@ extends Node3D
 @export var road_width: float = 12.0
 @export var road_height: float = 0.1
 
-## Build track from array of Vector3 points (closed loop).
-func build_track(points: Array[Vector3]) -> void:
+## Build track from array of Vector3 points. By default the points are a
+## closed loop (the strip wraps back to point 0). Pass closed=false for an
+## open-ended road (e.g. the hub->pass connector) so the mesh, edge lines and
+## collision strip use plain segment adjacency and never draw a closing strip
+## back across the map.
+func build_track(points: Array[Vector3], closed: bool = true) -> void:
     if points.size() < 3:
         return
 
     # Create visual mesh
-    var road_mesh := _build_mesh(points, false)
+    var road_mesh := _build_mesh(points, false, closed)
     var mesh_instance := MeshInstance3D.new()
     mesh_instance.mesh = road_mesh
 
@@ -42,7 +46,7 @@ func build_track(points: Array[Vector3]) -> void:
         Color(0.85, 0.85, 0.82),
     ]
     for e in range(edge_offsets.size()):
-        var edge_mesh := _build_edge_mesh(points, edge_offsets[e], 1.0)
+        var edge_mesh := _build_edge_mesh(points, edge_offsets[e], 1.0, closed)
         var edge_instance := MeshInstance3D.new()
         edge_instance.mesh = edge_mesh
         var edge_material := StandardMaterial3D.new()
@@ -63,7 +67,7 @@ func build_track(points: Array[Vector3]) -> void:
     # at the respawn point. The strip below closes the loop by sharing the
     # seam vertices, so the surface is flat, gapless, and watertight.
     var body := StaticBody3D.new()
-    var coll_mesh := _build_mesh(points, true)
+    var coll_mesh := _build_mesh(points, true, closed)
     var trimesh_shape: ConcavePolygonShape3D = coll_mesh.create_trimesh_shape()
     var collision := CollisionShape3D.new()
     collision.shape = trimesh_shape
@@ -71,10 +75,11 @@ func build_track(points: Array[Vector3]) -> void:
     body.physics_material_override = track_phys_mat
     add_child(body)
 
-func _build_mesh(points: Array[Vector3], flip_winding: bool) -> ArrayMesh:
-    ## Builds a single closed triangle-strip mesh following the points.
-    ## The strip wraps around so the last segment connects back to the
-    ## first one, sharing the seam vertices (no gap, no fold).
+func _build_mesh(points: Array[Vector3], flip_winding: bool, closed: bool) -> ArrayMesh:
+    ## Builds a single triangle-strip mesh following the points. When closed,
+    ## the strip wraps around so the last segment connects back to the first
+    ## one, sharing the seam vertices (no gap, no fold). When open, the strip
+    ## runs to the last point with its tangent clamped at the ends.
     var n := points.size()
     var vertices := PackedVector3Array()
     var indices := PackedInt32Array()
@@ -83,8 +88,8 @@ func _build_mesh(points: Array[Vector3], flip_winding: bool) -> ArrayMesh:
     # Vertex pair per path point (left / right of the centerline)
     for i in range(n):
         var p := points[i]
-        var prev := points[(i - 1 + n) % n]
-        var next := points[(i + 1) % n]
+        var prev := points[(i - 1 + n) % n] if closed else points[maxi(i - 1, 0)]
+        var next := points[(i + 1) % n] if closed else points[mini(i + 1, n - 1)]
         var forward := (next - prev).normalized()
         var right := forward.cross(Vector3.UP).normalized()
 
@@ -94,8 +99,8 @@ func _build_mesh(points: Array[Vector3], flip_winding: bool) -> ArrayMesh:
         normals.append(Vector3.UP)
 
     # Closed quad strip (triangle strip)
-    for i in range(n):
-        var j := (i + 1) % n
+    for i in range(n if closed else n - 1):
+        var j := (i + 1) % n if closed else i + 1
         var base := i * 2
         var next_base := j * 2
         if flip_winding:
@@ -122,7 +127,7 @@ func _build_mesh(points: Array[Vector3], flip_winding: bool) -> ArrayMesh:
     mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
     return mesh
 
-func _build_edge_mesh(points: Array[Vector3], offset: float, width: float) -> ArrayMesh:
+func _build_edge_mesh(points: Array[Vector3], offset: float, width: float, closed: bool) -> ArrayMesh:
     var n := points.size()
     var vertices := PackedVector3Array()
     var indices := PackedInt32Array()
@@ -130,8 +135,8 @@ func _build_edge_mesh(points: Array[Vector3], offset: float, width: float) -> Ar
 
     for i in range(n):
         var p := points[i]
-        var prev := points[(i - 1 + n) % n]
-        var next := points[(i + 1) % n]
+        var prev := points[(i - 1 + n) % n] if closed else points[maxi(i - 1, 0)]
+        var next := points[(i + 1) % n] if closed else points[mini(i + 1, n - 1)]
         var forward := (next - prev).normalized()
         var right := forward.cross(Vector3.UP).normalized()
         var center := p + Vector3.UP * 0.012 + right * offset
@@ -141,8 +146,8 @@ func _build_edge_mesh(points: Array[Vector3], offset: float, width: float) -> Ar
         normals.append(Vector3.UP)
         normals.append(Vector3.UP)
 
-    for i in range(n):
-        var j := (i + 1) % n
+    for i in range(n if closed else n - 1):
+        var j := (i + 1) % n if closed else i + 1
         var base := i * 2
         var next_base := j * 2
         indices.append(base)

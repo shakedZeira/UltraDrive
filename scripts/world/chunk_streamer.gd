@@ -8,6 +8,7 @@ extends Node
 @export var chunk_size: float = 256.0
 @export var load_radius: int = 2  # chunks around player to load
 @export var chunk_scene: PackedScene  # scene to instance per chunk
+@export var terrain: Terrain3D  # when set, flat chunks become empty anchors (Terrain3D owns ground+collision)
 
 var _loaded_chunks: Dictionary = {}  # key: "x,z", value: Node
 
@@ -57,6 +58,9 @@ func _load_chunk(cx: int, cz: int) -> void:
     _loaded_chunks["%d,%d" % [cx, cz]] = chunk
 
 func _create_flat_chunk() -> Node3D:
+    if terrain != null:
+        return Node3D.new()
+
     var chunk := Node3D.new()
 
     var mesh_instance := MeshInstance3D.new()
