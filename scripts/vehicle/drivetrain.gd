@@ -14,6 +14,7 @@ var drive_torque: float = 0.0
 var is_shifting: bool = false
 var shift_timer: float = 0.0
 var reverse_limiter_active: bool = false
+var manual_mode: bool = false  # true = driver shifts via shift_up/shift_down
 
 # --- Internal ---
 var _wheel_speed: float = 0.0  # m/s (set by VehiclePhysics)
@@ -87,13 +88,15 @@ func update(delta: float, throttle: float, config: CarConfig) -> Dictionary:
     else:
         reverse_limiter_active = false
 
-    # --- Auto-shift (speed-based, automatic transmission) ---
-    # Speeds come from the config tables; reverse (-1) is never auto-shifted.
-    if not is_shifting and current_gear > 0:
+    # --- Auto-shift (automatic transmission only) ---
+    # Upshifts are RPM-based so cars climb to redline before changing gear; the
+    # old speed tables shifted at ~35% of redline. Downshifts stay speed-based.
+    # Manual mode never auto-shifts; reverse (-1) is never auto-shifted.
+    if not manual_mode and not is_shifting and current_gear > 0:
+        var auto_shift_rpm: float = config.redline_rpm * config.auto_shift_rpm_fraction
         var speed_kmh := absf(_wheel_speed) * 3.6
         var max_gear := config.gear_ratios.size()
-        if current_gear < max_gear \
-                and speed_kmh >= config.get_upshift_speed_kmh(current_gear):
+        if current_gear < max_gear and engine_rpm >= auto_shift_rpm:
             shift_up(config)
         elif current_gear > 1 \
                 and speed_kmh < config.get_downshift_speed_kmh(current_gear):
@@ -111,7 +114,15 @@ func shift_up(config: CarConfig) -> void:
         _start_shift(config)
 
 func shift_down(config: CarConfig) -> void:
+    # Over-rev guard: reject the drop if the lower gear would push the engine
+    # past 105% of redline at the current wheel speed (protects manual shifts).
     if current_gear > 1:  # never drop below 1st; reverse (-1) is a separate state
+        var gear_ratio := config.get_gear_ratio(current_gear - 1)
+        var wheel_radius := 0.33
+        var rpm_after := absf(_wheel_speed) / maxf(wheel_radius, 0.01) \
+                        * gear_ratio * 60.0 / TAU
+        if rpm_after > config.redline_rpm * 1.05:
+            return
         current_gear -= 1
         _start_shift(config)
 

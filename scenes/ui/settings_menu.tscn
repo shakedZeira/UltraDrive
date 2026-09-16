@@ -42,6 +42,11 @@ max_value = 1.0
 step = 0.01
 value = 0.8
 
+[node name="TransmissionOption" type="OptionButton" parent="CenterLayout"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(0, 40)
+
 [node name="BackButton" type="Button" parent="CenterLayout"]
 layout_mode = 2
 custom_minimum_size = Vector2(0, 40)

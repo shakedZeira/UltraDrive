@@ -30,6 +30,7 @@ extends Resource
 @export var reverse_ratio: float = 3.2
 @export var max_reverse_speed_kmh: float = 25.0  # hard cap; reverse stays well below 1st gear
 @export var shift_time: float = 0.15  # seconds to shift gears
+@export var auto_shift_rpm_fraction: float = 0.92  # fraction of redline at which the auto-box upshifts
 
 # --- Automatic transmission shift points (km/h) ---
 # upshift_speeds_kmh[i] is the speed at which the auto-box shifts up from
