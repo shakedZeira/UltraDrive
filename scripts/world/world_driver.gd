@@ -90,7 +90,7 @@ func _hub_ring() -> Array[Vector3]:
 ## hub height (2.2) up to end.y across the journey. Sampled every ~10 m.
 func _pass_connector(end: Vector3) -> Array[Vector3]:
 	var control: Array[Vector3] = [
-		Vector3(128.0, 0.0, 128.0),
+		Vector3(238.0, 0.0, 128.0),
 		Vector3(1500.0, 0.0, 128.0),
 		Vector3(3200.0, 0.0, 1800.0),
 		end,
