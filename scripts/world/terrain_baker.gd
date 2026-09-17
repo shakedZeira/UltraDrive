@@ -572,13 +572,19 @@ func _conform_roads(buf: PackedFloat32Array, chains: Array[PackedVector3Array], 
 		return
 	var core := ROAD_WIDTH * 0.5 + 0.3
 	var blend2 := BLEND_END_DISTANCE * BLEND_END_DISTANCE
+	var band := 12.0 * step * step
 	var stride := int(round(sqrt(float(buf.size()))))
 	var d2_map := PackedFloat32Array()
 	d2_map.resize(stride * stride)
 	d2_map.fill(INF)
 	var elev_map := PackedFloat32Array()
 	elev_map.resize(stride * stride)
+	var owner_chain := PackedInt32Array()
+	owner_chain.resize(stride * stride)
+	owner_chain.fill(-1)
+	var ri := 0
 	for pts in clipped:
+		ri += 1
 		for s in pts.size() - 1:
 			var a := pts[s]
 			var b := pts[s + 1]
@@ -605,9 +611,14 @@ func _conform_roads(buf: PackedFloat32Array, chains: Array[PackedVector3Array], 
 					if d2 >= blend2:
 						continue
 					var i := row + ix
-					if d2 < d2_map[i]:
+					var elev := a.y + dy * t
+					var gap := elev_map[i] - elev
+					var owned := d2_map[i] < blend2
+					var too_high := owned and elev - elev_map[i] > 9.0
+					if (d2 < d2_map[i] - band and not too_high) or (owned and d2 <= d2_map[i] + band and gap > 0.5 and owner_chain[i] != ri):
 						d2_map[i] = d2
-						elev_map[i] = a.y + dy * t
+						elev_map[i] = elev
+						owner_chain[i] = ri
 	for iz in stride:
 		var row := iz * stride
 		for ix in stride:
@@ -635,7 +646,8 @@ func _clip_chains(chains: Array[PackedVector3Array], origin: Vector2, margin: fl
 	var min_z := origin.y - margin
 	var max_z := origin.y + REGION_SIZE + margin
 	var clipped: Array[PackedVector3Array] = []
-	for pts in chains:
+	for ci in chains.size():
+		var pts: PackedVector3Array = chains[ci]
 		var n := pts.size()
 		var closed := _chain_is_closed(pts)
 		var run := PackedVector3Array()

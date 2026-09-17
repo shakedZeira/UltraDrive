@@ -26,7 +26,7 @@ const PRIORITY_LIVE := 0  # live-ring/frontier bakes, served first
 const PRIORITY_CORRIDOR := 1  # known-road corridor pre-bake, served next
 const PRIORITY_PREFETCH := 2  # prefetch band, served last
 const CORRIDOR_MARGIN := 1  # region locs pre-baked around each road point
-const MAX_CORRIDOR_LOCS := 40  # corridor pre-bake cap, spawn-closest first
+const MAX_CORRIDOR_LOCS := 48  # corridor pre-bake cap, tier-priority first
 const SPAWN_REGION := Vector2i(0, 0)  # region under the (128, 128) spawn
 
 @export var terrain: Terrain3D
@@ -39,6 +39,7 @@ const SPAWN_REGION := Vector2i(0, 0)  # region under the (128, 128) spawn
 var _baked: Dictionary = {}
 var _baker := TerrainBaker.new()
 var _roads: Array = []
+var _road_defs: Array = []
 
 ## Region locations whose finished bake was written into the terrain this
 ## session. Cleared when the region is removed so a re-entry rewrites it.
@@ -79,7 +80,10 @@ var async_apply_count: int = 0
 ## Stores the road centerlines the baker should conform to and invalidates the
 ## bake cache so regions re-bake (and pick the roads up) on their next entry.
 ## Any in-flight or queued async results are dropped via the generation stamp.
-func set_roads(roads: Array) -> void:
+## The optional road_defs array enables tier-aware corridor pre-bake priority
+## (highway first, dirt last) when present; when absent the legacy
+## spawn-distance fallback is preserved bit-for-bit.
+func set_roads(roads: Array, road_defs: Array = []) -> void:
 	_lock.lock()
 	_roads_generation += 1
 	_queued.clear()
@@ -87,6 +91,7 @@ func set_roads(roads: Array) -> void:
 	_work_queue.clear()
 	_lock.unlock()
 	_roads = roads
+	_road_defs = road_defs
 	_baked.clear()
 	_ring_sig = Vector2i(1 << 30, 1 << 30)
 	_prebake_corridor(roads)
@@ -100,33 +105,58 @@ func _ready() -> void:
 	terrain.region_size = Terrain3D.SIZE_1024
 
 ## Queues cached-only bakes (PRIORITY_CORRIDOR) for every region the known road
-## network touches plus a CORRIDOR_MARGIN border, capped at MAX_CORRIDOR_LOCS
-## (spawn-closest first), so the whole driveable route pre-bakes on the worker
-## in the background right after bootstrap. On-road frontier crossings then hit
-## the fast cached-write path instead of a placeholder wipe or a sync bake.
-## Like _prefetch_ring this only warms the bake cache: it never adds a
-## Terrain3D region. Called from set_roads() after the cache/generation reset.
+## network touches plus a CORRIDOR_MARGIN border, capped at MAX_CORRIDOR_LOCS.
+## When road_defs were passed to set_roads() the cap is ordered by tier priority
+## (HIGHWAY ring first -> ARTERIAL -> TOUGE/COASTAL -> DIRT last) so the 100 km
+## classified network still pre-bakes ahead of the player without flooding the
+## worker; when no defs are present the legacy spawn-closest ordering is kept
+## bit-for-bit. PRIORITY_LIVE (0) stays the winner over this Corridor priority
+## everywhere. On-road frontier crossings hit the fast cached-write path instead
+## of a placeholder wipe or a sync bake. Like _prefetch_ring this only warms the
+## bake cache: it never adds a Terrain3D region. Called from set_roads() after
+## the cache/generation reset.
 func _prebake_corridor(roads: Array) -> void:
 	if roads.is_empty():
 		return
+	var tiered := _road_defs.size() > 0
 	var loc_set := {}
-	for road in roads:
+	var loc_tier: Dictionary = {}
+	for i in roads.size():
+		var road = roads[i]
+		var tier: int = RoadDef.Tier.ARTERIAL
+		if tiered and i < _road_defs.size():
+			tier = _road_defs[i].tier
 		for point in road:
 			var p: Vector3 = point
 			var base := Vector2i(floori(p.x / REGION_SIZE), floori(p.z / REGION_SIZE))
 			for dx in range(-CORRIDOR_MARGIN, CORRIDOR_MARGIN + 1):
 				for dz in range(-CORRIDOR_MARGIN, CORRIDOR_MARGIN + 1):
-					loc_set[base + Vector2i(dx, dz)] = true
+					var loc := base + Vector2i(dx, dz)
+					loc_set[loc] = true
+					if tiered:
+						if not loc_tier.has(loc) or tier < loc_tier[loc]:
+							loc_tier[loc] = tier
 	loc_set.erase(SPAWN_REGION)
 	var locs = loc_set.keys()
-	locs.sort_custom(_corridor_sort)
+	if tiered:
+		locs.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+			var ta: int = loc_tier.get(a, RoadDef.Tier.DIRT)
+			var tb: int = loc_tier.get(b, RoadDef.Tier.DIRT)
+			if ta != tb:
+				return ta < tb
+			return _corridor_sort(a, b)
+		)
+	else:
+		locs.sort_custom(_corridor_sort)
 	for i in mini(locs.size(), MAX_CORRIDOR_LOCS):
 		var loc: Vector2i = locs[i]
 		if not _baked.has(loc) and not _applied.has(loc) and _queued_get(loc) == -1:
 			_queue_bake(loc, int(REGION_SIZE), PRIORITY_CORRIDOR)
 
-## Corridor cap sort: squared region-coordinate distance to the spawn region,
-## then x, then y (deterministic tie-break).
+## Corridor fallback sort: squared region-coordinate distance to the spawn
+## region, then x, then y (deterministic tie-break). Used alone for legacy
+## one-arg set_roads(); used as the intra-tier tie-break when road_defs are
+## present inside the tier-priority lambda.
 func _corridor_sort(a: Vector2i, b: Vector2i) -> bool:
 	var da := a.x * a.x + a.y * a.y
 	var db := b.x * b.x + b.y * b.y

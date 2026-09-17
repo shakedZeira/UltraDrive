@@ -57,8 +57,10 @@ func _push_player_position() -> void:
 		_terrain_seeder.sync_player_pos(player_pos)
 
 ## Seeds the road network before the first terrain push so Terrain3D carves
-## recessed ground under every road on its first bake: the hub ring, the
-## Catmull-Rom connector to the pass, and the pass loop itself (world-offset).
+## recessed ground under every road on its first bake. CorridorPlanner emits
+## the full classified network (hub ring, connector, pass loop, then new
+## highway/touge/coastal/dirt corridors) and each def is registered before
+## the first height lookup (critical ordering from AGENTS.md).
 func _bootstrap_roads() -> void:
 	var network := get_node_or_null(road_network_path) as RoadNetwork
 	if network == null:
@@ -72,85 +74,15 @@ func _bootstrap_roads() -> void:
 			for p in zone_points:
 				zone_roads.append(zone.global_position + (p as Vector3))
 			end = zone_roads[0]
-	network.add_road(_hub_ring(), 12.0)
-	network.add_road(_pass_connector(end), 10.0, false)
+	var params := {}
 	if zone_roads.size() > 0:
-		network.add_road(zone_roads, 11.0)
+		params["zone_road_points"] = zone_roads
+		params["zone_end"] = end
+	var corridor_defs := CorridorPlanner.plan(CorridorPlanner.MASTER_SEED, Callable(), params)
+	for def in corridor_defs:
+		network.add_road_def(def)
 	if _terrain_seeder != null:
-		_terrain_seeder.set_roads(network.get_roads())
-
-func _hub_ring() -> Array[Vector3]:
-	var ring: Array[Vector3] = []
-	for i in 96:
-		var ang := TAU * float(i) / 96.0
-		ring.append(Vector3(128.0 + cos(ang) * 110.0, 2.2, 128.0 + sin(ang) * 110.0))
-	return ring
-
-## Catmull-Rom connector from the hub to the pass-loop start. Y ramps from the
-## hub height (2.2) up to end.y across the journey. Sampled every ~10 m.
-func _pass_connector(end: Vector3) -> Array[Vector3]:
-	var control: Array[Vector3] = [
-		Vector3(238.0, 0.0, 128.0),
-		Vector3(1500.0, 0.0, 128.0),
-		Vector3(3200.0, 0.0, 1800.0),
-		end,
-	]
-	var chain := PackedVector3Array()
-	const DENSE := 96
-	for i in DENSE + 1:
-		chain.append(_catmull_rom_xz(control, float(i) / float(DENSE)))
-	chain[DENSE] = end
-	var cumulative := PackedFloat32Array()
-	cumulative.resize(chain.size())
-	var total := 0.0
-	for i in chain.size():
-		if i > 0:
-			total += chain[i - 1].distance_to(chain[i])
-		cumulative[i] = total
-	var road: Array[Vector3] = []
-	road.append(Vector3(chain[0].x, 2.2, chain[0].z))
-	if total <= 0.0:
-		return road
-	const SAMPLE_DIST := 10.0
-	var next_dist := SAMPLE_DIST
-	for seg in range(1, chain.size()):
-		var a := chain[seg - 1]
-		var b := chain[seg]
-		var seg_start := cumulative[seg - 1]
-		var seg_len := cumulative[seg] - seg_start
-		while next_dist <= cumulative[seg]:
-			var local := (next_dist - seg_start) / seg_len if seg_len > 0.0001 else 0.0
-			var pos := a.lerp(b, local)
-			var frac := next_dist / total
-			road.append(Vector3(pos.x, lerpf(2.2, end.y, frac), pos.z))
-			next_dist += SAMPLE_DIST
-	var last := road[road.size() - 1]
-	if last.distance_to(end) > 1.0:
-		road.append(end)
-	return road
-
-## Catmull-Rom spline sampled on XZ only (Y is ramped separately) with clamped
-## end tangents, so the curve passes through every control point and the
-## endpoints (hub and pass-loop start) sit exactly on their control points.
-func _catmull_rom_xz(control: Array[Vector3], t: float) -> Vector3:
-	var n := control.size()
-	if n <= 1:
-		return control[0] if n == 1 else Vector3.ZERO
-	var seg := clampi(int(floorf(t * float(n - 1))), 0, n - 2)
-	var f := clampf(t * float(n - 1) - float(seg), 0.0, 1.0)
-	var p0: Vector3 = control[maxi(seg - 1, 0)]
-	var p1: Vector3 = control[seg]
-	var p2: Vector3 = control[seg + 1]
-	var p3: Vector3 = control[mini(seg + 2, n - 1)]
-	var f2 := f * f
-	var f3 := f2 * f
-	var x := 0.5 * (2.0 * p1.x + (-p0.x + p2.x) * f
-		+ (2.0 * p0.x - 5.0 * p1.x + 4.0 * p2.x - p3.x) * f2
-		+ (-p0.x + 3.0 * p1.x - 3.0 * p2.x + p3.x) * f3)
-	var z := 0.5 * (2.0 * p1.z + (-p0.z + p2.z) * f
-		+ (2.0 * p0.z - 5.0 * p1.z + 4.0 * p2.z - p3.z) * f2
-		+ (-p0.z + 3.0 * p1.z - 3.0 * p2.z + p3.z) * f3)
-	return Vector3(x, 0.0, z)
+		_terrain_seeder.set_roads(network.get_roads(), network.get_road_defs())
 
 ## WeatherManager sun portal (Q6). These helpers are the single source of
 ## truth for baking a DirectionalLight3D sun transform; WeatherManager itself

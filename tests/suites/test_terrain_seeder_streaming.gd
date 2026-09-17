@@ -129,3 +129,58 @@ func test_player_region_sync_bakes_before_any_async_apply() -> void:
 	assert_that(seeder._baked.has(NEIGHBOR_REGION)).is_true()
 	assert_that(seeder._applied.has(NEIGHBOR_REGION)).is_true()
 	seeder._stop_worker()
+
+## test (d): set_roads() with road_defs queues HIGHWAY-tier corridor locations
+## before DIRT-tier locations (tier-priority ordering), and never floods the
+## worker beyond the bounded MAX_CORRIDOR_LOCS budget.
+func test_set_roads_with_defs_respects_tier_priority_order() -> void:
+	var seeder := TerrainSeeder.new()
+	var hw_pts: Array[Vector3] = [Vector3(1100.0, 0.0, 100.0)]
+	var dt_pts: Array[Vector3] = [Vector3(20000.0, 0.0, 20000.0)]
+	var hw_def := RoadDef.make(RoadDef.Tier.HIGHWAY, hw_pts)
+	var dt_def := RoadDef.make(RoadDef.Tier.DIRT, dt_pts)
+	seeder.set_roads([hw_pts, dt_pts], [hw_def, dt_def])
+	seeder._lock.lock()
+	var q: Array = seeder._work_queue.duplicate()
+	seeder._lock.unlock()
+	assert_that(q.size()).is_greater(0)
+	assert_that(q.size()).is_less_equal(seeder.MAX_CORRIDOR_LOCS)
+	# Highway at (1100,100) spreads over regions y=-1..1; dirt at (20000,20000)
+	# over y=18..20. Every HIGHWAY-tier entry must precede the first DIRT entry.
+	var first_dirt_idx := q.size()
+	for i in q.size():
+		if q[i]["loc"].y >= 18:
+			first_dirt_idx = mini(first_dirt_idx, i)
+			break
+	for i in first_dirt_idx:
+		assert_that(q[i]["loc"].y).is_less(2)
+	seeder._stop_worker()
+
+## test (e): the legacy one-arg set_roads(roads) still works — no defs are
+## stored and the spawn-distance fallback ordering is preserved.
+func test_legacy_set_roads_one_arg_still_works() -> void:
+	var seeder := TerrainSeeder.new()
+	var roads: Array = [[Vector3(1100.0, 0.0, 100.0)]]
+	seeder.set_roads(roads)
+	assert_that(seeder._road_defs.is_empty()).is_true()
+	seeder._lock.lock()
+	var q: Array = seeder._work_queue.duplicate()
+	seeder._lock.unlock()
+	assert_that(q.size()).is_greater(0)
+	assert_that(q.size()).is_less_equal(seeder.MAX_CORRIDOR_LOCS)
+	seeder._stop_worker()
+
+## test (f): corridor pre-bake is bounded — a road spanning dozens of regions
+## never queues more than MAX_CORRIDOR_LOCS jobs.
+func test_corridor_prebake_bounded_by_max_locs() -> void:
+	var seeder := TerrainSeeder.new()
+	var long_road: Array[Vector3] = []
+	for i in range(20, 80):
+		long_road.append(Vector3(float(i) * 1100.0, 0.0, 0.0))
+	seeder.set_roads([long_road])
+	assert_that(seeder._road_defs.is_empty()).is_true()
+	seeder._lock.lock()
+	var q: Array = seeder._work_queue.duplicate()
+	seeder._lock.unlock()
+	assert_that(q.size()).is_less_equal(seeder.MAX_CORRIDOR_LOCS)
+	seeder._stop_worker()

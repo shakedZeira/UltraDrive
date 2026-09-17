@@ -272,6 +272,62 @@ changes where the no-tech-ceiling rule applies).
   "a generated, readable map" — that decision is deliberate because the franchise
   asset is *reproducibility*.
 
+#### P2 EXECUTION — sub-agent split (fixed contract, read by both agents)
+
+> Delegated per §3.0 as two parallel sub-agents: **P2a** (pure pipeline) and
+> **P2b** (bootstrap + streaming budget). API contract is fixed BEFORE they run;
+> each agent owns its files and writes its test-gates; the orchestrator runs the
+> full suite and commits (agents never commit, never run the engine).
+
+- **P2a — pure corridor pipeline.** Owns ONLY: `scripts/world/spline.gd` (new,
+  `class_name Spline`, pure RefCounted: `_catmull_rom_xz` lifted from
+  `world_driver.gd:135-153` plus arc-length resampling + gradient-profile ramping +
+  touge serration/hairpin folds + coast-hugging conformer), `scripts/world/
+  corridor_planner.gd` (new, `class_name CorridorPlanner`, pure RefCounted) and
+  `tests/suites/test_corridor_seeding.gd` (new, the plan's named test-gate).
+- **P2b — bootstrap + streaming budget.** Owns ONLY: `scripts/world/world_driver.gd`
+  (`_bootstrap_roads` → blueprint instantiation; delete `_hub_ring`/
+  `_pass_connector`/`_catmull_rom_xz`), `scripts/world/terrain_seeder.gd`
+  (tier-aware corridor pre-bake: raise `MAX_CORRIDOR_LOCS=40`, per-tier priority,
+  `PRIORITY_LIVE` stays the winner) and extends `tests/suites/
+  test_terrain_seeder_streaming.gd` only. Guards `tests/test_road_graph.gd` +
+  `tests/test_open_world.gd` stay green (reads only, no edits).
+- **Fixed API contract (P2a defines, P2b consumes):**
+  1. `CorridorPlanner.MASTER_SEED: int` — derived deterministically from
+     `TerrainBaker.NOISE_SEED` (1337), e.g. `1337 * 1337 / some-int`.
+  2. `static func CorridorPlanner.plan(master_seed: int, height_provider: Callable =
+     Callable(), tier_defaults: Dictionary = {}) -> Array[RoadDef]` — pure,
+     deterministic headless. `height_provider` follows the
+     `ground_height_provider: Callable(Vector2 -> float)` convention
+     (`foliage.gd`/`prop_scatterer.gd`/`mountain_pass.gd:89`); empty callable ⇒ a
+     deterministic flat-Y fallback so tests need no Terrain3D. Emits RoadDefs
+     ready for `RoadNetwork.add_road_def`.
+  3. **Road-index invariant (hard):** the FIRST THREE emitted defs must reproduce
+     today's bootstrap 1:1 — `0` = hub ring (ARTERIAL, width 12, closed, center
+     128,128 r110, y2.2 of the current `_hub_ring`, 96 samples), `1` = hub→pass
+     connector (ARTERIAL, width 10, open, current `_pass_connector` Catmull-Rom
+     with Y ramp 2.2→end.y, endpoints exactly at (238,128)…end, must end at the
+     mountain-pass zone start when a zone exists), `2` = pass loop (ARTERIAL, width
+     11, closed, world-offset zone road points). `tests/test_road_graph.gd:297`
+     and `tests/test_open_world.gd` depend on this topology. After def 2, the new
+     classes in class order: HIGHWAY perimeter ring, arterial hub↔coast /
+     hub↔highway on-ramps, TOUGE switchback climbs into the P1 massifs, COASTAL
+     ribbons hugging the P1 sea band, DIRT cut-throughs.
+  4. `TerrainSeeder.set_roads(roads: Array, road_defs: Array = [])` — second
+     optional `Array[RoadDef]` param for tier-aware pre-bake priority; existing
+     one-arg calls (streaming suite) must keep working. `_prebake_corridor(roads)`
+     signature unchanged; `MAX_CORRIDOR_LOCS` raised and tiered (highway → arterial
+     → touge/coastal → dirt), `PRIORITY_LIVE` (0) unchanged and still the winner.
+  5. `world_driver._bootstrap_roads()` keeps the ordering rule (set_roads BEFORE the
+     first `_push_player_position()`); sun/probe/streamer logic untouched.
+- **Test-gates:** P2a writes `tests/suites/test_corridor_seeding.gd` (fixed seed:
+  total km ≥ target, tier counts exact, `closed` correctness per class — open
+  connectors/tips never get a phantom chord, Y within a driveable band, same-seed →
+  same chain-hash, two seeds → different). P2b extends
+  `tests/suites/test_terrain_seeder_streaming.gd` (defs-aware pre-bake priority
+  ordering; legacy one-arg `set_roads` green). Orchestrator: full suite green
+  (178 + P2 additions), import probe clean.
+
 ---
 
 ### P3 — Off-road capability (surface grip & consequences)

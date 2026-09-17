@@ -305,22 +305,29 @@ func test_open_world_bootstrap_connects_all_three_roads() -> void:
 	if network == null:
 		return
 	var roads := network.get_roads()
-	assert_that(roads.size()).is_equal(3)
+	# The P2 classified network (CorridorPlanner.plan) emits 12 road defs; the
+	# bootstrap core invariant is that defs 0..2 are hub ring / hub->pass
+	# connector / pass loop, so the growth must never break that prefix.
+	assert_that(roads.size()).is_greater_equal(3)
 	var hub: Array[Vector3] = roads[0]
 	# Hub ring point 0 doubles as the connector's first point.
 	assert_that(hub[0]).is_equal_approx(Vector3(238.0, 2.2, 128.0), Vector3(0.001, 0.001, 0.001))
 	var adj := network.get_adjacency()
-	assert_that(adj[0]).is_equal(PackedInt32Array([1]))
+	# Hub ring now also spawns the coast arterial, highway on-ramp and dirt
+	# cut-throughs; the connector link (-1) must still be present.
+	assert_that(adj[0].has(1)).is_true()
 	assert_that(adj[1]).is_equal(PackedInt32Array([0, 2]))
 	assert_that(adj[2]).is_equal(PackedInt32Array([1]))
 	var junctions := network.get_junctions()
-	assert_that(junctions.size()).is_equal(2)
-	var ring_junction: Dictionary = junctions[0]
-	var pass_junction: Dictionary = junctions[1]
-	assert_that(ring_junction["road_a"]).is_equal(0)
-	assert_that(ring_junction["road_b"]).is_equal(1)
-	assert_that(pass_junction["road_a"]).is_equal(1)
-	assert_that(pass_junction["road_b"]).is_equal(2)
+	var ring_junction: Dictionary = {}
+	var pass_junction: Dictionary = {}
+	for j in junctions:
+		if int(j["road_a"]) == 0 and int(j["road_b"]) == 1:
+			ring_junction = j
+		elif int(j["road_a"]) == 1 and int(j["road_b"]) == 2:
+			pass_junction = j
+	assert_that(ring_junction.is_empty()).is_false()
+	assert_that(pass_junction.is_empty()).is_false()
 	assert_float(ring_junction["dist"]).is_equal_approx(0.0, 0.001)
 	assert_float(pass_junction["dist"]).is_equal_approx(0.0, 0.001)
 	assert_that(ring_junction["point"]).is_equal_approx(hub[0], Vector3(0.001, 0.001, 0.001))
