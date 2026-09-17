@@ -18,6 +18,11 @@ func _center_of(loc: Vector2i) -> Vector3:
 func _bake_direct(loc: Vector2i, width: int = IMAGE_WIDTH) -> Image:
 	return TerrainBaker.new().bake_region(loc, 1.0, width, [])
 
+## Sync color reference: bake_region_color at scale 1.0, the exact call the
+## worker job mirrors (scale defaults to the seeder's bake_scale = 1.0).
+func _color_direct(loc: Vector2i, width: int = IMAGE_WIDTH) -> Image:
+	return TerrainBaker.new().bake_region_color(loc, 1.0, width, [])
+
 ## Awaits a wall-clock condition with no busy loop; caps out and returns false
 ## so tests fail with a clear assert rather than hanging the suite.
 func _await_until(condition: Callable, timeout_s: float) -> bool:
@@ -47,6 +52,32 @@ func test_worker_streamed_bake_matches_sync_baker() -> void:
 	assert_that(baked.get_height()).is_equal(reference.get_height())
 	assert_that(baked.get_data()).is_equal(reference.get_data())
 	assert_that(seeder._async_completed()).is_greater_equal(1)
+	assert_that(seeder._bake_queued(target)).is_false()
+	seeder._stop_worker()
+
+## test (a2): the worker's streamed bake carries a deterministic RGBA8 color map
+## as a "color" sibling of the height image, sized like the height map and
+## byte-identical to the sync TerrainBaker color produce (same region/scale/
+## width/roads), mirroring the height equivalence test above.
+func test_worker_streamed_bake_carries_color() -> void:
+	var seeder := TerrainSeeder.new()
+	var target := Vector2i(4, 3)
+	seeder._queue_bake(target, IMAGE_WIDTH)
+	var landed := await _await_until(func() -> bool: return seeder._pending_count() > 0, 10.0)
+	assert_that(landed).is_true()
+	seeder._drain_pending(null, 100)
+	var cached: Variant = seeder._baked.get(target)
+	var color: Image = (cached as Dictionary).get("color") as Image if cached is Dictionary else null
+	assert_that(color).is_not_null()
+	if color == null:
+		return
+	var height: Image = (cached as Dictionary).get("image") as Image if cached is Dictionary else null
+	assert_that(height).is_not_null()
+	assert_that(color.get_width()).is_equal(height.get_width())
+	assert_that(color.get_height()).is_equal(height.get_height())
+	assert_that(color.get_format()).is_equal(Image.FORMAT_RGBA8)
+	var reference: Image = _color_direct(target, IMAGE_WIDTH)
+	assert_that(color.get_data()).is_equal(reference.get_data())
 	assert_that(seeder._bake_queued(target)).is_false()
 	seeder._stop_worker()
 

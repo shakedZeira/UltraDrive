@@ -24,6 +24,39 @@
 
 ---
 
+## 3.0 EXECUTION CONVENTIONS — sub-agents (read every session)
+
+> **Standing instruction (user-set): plan work is delegated to sub-agents, and
+> this section is the contract they are given — do not re-derive it per phase.**
+
+- **Delegation rule.** Each phase/work item is handed to a sub-agent (one agent
+  per owning file set) that reads the live code + the relevant plan/AGENTS
+  sections, implements the spec, and writes the named test-gate. The
+  orchestrator (this session) owns verification: it runs the full GDUnit suite
+  and fixes merge/drift issues. Sub-agents never commit.
+- **Split by files, not by phase.** P1a owns `terrain_baker.gd` (elevation
+  bands + color bake); P1b owns `terrain_seeder.gd` (TYPE_COLOR wiring); they
+  run in parallel with a *pre-fixed API contract* below. P2 splits
+  `corridor_planner.gd`+`spline.gd` (pure) from `world_driver.gd` bootstrap
+  wiring. P3 splits `surface_registry.gd` from `vehicle_physics.gd` hooks.
+- **API contracts are fixed BEFORE agents start** so parallel diffs merge
+  without conflict. P1 contract: `TerrainBaker.bake_region()` stays
+  byte-stable; new `bake_region_color(region, scale, width, roads) -> Image`
+  (FORMAT_RGBA8, deterministic per region hash, road-tinted corridors); the
+  seeder `_baked[loc]` record gains a `"color"` sibling Image (missing/null is
+  tolerated); `_write_region(...)` gains a trailing optional `color` param.
+- **Engine contention.** Two agents never run the headless engine on the same
+  `res://` concurrently (Godot locks the project). Only the orchestrator runs
+  the full suite — after the agents' file work lands. Agents may run the
+  `--headless --import .` probe serially if a parse check is needed.
+- **Machine drift.** Godot binary is per-machine — this laptop:
+  `C:\Godot\Godot_v4.7.2-stable_win64.exe` (reference box:
+  `D:\Godot\Godot_v4.7.2-stable_win64.exe`). Same AGENTS.md headless recipe
+  (import probe, then `-s` GDUnit with `--ignoreHeadlessMode` AFTER the
+  tool-script path).
+
+---
+
 ## 1. VISION
 
 UltraDrive's open world grows from a 6.4 km "one track to a destination" into a

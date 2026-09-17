@@ -58,3 +58,58 @@ func test_road_conforming_carves_loop_and_relaxes_to_natural() -> void:
 		var carved_side := _height_at(carved, region, lateral.x, lateral.z)
 		var natural_side := _height_at(natural, region, lateral.x, lateral.z)
 		assert_that(absf(carved_side - natural_side)).is_less(3.0)
+
+## P1 colour-map: bake_region_color is deterministic (two calls identical),
+## colour image matches height image dimensions, SEA centre is < 0 with band
+## SEA, and ALPINE dome peak is >= 600 (ALPINE band).
+func test_bake_region_color_is_deterministic() -> void:
+	var baker := TerrainBaker.new()
+	var img_a := baker.bake_region_color(Vector2i(1, 1), 1.0, IMAGE_WIDTH, [])
+	var img_b := baker.bake_region_color(Vector2i(1, 1), 1.0, IMAGE_WIDTH, [])
+	assert_that(img_a.get_data()).is_equal(img_b.get_data())
+
+func test_color_image_matches_height_dimensions() -> void:
+	var baker := TerrainBaker.new()
+	var height_img := baker.bake_region(Vector2i(0, 0), 1.0, IMAGE_WIDTH, [])
+	var color_img := baker.bake_region_color(Vector2i(0, 0), 1.0, IMAGE_WIDTH, [])
+	assert_that(color_img.get_width()).is_equal(height_img.get_width())
+	assert_that(color_img.get_height()).is_equal(height_img.get_height())
+
+func test_sea_center_height_below_zero_and_band_sea() -> void:
+	var baker := TerrainBaker.new()
+	baker.bake_region(Vector2i(8, -4))
+	var h := baker._natural_height(TerrainBaker.BIOME_SEA_CENTER.x, TerrainBaker.BIOME_SEA_CENTER.y)
+	assert_that(h).is_less(0.0)
+	var band: int = TerrainBaker.elevation_band(h)
+	assert_that(band).is_equal(TerrainBaker.BAND_SEA)
+
+func test_alpine_dome_peak_in_alpine_band() -> void:
+	var baker := TerrainBaker.new()
+	baker.bake_region(Vector2i(7, 6))
+	var peak_x: float = TerrainBaker.DOME_FAMILY[0]["center"].x
+	var peak_z: float = TerrainBaker.DOME_FAMILY[0]["center"].y
+	var h := baker._natural_height(peak_x, peak_z)
+	assert_that(h).is_greater_equal(600.0)
+	var band: int = TerrainBaker.elevation_band(h)
+	assert_that(band).is_equal(TerrainBaker.BAND_ALPINE)
+
+## P1 colour-map road tint: on a baked region with a road, a texel at the road
+## centreline is asphalt-tinted (colour differs from a texel 200 m away).
+func test_road_tint_differs_from_natural_color() -> void:
+	var region := Vector2i(3, 3)
+	var loop := _build_loop(LOOP_CENTER)
+	var road_list: Array = [loop]
+	var color_img := TerrainBaker.new().bake_region_color(region, 1.0, IMAGE_WIDTH, road_list)
+	var p: Vector3 = loop[0]
+	var step := REGION_SIZE / float(IMAGE_WIDTH)
+	var origin := Vector2(region.x * REGION_SIZE, region.y * REGION_SIZE)
+	var road_px := clampi(int(floorf((p.x - origin.x) / step - 0.5)), 0, IMAGE_WIDTH - 1)
+	var road_pz := clampi(int(floorf((p.z - origin.y) / step - 0.5)), 0, IMAGE_WIDTH - 1)
+	var road_col := color_img.get_pixel(road_px, road_pz)
+	var out := (Vector2(p.x, p.z) - LOOP_CENTER).normalized()
+	var far_x := p.x + out.x * 200.0
+	var far_z := p.z + out.y * 200.0
+	var far_px := clampi(int(floorf((far_x - origin.x) / step - 0.5)), 0, IMAGE_WIDTH - 1)
+	var far_pz := clampi(int(floorf((far_z - origin.y) / step - 0.5)), 0, IMAGE_WIDTH - 1)
+	var far_col := color_img.get_pixel(far_px, far_pz)
+	assert_that(road_col).is_not_equal(far_col)

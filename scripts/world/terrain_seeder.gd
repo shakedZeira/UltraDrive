@@ -33,7 +33,9 @@ const SPAWN_REGION := Vector2i(0, 0)  # region under the (128, 128) spawn
 @export var bake_scale: float = 1.0
 
 ## Key Vector2i (region location) -> {"image": Image (FORMAT_RF),
-## "height_min": float, "height_max": float}, cached forever.
+## "color": Image (FORMAT_RGBA8), "height_min": float, "height_max": float},
+## cached forever. The color image is optional: missing/null color records are
+## tolerated and write height-only, exactly as before the color bake.
 var _baked: Dictionary = {}
 var _baker := TerrainBaker.new()
 var _roads: Array = []
@@ -274,7 +276,7 @@ func _ensure_region(data: Terrain3DData, loc: Vector2i, with_update: bool = true
 		var rec: Variant = _baked[loc]
 		var image: Image = rec["image"]
 		if image != null:
-			_write_region(data, region, loc, image, rec["height_min"], rec["height_max"], with_update)
+			_write_region(data, region, loc, image, rec["height_min"], rec["height_max"], with_update, rec.get("color"))
 			_applied[loc] = true
 			return true
 	if is_player:
@@ -293,7 +295,7 @@ func _bake_player_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vect
 		var rec: Variant = _baked[loc]
 		var image: Image = rec["image"]
 		if image != null:
-			_write_region(data, region, loc, image, rec["height_min"], rec["height_max"])
+			_write_region(data, region, loc, image, rec["height_min"], rec["height_max"], true, rec.get("color"))
 			_applied[loc] = true
 			return
 	if _queued_get(loc) == -1:
@@ -304,7 +306,7 @@ func _bake_player_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vect
 	if not near_rec.is_empty():
 		var near_image: Image = near_rec["image"]
 		if near_image != null:
-			_write_region(data, region, loc, near_image, near_rec["height_min"], near_rec["height_max"])
+			_write_region(data, region, loc, near_image, near_rec["height_min"], near_rec["height_max"], true, near_rec.get("color"))
 	_applied[loc] = true
 
 ## Pre-bakes the PREFETCH_RADIUS band around the player (including the live
@@ -330,20 +332,25 @@ func _bake_sync(data: Terrain3DData, region: Terrain3DRegion, loc: Vector2i) -> 
 	if map == null:
 		return
 	var image := _baker.bake_region(loc, bake_scale, map.get_width(), _roads)
+	var color := _baker.bake_region_color(loc, bake_scale, map.get_width(), _roads)
 	var range := _scan_height_range(image)
-	_baked[loc] = {"image": image, "height_min": range.x, "height_max": range.y}
+	_baked[loc] = {"image": image, "color": color, "height_min": range.x, "height_max": range.y}
 	sync_bake_count += 1
-	_write_region(data, region, loc, image, range.x, range.y)
+	_write_region(data, region, loc, image, range.x, range.y, true, color)
 	_applied[loc] = true
 
 ## Writes the baked height image into the region as its full-resolution map,
-## grows the region AABB, then regenerates the changed regions' maps. Callers
-## pass a cached/worker-computed min/max so the main thread never rescans the
-## image; the scan fallback only exists for the sync cold-start path. When
-## with_update is false the GPU regeneration is deferred to the batched ring
-## pass, which updates every changed region in a single update_maps() call.
-func _write_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vector2i, image: Image, height_min: float = INF, height_max: float = -INF, with_update: bool = true) -> void:
+## plus the optional RGBA8 color map as a TYPE_COLOR sibling, grows the region
+## AABB, then regenerates the changed regions' maps. Callers pass a
+## cached/worker-computed min/max so the main thread never rescans the image;
+## the scan fallback only exists for the sync cold-start path. When with_update
+## is false the GPU regeneration is deferred to the batched ring pass, which
+## updates every changed region in a single update_maps() call. A null color is
+## tolerated and keeps the region height-only, exactly as before the color bake.
+func _write_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vector2i, image: Image, height_min: float = INF, height_max: float = -INF, with_update: bool = true, color: Image = null) -> void:
 	region.set_map(Terrain3DRegion.TYPE_HEIGHT, image)
+	if color != null:
+		region.set_map(Terrain3DRegion.TYPE_COLOR, color)
 	if height_min == INF:
 		var range := _scan_height_range(image)
 		height_min = range.x
@@ -353,6 +360,8 @@ func _write_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vector2i, 
 	region.set_edited(true)
 	if with_update:
 		data.update_maps(Terrain3DRegion.TYPE_HEIGHT, false)
+		if color != null:
+			data.update_maps(Terrain3DRegion.TYPE_COLOR, false)
 	region.set_edited(false)
 
 func _scan_height_range(image: Image) -> Vector2:
@@ -435,11 +444,13 @@ func _worker_bake(worker_baker: TerrainBaker, job: Dictionary) -> Dictionary:
 	var scale: float = job["scale"]
 	var roads: Array = job["roads"]
 	var image: Image = worker_baker.bake_region(loc, scale, width, roads)
+	var color: Image = worker_baker.bake_region_color(loc, scale, width, roads)
 	var range := _scan_height_range(image)
 	return {
 		"loc": loc,
 		"gen": gen,
 		"image": image,
+		"color": color,
 		"height_min": range.x,
 		"height_max": range.y,
 	}
@@ -473,17 +484,19 @@ func _apply_record(record: Dictionary, data: Terrain3DData) -> void:
 		_clear_queued_if_matching(loc, gen)
 		return
 	var image: Image = record["image"]
+	var color: Image = record.get("color")
 	var center := _region_center(loc)
 	var already_cached := _baked.has(loc)
 	_baked[loc] = {
 		"image": image,
+		"color": color,
 		"height_min": record["height_min"],
 		"height_max": record["height_max"],
 	}
 	if not already_cached and data != null and _ring_contains(loc):
 		var region: Terrain3DRegion = data.get_regionp(center) if data.has_regionp(center) else null
 		if region != null:
-			_write_region(data, region, loc, image, record["height_min"], record["height_max"])
+			_write_region(data, region, loc, image, record["height_min"], record["height_max"], true, color)
 			_applied[loc] = true
 			async_apply_count += 1
 	_clear_queued_if_matching(loc, gen)

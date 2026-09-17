@@ -5,48 +5,110 @@ extends RefCounted
 ## Pure heightfield math for Terrain3D regions: no scene tree access, so the
 ## whole class is headless-unit-testable and deterministic. bake_region() runs
 ## the passes in order: deterministic natural heightfield (region-seeded fBm
-## over a blended biome elevation table plus an alpine dome), optional
+## over a blended biome elevation table plus alpine domes), optional
 ## road-corridor conforming via a coarse distance field, a 3x3 separable blur,
-## then the spawn-plateau guard and the final height clamp.
+## then the spawn-plateau guard and the final height clamp. bake_region_color()
+## produces a matching FORMAT_RGBA8 colour map by reusing the same biome/dome
+## math and painting per-elevation-band colours plus road-surface tints.
 
 const REGION_SIZE := 1024.0
 
+# -- Elevation band taxonomy (SEA < 0, ALPINE 600..1500+) -------------------
+const BAND_SEA := 0
+const BAND_PLAINS := 1
+const BAND_ROLLING := 2
+const BAND_LOWLAND := 3
+const BAND_HIGHLAND := 4
+const BAND_ALPINE := 5
+const BAND_COUNT := 6
+
+const ELEVATION_BANDS := [
+	{"name": "SEA",      "min": -INF, "max": 0.0},
+	{"name": "PLAINS",   "min": 0.0,  "max": 10.0},
+	{"name": "ROLLING",  "min": 10.0, "max": 60.0},
+	{"name": "LOWLAND",  "min": 60.0, "max": 200.0},
+	{"name": "HIGHLAND", "min": 200.0, "max": 600.0},
+	{"name": "ALPINE",   "min": 600.0, "max": INF},
+]
+
+# -- Spawn plateau (unchanged) -----------------------------------------------
 const SPAWN_PLATEAU_CENTER := Vector2(128.0, 128.0)
 const SPAWN_PLATEAU_RADIUS := 40.0
 const SPAWN_HEIGHT := 2.2
 const BASE_HEIGHT := 1.0
 
+# -- Noise (unchanged) -------------------------------------------------------
 const NOISE_SEED := 1337
 const NOISE_FREQUENCY := 0.003
 const NOISE_OCTAVES := 3
 const NOISE_LACUNARITY := 2.0
 const NOISE_GAIN := 0.5
 
+# -- Original driveable-corridor biome centres (preserved exactly) ------------
 const BIOME_SPAWN_CENTER := Vector2(128.0, 128.0)
 const BIOME_SPAWN_BASE := 2.0
 const BIOME_SPAWN_RADIUS := 1500.0
 const BIOME_ROLLING_CENTER := Vector2(2048.0, 2048.0)
-const BIOME_ROLLING_BASE := 6.0
+const BIOME_ROLLING_BASE := 18.0
 const BIOME_ROLLING_RADIUS := 2000.0
 const BIOME_HIGHLAND_CENTER := Vector2(3584.0, 2816.0)
-const BIOME_HIGHLAND_BASE := 20.0
+const BIOME_HIGHLAND_BASE := 35.0
 const BIOME_HIGHLAND_RADIUS := 2600.0
 const BIOME_FALLBACK_BASE := 1.0
 
-const DOME_CENTER := Vector2(5632.0, 5632.0)
-const DOME_RADIUS := 5000.0
-const DOME_EDGE := 0.35
-const DOME_AMP := 42.0
+# -- Legacy alpine dome (preserved exactly) -----------------------------------
+const LEGACY_DOME_CENTER := Vector2(5632.0, 5632.0)
+const LEGACY_DOME_RADIUS := 5000.0
+const LEGACY_DOME_EDGE := 0.35
+const LEGACY_DOME_AMP := 42.0
 
-const HEIGHT_MIN := -5.0
-const HEIGHT_MAX := 60.0
+# -- New driveable-corridor biomes (far from hub/pass) -----------------------
+const BIOME_LOWLAND_CENTER := Vector2(4600.0, 4700.0)
+const BIOME_LOWLAND_BASE := 90.0
+const BIOME_LOWLAND_RADIUS := 2200.0
+const BIOME_HIGHLAND_PLATEAU_CENTER := Vector2(6800.0, 6400.0)
+const BIOME_HIGHLAND_PLATEAU_BASE := 260.0
+const BIOME_HIGHLAND_PLATEAU_RADIUS := 2600.0
+const BIOME_FARMLAND_CENTER := Vector2(2048.0, 400.0)
+const BIOME_FARMLAND_BASE := 6.0
+const BIOME_FARMLAND_RADIUS := 1600.0
+const BIOME_COAST_CENTER := Vector2(8200.0, -1800.0)
+const BIOME_COAST_BASE := 2.5
+const BIOME_COAST_RADIUS := 1800.0
+const BIOME_SEA_CENTER := Vector2(8200.0, -3400.0)
+const BIOME_SEA_BASE := -6.0
+const BIOME_SEA_RADIUS := 2600.0
 
+# -- Massif dome family (compact alpine domes, far from driveable corridor) ---
+const DOME_FAMILY := [
+	{"center": Vector2(7800.0, 6400.0), "radius": 3200.0, "edge": 0.5, "amp": 1100.0},
+	{"center": Vector2(6400.0, 7800.0), "radius": 2800.0, "edge": 0.5, "amp": 850.0},
+	{"center": Vector2(7000.0, 3000.0), "radius": 1800.0, "edge": 0.5, "amp": 150.0},
+]
+
+# -- Height limits (no 60 m ceiling; real alpine peaks reach >= 1500 m) -------
+const HEIGHT_MIN := -8.0
+const HEIGHT_MAX := 2000.0
+
+# -- Road / field constants (unchanged) --------------------------------------
 const ROAD_WIDTH := 11.0
 const ROAD_TOPPING := 0.15
 const BLEND_END_DISTANCE := 40.0
 const FIELD_STEP := 4.0
 const FIELD_MARGIN := 16.0
 const SAMPLE_SPACING := 2.0
+
+# -- Elevation-band colour palette (RGBA8) -----------------------------------
+const COLOR_SEA := Color(0.12, 0.24, 0.56)
+const COLOR_COAST := Color(0.82, 0.77, 0.55)
+const COLOR_PLAINS := Color(0.38, 0.62, 0.28)
+const COLOR_FARMLAND := Color(0.55, 0.65, 0.28)
+const COLOR_ROLLING := Color(0.28, 0.55, 0.22)
+const COLOR_LOWLAND := Color(0.14, 0.42, 0.14)
+const COLOR_HIGHLAND := Color(0.52, 0.44, 0.32)
+const COLOR_ALPINE := Color(0.92, 0.92, 0.95)
+const COLOR_FALLBACK := Color(0.60, 0.58, 0.42)
+const COLOR_ROAD := Color(0.30, 0.30, 0.32)
 
 var _bake_scale := 1.0
 var _bake_region := Vector2i.ZERO
@@ -84,26 +146,25 @@ func bake_region(region: Vector2i, bake_scale: float = 1.0, image_width: int = 1
 	return Image.create_from_data(image_width, image_width, false, Image.FORMAT_RF, buf.to_byte_array())
 
 ## Natural height at a world XZ position: region-seeded fBm detail on top of a
-## blended biome base, plus the NE alpine dome, scaled by _bake_scale. The
-## spawn guard is applied later inside bake_region() so it wins over everything.
+## blended biome base, plus alpine domes, scaled by _bake_scale. The spawn
+## guard is applied later inside bake_region() so it wins over everything.
 func _height_at(wx: float, wz: float) -> float:
 	return _natural_height(wx, wz)
 
 func _natural_height(wx: float, wz: float) -> float:
 	var base := _biome_base(wx, wz)
 	var detail := _noise.get_noise_2d(wx, wz) * (1.8 + 0.14 * base)
-	var height := base + detail + DOME_AMP * _dome_weight(wx, wz)
+	var height := base + detail + _dome_weight(wx, wz)
 	height *= _bake_scale
 	return clampf(height, HEIGHT_MIN, HEIGHT_MAX)
 
 ## Fills `buf` (row-major, stride x stride) with the natural base field. This
 ## is the very same math as _natural_height(): per-texel fBm detail over the
-## blended biome table, the alpine dome, bake scale and the height clamp. The
+## blended biome table, alpine domes, bake scale and the height clamp. The
 ## arithmetic is inlined into one loop (no per-texel helper frames, no Vector2
 ## temporaries), which is ~3x faster while keeping the values equivalent to
 ## the reference (float results match to within 1 ulp per texel).
 func _bake_natural(buf: PackedFloat32Array, origin: Vector2, step: float, stride: int) -> void:
-	var dome_edge := DOME_RADIUS * DOME_EDGE
 	for iz in stride:
 		var wz := origin.y + (float(iz) + 0.5) * step
 		var row := iz * stride
@@ -138,12 +199,68 @@ func _bake_natural(buf: PackedFloat32Array, origin: Vector2, step: float, stride
 				weight = t * t
 			total += weight
 			acc += weight * BIOME_HIGHLAND_BASE
+			dx = wx - BIOME_FARMLAND_CENTER.x
+			dz = wz - BIOME_FARMLAND_CENTER.y
+			dist = sqrt(dx * dx + dz * dz)
+			weight = 0.0
+			if dist < BIOME_FARMLAND_RADIUS:
+				var t := 1.0 - dist / BIOME_FARMLAND_RADIUS
+				weight = t * t
+			total += weight
+			acc += weight * BIOME_FARMLAND_BASE
+			dx = wx - BIOME_COAST_CENTER.x
+			dz = wz - BIOME_COAST_CENTER.y
+			dist = sqrt(dx * dx + dz * dz)
+			weight = 0.0
+			if dist < BIOME_COAST_RADIUS:
+				var t := 1.0 - dist / BIOME_COAST_RADIUS
+				weight = t * t
+			total += weight
+			acc += weight * BIOME_COAST_BASE
+			dx = wx - BIOME_LOWLAND_CENTER.x
+			dz = wz - BIOME_LOWLAND_CENTER.y
+			dist = sqrt(dx * dx + dz * dz)
+			weight = 0.0
+			if dist < BIOME_LOWLAND_RADIUS:
+				var t := 1.0 - dist / BIOME_LOWLAND_RADIUS
+				weight = t * t
+			total += weight
+			acc += weight * BIOME_LOWLAND_BASE
+			dx = wx - BIOME_HIGHLAND_PLATEAU_CENTER.x
+			dz = wz - BIOME_HIGHLAND_PLATEAU_CENTER.y
+			dist = sqrt(dx * dx + dz * dz)
+			weight = 0.0
+			if dist < BIOME_HIGHLAND_PLATEAU_RADIUS:
+				var t := 1.0 - dist / BIOME_HIGHLAND_PLATEAU_RADIUS
+				weight = t * t
+			total += weight
+			acc += weight * BIOME_HIGHLAND_PLATEAU_BASE
+			dx = wx - BIOME_SEA_CENTER.x
+			dz = wz - BIOME_SEA_CENTER.y
+			dist = sqrt(dx * dx + dz * dz)
+			weight = 0.0
+			if dist < BIOME_SEA_RADIUS:
+				var t := 1.0 - dist / BIOME_SEA_RADIUS
+				weight = t * t
+			total += weight
+			acc += weight * BIOME_SEA_BASE
 			var base := BIOME_FALLBACK_BASE if total <= 0.0001 else acc / total
 			var detail := _noise.get_noise_2d(wx, wz) * (1.8 + 0.14 * base)
-			var dome_dx := wx - DOME_CENTER.x
-			var dome_dz := wz - DOME_CENTER.y
-			var dome := 1.0 - smoothstep(dome_edge, DOME_RADIUS, sqrt(dome_dx * dome_dx + dome_dz * dome_dz))
-			buf[row + ix] = clampf((base + detail + DOME_AMP * dome) * _bake_scale, HEIGHT_MIN, HEIGHT_MAX)
+			var dome := 0.0
+			var leg_dx := wx - LEGACY_DOME_CENTER.x
+			var leg_dz := wz - LEGACY_DOME_CENTER.y
+			var leg_d := sqrt(leg_dx * leg_dx + leg_dz * leg_dz)
+			dome += LEGACY_DOME_AMP * (1.0 - smoothstep(LEGACY_DOME_RADIUS * LEGACY_DOME_EDGE, LEGACY_DOME_RADIUS, leg_d))
+			for di in DOME_FAMILY.size():
+				var dome_c: Vector2 = DOME_FAMILY[di]["center"]
+				var dome_r: float = DOME_FAMILY[di]["radius"]
+				var dome_e: float = DOME_FAMILY[di]["edge"]
+				var dome_a: float = DOME_FAMILY[di]["amp"]
+				var ddx := wx - dome_c.x
+				var ddz := wz - dome_c.y
+				var dd := sqrt(ddx * ddx + ddz * ddz)
+				dome += dome_a * (1.0 - smoothstep(dome_r * dome_e, dome_r, dd))
+			buf[row + ix] = clampf((base + detail + dome) * _bake_scale, HEIGHT_MIN, HEIGHT_MAX)
 
 func _biome_base(wx: float, wz: float) -> float:
 	var wp := Vector2(wx, wz)
@@ -158,6 +275,21 @@ func _biome_base(wx: float, wz: float) -> float:
 	w = _biome_weight(wp, BIOME_HIGHLAND_CENTER, BIOME_HIGHLAND_RADIUS)
 	total += w
 	acc += w * BIOME_HIGHLAND_BASE
+	w = _biome_weight(wp, BIOME_FARMLAND_CENTER, BIOME_FARMLAND_RADIUS)
+	total += w
+	acc += w * BIOME_FARMLAND_BASE
+	w = _biome_weight(wp, BIOME_COAST_CENTER, BIOME_COAST_RADIUS)
+	total += w
+	acc += w * BIOME_COAST_BASE
+	w = _biome_weight(wp, BIOME_LOWLAND_CENTER, BIOME_LOWLAND_RADIUS)
+	total += w
+	acc += w * BIOME_LOWLAND_BASE
+	w = _biome_weight(wp, BIOME_HIGHLAND_PLATEAU_CENTER, BIOME_HIGHLAND_PLATEAU_RADIUS)
+	total += w
+	acc += w * BIOME_HIGHLAND_PLATEAU_BASE
+	w = _biome_weight(wp, BIOME_SEA_CENTER, BIOME_SEA_RADIUS)
+	total += w
+	acc += w * BIOME_SEA_BASE
 	if total <= 0.0001:
 		return BIOME_FALLBACK_BASE
 	return acc / total
@@ -170,8 +302,220 @@ func _biome_weight(wp: Vector2, center: Vector2, radius: float) -> float:
 	return t * t
 
 func _dome_weight(wx: float, wz: float) -> float:
-	var d := Vector2(wx, wz).distance_to(DOME_CENTER)
-	return 1.0 - smoothstep(DOME_RADIUS * DOME_EDGE, DOME_RADIUS, d)
+	var dome := 0.0
+	var leg_d := Vector2(wx, wz).distance_to(LEGACY_DOME_CENTER)
+	dome += LEGACY_DOME_AMP * (1.0 - smoothstep(LEGACY_DOME_RADIUS * LEGACY_DOME_EDGE, LEGACY_DOME_RADIUS, leg_d))
+	for di in DOME_FAMILY.size():
+		var dome_c: Vector2 = DOME_FAMILY[di]["center"]
+		var dome_r: float = DOME_FAMILY[di]["radius"]
+		var dome_e: float = DOME_FAMILY[di]["edge"]
+		var dome_a: float = DOME_FAMILY[di]["amp"]
+		var d := Vector2(wx, wz).distance_to(dome_c)
+		dome += dome_a * (1.0 - smoothstep(dome_r * dome_e, dome_r, d))
+	return dome
+
+## Classifies a height into an elevation band index (SEA=0..ALPINE=5).
+static func elevation_band(height: float) -> int:
+	if height < 0.0:
+		return BAND_SEA
+	if height < 10.0:
+		return BAND_PLAINS
+	if height < 60.0:
+		return BAND_ROLLING
+	if height < 200.0:
+		return BAND_LOWLAND
+	if height < 600.0:
+		return BAND_HIGHLAND
+	return BAND_ALPINE
+
+## Returns the RGBA8 colour for a given elevation band index.
+func _band_color(band: int) -> Color:
+	match band:
+		BAND_SEA:
+			return COLOR_SEA
+		BAND_PLAINS:
+			return COLOR_PLAINS
+		BAND_ROLLING:
+			return COLOR_ROLLING
+		BAND_LOWLAND:
+			return COLOR_LOWLAND
+		BAND_HIGHLAND:
+			return COLOR_HIGHLAND
+		BAND_ALPINE:
+			return COLOR_ALPINE
+		_:
+			return COLOR_FALLBACK
+
+## Returns an Image.FORMAT_RGBA8 colour map for the given region, deterministic
+## per (region, scale, roads).  Each texel is coloured by its elevation band
+## with a small deterministic brightness wobble from the same region-seeded noise
+## used for height.  Road corridors are tinted asphalt grey along the conformed
+## centreline within ROAD_WIDTH / 2 + 0.3, blending over ~3 m.
+func bake_region_color(region: Vector2i, bake_scale: float = 1.0, image_width: int = 1024, roads: Array = []) -> Image:
+	_bake_scale = bake_scale
+	_bake_region = region
+	_noise.seed = NOISE_SEED + _bake_region.x * 131 + _bake_region.y * 977
+	_noise.frequency = NOISE_FREQUENCY
+	_noise.fractal_octaves = NOISE_OCTAVES
+	_noise.fractal_lacunarity = NOISE_LACUNARITY
+	_noise.fractal_gain = NOISE_GAIN
+	_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	var step := REGION_SIZE / float(image_width)
+	var origin := Vector2(region.x * REGION_SIZE, region.y * REGION_SIZE)
+	var stride := image_width
+	var img := Image.create_empty(image_width, image_width, false, Image.FORMAT_RGBA8)
+	# -- Sparse road distance field for the tint; mirror of _conform_roads's
+	# per-segment AABB splat so this is never an O(cells x segments) scan. -------
+	var core := ROAD_WIDTH * 0.5 + 0.3
+	var blend_dist := core + 3.0
+	var blend2 := blend_dist * blend_dist
+	var d2_map := PackedFloat32Array()
+	if not roads.is_empty():
+		var chains := _upsample_roads(roads)
+		if not chains.is_empty():
+			var clipped := _clip_chains(chains, origin, blend_dist + FIELD_MARGIN)
+			d2_map.resize(stride * stride)
+			d2_map.fill(INF)
+			for pts in clipped:
+				for s in pts.size() - 1:
+					var a := pts[s]
+					var b := pts[s + 1]
+					var abx := b.x - a.x
+					var abz := b.z - a.z
+					var len2 := abx * abx + abz * abz
+					if len2 <= 0.0001:
+						continue
+					var lo_ix := maxi(0, int(floorf((minf(a.x, b.x) - blend_dist - origin.x) / step)))
+					var hi_ix := mini(stride - 1, int(floorf((maxf(a.x, b.x) + blend_dist - origin.x) / step)))
+					var lo_iz := maxi(0, int(floorf((minf(a.z, b.z) - blend_dist - origin.y) / step)))
+					var hi_iz := mini(stride - 1, int(floorf((maxf(a.z, b.z) + blend_dist - origin.y) / step)))
+					for iz in range(lo_iz, hi_iz + 1):
+						var wz := origin.y + (float(iz) + 0.5) * step
+						var dz := wz - a.z
+						var row := iz * stride
+						for ix in range(lo_ix, hi_ix + 1):
+							var wx := origin.x + (float(ix) + 0.5) * step
+							var t := clampf(((wx - a.x) * abx + dz * abz) / len2, 0.0, 1.0)
+							var dx := wx - (a.x + abx * t)
+							var ddz := dz - abz * t
+							var d2 := dx * dx + ddz * ddz
+							if d2 < blend2 and d2 < d2_map[row + ix]:
+								d2_map[row + ix] = d2
+	for iz in stride:
+		var wz := origin.y + (float(iz) + 0.5) * step
+		var row_z := iz * stride
+		for ix in stride:
+			var wx := origin.x + (float(ix) + 0.5) * step
+			# -- biome base (same weighted blend as _bake_natural) ---------------
+			var total := 0.0
+			var acc := 0.0
+			var dx := wx - BIOME_SPAWN_CENTER.x
+			var dz := wz - BIOME_SPAWN_CENTER.y
+			var dist := sqrt(dx * dx + dz * dz)
+			var weight := 0.0
+			if dist < BIOME_SPAWN_RADIUS:
+				var t := 1.0 - dist / BIOME_SPAWN_RADIUS
+				weight = t * t
+			total += weight
+			acc += weight * BIOME_SPAWN_BASE
+			dx = wx - BIOME_ROLLING_CENTER.x
+			dz = wz - BIOME_ROLLING_CENTER.y
+			dist = sqrt(dx * dx + dz * dz)
+			weight = 0.0
+			if dist < BIOME_ROLLING_RADIUS:
+				var t := 1.0 - dist / BIOME_ROLLING_RADIUS
+				weight = t * t
+			total += weight
+			acc += weight * BIOME_ROLLING_BASE
+			dx = wx - BIOME_HIGHLAND_CENTER.x
+			dz = wz - BIOME_HIGHLAND_CENTER.y
+			dist = sqrt(dx * dx + dz * dz)
+			weight = 0.0
+			if dist < BIOME_HIGHLAND_RADIUS:
+				var t := 1.0 - dist / BIOME_HIGHLAND_RADIUS
+				weight = t * t
+			total += weight
+			acc += weight * BIOME_HIGHLAND_BASE
+			dx = wx - BIOME_FARMLAND_CENTER.x
+			dz = wz - BIOME_FARMLAND_CENTER.y
+			dist = sqrt(dx * dx + dz * dz)
+			weight = 0.0
+			if dist < BIOME_FARMLAND_RADIUS:
+				var t := 1.0 - dist / BIOME_FARMLAND_RADIUS
+				weight = t * t
+			total += weight
+			acc += weight * BIOME_FARMLAND_BASE
+			dx = wx - BIOME_COAST_CENTER.x
+			dz = wz - BIOME_COAST_CENTER.y
+			dist = sqrt(dx * dx + dz * dz)
+			weight = 0.0
+			if dist < BIOME_COAST_RADIUS:
+				var t := 1.0 - dist / BIOME_COAST_RADIUS
+				weight = t * t
+			total += weight
+			acc += weight * BIOME_COAST_BASE
+			dx = wx - BIOME_LOWLAND_CENTER.x
+			dz = wz - BIOME_LOWLAND_CENTER.y
+			dist = sqrt(dx * dx + dz * dz)
+			weight = 0.0
+			if dist < BIOME_LOWLAND_RADIUS:
+				var t := 1.0 - dist / BIOME_LOWLAND_RADIUS
+				weight = t * t
+			total += weight
+			acc += weight * BIOME_LOWLAND_BASE
+			dx = wx - BIOME_HIGHLAND_PLATEAU_CENTER.x
+			dz = wz - BIOME_HIGHLAND_PLATEAU_CENTER.y
+			dist = sqrt(dx * dx + dz * dz)
+			weight = 0.0
+			if dist < BIOME_HIGHLAND_PLATEAU_RADIUS:
+				var t := 1.0 - dist / BIOME_HIGHLAND_PLATEAU_RADIUS
+				weight = t * t
+			total += weight
+			acc += weight * BIOME_HIGHLAND_PLATEAU_BASE
+			dx = wx - BIOME_SEA_CENTER.x
+			dz = wz - BIOME_SEA_CENTER.y
+			dist = sqrt(dx * dx + dz * dz)
+			weight = 0.0
+			if dist < BIOME_SEA_RADIUS:
+				var t := 1.0 - dist / BIOME_SEA_RADIUS
+				weight = t * t
+			total += weight
+			acc += weight * BIOME_SEA_BASE
+			var base := BIOME_FALLBACK_BASE if total <= 0.0001 else acc / total
+			# -- detail + dome (same as _bake_natural) --------------------------
+			var detail := _noise.get_noise_2d(wx, wz) * (1.8 + 0.14 * base)
+			var dome := 0.0
+			var leg_dx := wx - LEGACY_DOME_CENTER.x
+			var leg_dz := wz - LEGACY_DOME_CENTER.y
+			var leg_d := sqrt(leg_dx * leg_dx + leg_dz * leg_dz)
+			dome += LEGACY_DOME_AMP * (1.0 - smoothstep(LEGACY_DOME_RADIUS * LEGACY_DOME_EDGE, LEGACY_DOME_RADIUS, leg_d))
+			for di in DOME_FAMILY.size():
+				var dome_c: Vector2 = DOME_FAMILY[di]["center"]
+				var dome_r: float = DOME_FAMILY[di]["radius"]
+				var dome_e: float = DOME_FAMILY[di]["edge"]
+				var dome_a: float = DOME_FAMILY[di]["amp"]
+				var ddx := wx - dome_c.x
+				var ddz := wz - dome_c.y
+				var dd := sqrt(ddx * ddx + ddz * ddz)
+				dome += dome_a * (1.0 - smoothstep(dome_r * dome_e, dome_r, dd))
+			var height := clampf((base + detail + dome) * bake_scale, HEIGHT_MIN, HEIGHT_MAX)
+			# -- band colour + brightness wobble --------------------------------
+			var band := elevation_band(height)
+			var band_col := _band_color(band)
+			var brightness := 0.92 + 0.16 * _noise.get_noise_2d(wx + 500.0, wz + 500.0)
+			var col := band_col * brightness
+			# -- road tint along conformed centreline ---------------------------
+			if not d2_map.is_empty():
+				var d2 := d2_map[row_z + ix]
+				if d2 < blend2:
+					var road_dist := sqrt(d2)
+					if road_dist <= core:
+						col = COLOR_ROAD
+					else:
+						var alpha := 1.0 - smoothstep(core, blend_dist, road_dist)
+						col = col.lerp(COLOR_ROAD, alpha)
+			img.set_pixel(ix, iz, col)
+	return img
 
 func _upsample_roads(roads: Array) -> Array[PackedVector3Array]:
 	var chains: Array[PackedVector3Array] = []
