@@ -24,15 +24,43 @@ const TREE_SHADER_PATH := "res://shaders/foliage_wind.gdshader"
 var _rng := RandomNumberGenerator.new()
 var _tree_roots: Array[Vector2] = []
 
+## P7 per-region dressing state. When managed by a RegionDresser these identify
+## the region and the LOD density generated into it (full counts on the live
+## ring, reduced counts on the prefetch band). Standalone use keeps the defaults
+## (Vector2i.ZERO / 1.0). Configured via configure_for_region() before the
+## first generate() in _ready.
+var region_key := Vector2i.ZERO
+var density := 1.0
+
 ## Optional map-height lookup, given a world (x, z) position as Vector2,
 ## returning the ground surface Y at that spot. When unset, items sit at Y 0
 ## (the flat-floor default used by the oval circuit).
 var ground_height_provider: Callable = Callable()
 
 func _ready() -> void:
+	generate()
+
+## Builds both MultiMesh batches (grass + trees) synchronously. Idempotent:
+## existing children are removed and the tree-root rejection history is cleared
+## first, so re-generating (band density change, region re-entry) never stacks
+## duplicate instances and stays bit-identical for a given seed. Density scales
+## the instance counts for the LOD prefetch band.
+func generate() -> void:
+	for child in get_children():
+		child.free()
+	_tree_roots.clear()
 	_rng.seed = seed
 	add_child(_build_grass())
 	add_child(_build_trees())
+
+## P7 per-region hook (RegionDresser): pins this instance to a region, its
+## deterministic per-region seed and the LOD density for the prefetch band.
+## Generation happens via generate()/_ready after this is set, so re-entry is
+## bit-identical for a given region.
+func configure_for_region(p_region_key: Vector2i, p_seed: int, p_density: float = 1.0) -> void:
+	region_key = p_region_key
+	seed = p_seed
+	density = maxf(p_density, 0.0)
 
 ## Updates the wind sway amount on every foliage material at runtime.
 func set_wind_strength(strength: float) -> void:
@@ -41,15 +69,63 @@ func set_wind_strength(strength: float) -> void:
 		if mmi != null and mmi.material_override is ShaderMaterial:
 			mmi.material_override.set_shader_parameter("wind_strength", strength)
 
+## P7 LOD knob for distance-banded instance culling: caps drawn instances per
+## MultiMesh, clamped into [0, instance_count]. Cheap runtime control that
+## complements the generation-time density scale.
+func set_visible_instance_count(count: int) -> void:
+	var capped := maxi(count, 0)
+	for child in get_children():
+		var mmi := child as MultiMeshInstance3D
+		if mmi != null and mmi.multimesh != null:
+			mmi.multimesh.visible_instance_count = mini(capped, int(mmi.multimesh.instance_count))
+
+## Total visible-cap sum across every batch: the number of instances actually
+## drawn given the current band budget (live = full placement, prefetch = the
+## culled fraction). Works after _apply_band_budget caps each batch's
+## visible_instance_count; -1 (engine default = draw all) counts as the full
+## batch size, mirroring get_instance_count().
+func get_visible_instance_count() -> int:
+	var total := 0
+	for child in get_children():
+		var mmi := child as MultiMeshInstance3D
+		if mmi == null or mmi.multimesh == null:
+			continue
+		var vis := int(mmi.multimesh.visible_instance_count)
+		total += vis if vis >= 0 else int(mmi.multimesh.instance_count)
+	return total
+
+## All foliage instance origins (node-local), concatenated across the batches.
+## Used to prove bit-identical re-entry placement for a per-region seed.
+func get_instance_positions() -> PackedVector3Array:
+	var result := PackedVector3Array()
+	for child in get_children():
+		var mmi := child as MultiMeshInstance3D
+		if mmi == null or mmi.multimesh == null:
+			continue
+		var insts := int(mmi.multimesh.instance_count)
+		for i in insts:
+			result.append(mmi.multimesh.get_instance_transform(i).origin)
+	return result
+
+## Total placed instance count across all batches (mirrors PropScatterer).
+func get_instance_count() -> int:
+	var total := 0
+	for child in get_children():
+		var mmi := child as MultiMeshInstance3D
+		if mmi != null and mmi.multimesh != null:
+			total += int(mmi.multimesh.instance_count)
+	return total
+
 func _build_grass() -> MultiMeshInstance3D:
 	var plane := PlaneMesh.new()
 	plane.size = GRASS_MESH_SIZE
 
+	var count := maxi(0, int(round(float(grass_count) * density)))
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.mesh = plane
-	mm.instance_count = grass_count
-	for i in grass_count:
+	mm.instance_count = count
+	for i in count:
 		mm.set_instance_transform(i, _grass_transform())
 
 	var mat := ShaderMaterial.new()
@@ -64,16 +140,17 @@ func _build_grass() -> MultiMeshInstance3D:
 	return mmi
 
 func _build_trees() -> MultiMeshInstance3D:
+	var count := maxi(0, int(round(float(tree_count) * density)))
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.mesh = _build_tree_mesh()
-	mm.instance_count = tree_count
+	mm.instance_count = count
 
 	var mat := ShaderMaterial.new()
 	mat.shader = load(TREE_SHADER_PATH) as Shader
 	mat.set_shader_parameter("wind_strength", 0.05)
 
-	for i in tree_count:
+	for i in count:
 		var pos := _tree_pos()
 		var yaw := _rng.randf_range(0.0, TAU)
 		var scale := _rng.randf_range(0.8, 1.3)

@@ -12,6 +12,7 @@ var _roads: Array[Array] = []  # each: Array[Vector3] of spline points
 var _road_defs: Array[RoadDef] = []
 var _topology: Dictionary = {}
 var _topology_dirty := true
+var _closed_tiers: Dictionary = {}  # tier -> true while seasonally closed
 
 func _ready() -> void:
     # Lets minimaps/maps find the road source without knowing the scene layout.
@@ -69,16 +70,53 @@ func nearest_road_id(pos: Vector3) -> int:
     return best_id
 
 func neighbor_roads(road_id: int) -> PackedInt32Array:
-    _ensure_topology()
-    var adj: Dictionary = _topology["adjacency"]
+    var adj := _routing_adjacency()
     if adj.has(road_id):
         return adj[road_id]
     return PackedInt32Array()
 
 func route(from_id: int, to_id: int) -> PackedInt32Array:
+    return RoadGraph.route(_routing_adjacency(), from_id, to_id)
+
+## Adjacency filtered by seasonal tier closures. When no tiers are closed this
+## is a plain reference to the cached topology (no allocation); otherwise a
+## copy is built with closed roads pruned from both keys and neighbor lists so
+## routing and neighbor queries honor the closure without mutating RoadGraph.
+func _routing_adjacency() -> Dictionary:
     _ensure_topology()
+    if _closed_tiers.is_empty():
+        return _topology["adjacency"]
+    var filtered := {}
     var adj: Dictionary = _topology["adjacency"]
-    return RoadGraph.route(adj, from_id, to_id)
+    for road_id: int in adj:
+        if _road_tier_closed(road_id):
+            continue
+        var kept := PackedInt32Array()
+        for neighbor in adj[road_id]:
+            if not _road_tier_closed(neighbor):
+                kept.append(neighbor)
+        filtered[road_id] = kept
+    return filtered
+
+func _road_tier_closed(road_id: int) -> bool:
+    if road_id < 0 or road_id >= _road_defs.size():
+        return false
+    return _closed_tiers.has(_road_defs[road_id].tier)
+
+## Closes every road of the given tiers (RoadDef.Tier ids) for routing.
+func set_closed_tiers(tiers: Array[int]) -> void:
+    _closed_tiers.clear()
+    for tier in tiers:
+        _closed_tiers[tier] = true
+
+func get_closed_tiers() -> Array[int]:
+    var out: Array[int] = []
+    for tier: int in _closed_tiers:
+        out.append(tier)
+    return out
+
+func clear_seasonal_closures() -> void:
+    _closed_tiers.clear()
 
 func get_roads() -> Array[Array]:
     return _roads

@@ -2,7 +2,7 @@
 extends GdUnitTestSuite
 
 ## P0 open-world road-plan gate: RoadDef data tables, RoadGraph topology and
-## hop routing, RoadNetwork integration, the real 3-road bootstrap
+## hop routing, RoadNetwork integration, the P2 classified-road bootstrap
 ## connectivity contract and TrackBuilder tier/material/banking rendering.
 
 const OPEN_WORLD_SCENE := "res://scenes/world/open_world_root.tscn"
@@ -293,7 +293,7 @@ func test_network_topology_matches_hand_built_example() -> void:
 	assert_float(j["dist"]).is_equal_approx(0.0, 0.001)
 	assert_that(j["point"]).is_equal_approx(Vector3(100, 0, 0), Vector3(0.001, 0.001, 0.001))
 
-func test_open_world_bootstrap_connects_all_three_roads() -> void:
+func test_open_world_bootstrap_connects_the_classified_network() -> void:
 	var runner := scene_runner(OPEN_WORLD_SCENE)
 	await runner.simulate_frames(1)
 	var scene := runner.scene()
@@ -309,14 +309,22 @@ func test_open_world_bootstrap_connects_all_three_roads() -> void:
 	# bootstrap core invariant is that defs 0..2 are hub ring / hub->pass
 	# connector / pass loop, so the growth must never break that prefix.
 	assert_that(roads.size()).is_greater_equal(3)
+	assert_that(network.get_road_defs().size()).is_equal(roads.size())
 	var hub: Array[Vector3] = roads[0]
 	# Hub ring point 0 doubles as the connector's first point.
 	assert_that(hub[0]).is_equal_approx(Vector3(238.0, 2.2, 128.0), Vector3(0.001, 0.001, 0.001))
 	var adj := network.get_adjacency()
-	# Hub ring now also spawns the coast arterial, highway on-ramp and dirt
-	# cut-throughs; the connector link (-1) must still be present.
-	assert_that(adj[0].has(1)).is_true()
-	assert_that(adj[1]).is_equal(PackedInt32Array([0, 2]))
+	# Hub ring (0) is the network spine: it spawns the connector (1), the coast
+	# arterial (4), the highway on-ramp (5) and both dirt cut-throughs (10, 11)
+	# at their construction anchors, so the highway tier reaches the hub through
+	# the on-ramp and dirt cuts.
+	assert_that(adj[0]).is_equal(PackedInt32Array([1, 4, 5, 10, 11]))
+	# The connector (1) not only joins hub (0) <-> pass loop (2); its Catmull-Rom
+	# line also crosses the highway ring's western rim (3) and meets the coast
+	# arterial (4), the on-ramp (5) and both dirt cuts (10, 11) in the hub basin
+	# -- all deterministic classified-network links under the 15 m LINK_THRESHOLD.
+	assert_that(adj[1]).is_equal(PackedInt32Array([0, 2, 3, 4, 5, 10, 11]))
+	# The pass loop (2) terminates the connector and has no other links.
 	assert_that(adj[2]).is_equal(PackedInt32Array([1]))
 	var junctions := network.get_junctions()
 	var ring_junction: Dictionary = {}
@@ -335,7 +343,7 @@ func test_open_world_bootstrap_connects_all_three_roads() -> void:
 	assert_that(pass_junction["point"]).is_equal_approx(pass_first, Vector3(0.001, 0.001, 0.001))
 	assert_that(network.route(0, 2)).is_equal(PackedInt32Array([0, 1, 2]))
 	assert_that(network.route(2, 0)).is_equal(PackedInt32Array([2, 1, 0]))
-	assert_that(network.neighbor_roads(1)).is_equal(PackedInt32Array([0, 2]))
+	assert_that(network.neighbor_roads(1)).is_equal(PackedInt32Array([0, 2, 3, 4, 5, 10, 11]))
 
 func test_track_builder_default_asphalt_arterial_flat() -> void:
 	var builder := TrackBuilder.new()

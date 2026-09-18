@@ -7,6 +7,12 @@ extends RigidBody3D
 # --- Configuration ---
 @export var config: CarConfig
 
+## Settable surface provider: Callable(pos: Vector3) -> Dictionary with optional
+## keys { surface_key, lateral, longitudinal }. Unset or empty result falls back
+## to asphalt (1.0/1.0). Defaults in _ready to the SurfaceRegistry classifier
+## bound to the local RoadNetwork when one exists (headless-safe otherwise).
+var surface_provider: Callable = Callable()
+
 # --- Child References (assign in scene or auto-discover) ---
 @onready var wheel_fl: WheelPhysics = $WheelFL
 @onready var wheel_fr: WheelPhysics = $WheelFR
@@ -18,6 +24,7 @@ var current_speed_kmh: float = 0.0
 var steer_angle: float = 0.0
 var handling_mode: String = "arcade"  # "arcade" or "simulation"
 var input_override: Vector2 = Vector2.ZERO  # (steer, throttle-brake)
+var _last_surface_key: String = SurfaceRegistry.ASPHALT
 
 # --- Input state (exposed via get_drive_info) ---
 var _brake_input: float = 0.0
@@ -49,6 +56,11 @@ func _ready() -> void:
     physics_material_override = contact_mat
 
     _spawn_point = global_position
+
+    if not surface_provider.is_valid():
+        surface_provider = SurfaceRegistry.build_classifier(
+            SurfaceRegistry.default_road_tier_provider(self), Callable()
+        )
 
 func set_input_override(value: Vector2) -> void:
     input_override = value
@@ -96,7 +108,9 @@ func _physics_process(delta: float) -> void:
 
     # --- Tire Forces ---
     var grip_mult: float = config.arcade_mode["grip_multiplier"] if handling_mode == "arcade" else config.simulation_mode["grip_multiplier"]
-    grip_mult *= WeatherManager.get_road_grip_factor()
+    var weather_factor := WeatherManager.get_road_grip_factor()
+    var surface_factors := resolve_surface_factors()
+    var grip_mult_lateral := grip_mult * float(surface_factors["lateral"]) * weather_factor
 
     # Process each wheel
     for i in range(4):
@@ -111,7 +125,7 @@ func _physics_process(delta: float) -> void:
 
             # --- Lateral Force (grip) ---
             var lat_force := TireModel.calculate_lateral_force(
-                slip_angle, wheel_info["normal_force"], config, grip_mult
+                slip_angle, wheel_info["normal_force"], config, grip_mult_lateral
             )
 
             # Handbrake reduces rear grip
@@ -128,6 +142,9 @@ func _physics_process(delta: float) -> void:
             if i < 2:  # front wheels do not drive, only brake
                 drive_force = 0.0
             drive_force -= brake_force
+
+            # Surface + weather scale the longitudinal axis alongside lateral.
+            drive_force *= float(surface_factors["longitudinal"]) * weather_factor
 
             # --- Apply forces to RigidBody3D ---
             apply_central_force(-global_basis.z * drive_force * 0.5)
@@ -175,7 +192,37 @@ func get_drive_info() -> Dictionary:
         "handling_mode": handling_mode,
         "brake": clampf(_brake_input, 0.0, 1.0),
         "steer": clampf(_steer_input, -1.0, 1.0),
+        "surface": _last_surface_key,
     }
+
+## Sets the per-frame surface resolver; empty Callable restores the default
+## SurfaceRegistry classifier bound to the local RoadNetwork.
+func set_surface_provider(provider: Callable) -> void:
+    surface_provider = provider
+
+## Resolves the current surface factors for global_position. One sample per
+## frame; no raycast. Returns { lateral, longitudinal, surface_key }.
+func resolve_surface_factors() -> Dictionary:
+    if surface_provider.is_valid():
+        var result: Variant = surface_provider.call(global_position)
+        if result is Dictionary and not (result as Dictionary).is_empty():
+            var dict := result as Dictionary
+            _last_surface_key = dict.get("surface_key", SurfaceRegistry.ASPHALT)
+            return {
+                "lateral": float(dict.get("lateral", 1.0)),
+                "longitudinal": float(dict.get("longitudinal", 1.0)),
+                "surface_key": _last_surface_key,
+            }
+    var asphalt: Dictionary = SurfaceRegistry.SURFACE_GRIP[SurfaceRegistry.ASPHALT] as Dictionary
+    _last_surface_key = SurfaceRegistry.ASPHALT
+    return {
+        "lateral": asphalt["lateral"],
+        "longitudinal": asphalt["longitudinal"],
+        "surface_key": _last_surface_key,
+    }
+
+func get_surface_key() -> String:
+    return _last_surface_key
 
 func set_handling_mode(mode: String) -> void:
     if mode in ["arcade", "simulation"]:

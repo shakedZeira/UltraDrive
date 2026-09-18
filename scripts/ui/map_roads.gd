@@ -8,6 +8,19 @@ extends RefCounted
 
 const ROAD_GROUP := "road_network"
 
+## Shared GPS route state: the pause-map sets the destination, the minimap reads
+## it. Static so both maps share one source of truth without needing a scene node.
+static var route_target: Vector3 = Vector3.ZERO
+static var has_route := false
+
+static func set_route(target: Vector3) -> void:
+	route_target = target
+	has_route = true
+
+static func clear_route() -> void:
+	has_route = false
+	route_target = Vector3.ZERO
+
 ## Best road source for the scene: the first node in the "road_network" group,
 ## else the first node anywhere in the tree that exposes get_roads().
 static func resolve_road_source(node: Node) -> Object:
@@ -38,6 +51,14 @@ static func get_roads(source: Object) -> Array:
 		if roads != null and roads is Array:
 			return roads
 	return []
+
+## Best discovery source for the scene: the first node in the
+## "world_discovery" group (WorldDiscovery registers itself there). The maps
+## fall back to drawing every road when this returns null.
+static func resolve_discovery_source(node: Node) -> Object:
+	if node == null or node.get_tree() == null:
+		return null
+	return node.get_tree().get_first_node_in_group(WorldDiscovery.GROUP_NAME)
 
 ## Cheap signature for "roads changed": chain count plus the first point of
 ## each chain. Roads are static after the open-world bootstrap, so comparing
@@ -165,3 +186,93 @@ static func _segment_circle_hit(prev: Vector2, curr: Vector2, center: Vector2, r
 	if t_exit < 0.0 or t_exit > 1.0:
 		return null
 	return prev + d * t_exit
+
+## Inverse of world_to_screen(): screen position -> world XZ (Y=0) using a fit
+## from compute_fit(). Used by the pause-map to map a mouse click to a world
+## position for fast-travel and route-setting.
+static func screen_to_world(screen_pos: Vector2, fit: Dictionary) -> Vector3:
+	var origin: Vector2 = fit["origin"]
+	var scale: float = fit["scale"]
+	var world_min: Vector2 = fit["world_min"]
+	var wx := (screen_pos.x - origin.x) / scale + world_min.x
+	var wz := (screen_pos.y - origin.y) / scale + world_min.y
+	return Vector3(wx, 0.0, wz)
+
+## Concatenate a hop-route into a single world-space polyline. `source` is any
+## object exposing get_roads(), nearest_road_id() and route() (i.e. RoadNetwork).
+## From the concatenated chain sequence the direct sub-route between the nearest
+## on-chain point to `from_pos` and the nearest on-chain point to `to_pos` is
+## extracted, with no degenerate duplicate points at chain junctions.
+## Returns an empty Array when the route is impossible or trivial (< 2 points).
+static func route_polyline(source: Object, from_pos: Vector3, to_pos: Vector3) -> Array[Vector3]:
+	if source == null:
+		return []
+	if not (source.has_method("get_roads") and source.has_method("nearest_road_id") and source.has_method("route")):
+		return []
+	var from_id: int = source.nearest_road_id(from_pos)
+	var to_id: int = source.nearest_road_id(to_pos)
+	if from_id < 0 or to_id < 0:
+		return []
+	var chain_seq: PackedInt32Array = source.route(from_id, to_id)
+	if chain_seq.is_empty():
+		return []
+	var roads: Array = source.get_roads()
+	# Concatenate chains, deduplicate exact junction points.
+	var concat: Array[Vector3] = []
+	for road_id in chain_seq:
+		var chain: Array = roads[road_id]
+		for wp_v in chain:
+			var wp: Vector3 = wp_v
+			if concat.size() > 0 and wp.distance_squared_to(concat[concat.size() - 1]) < 0.001:
+				continue
+			concat.append(wp)
+	if concat.size() < 2:
+		return concat
+	# Find nearest indices to from_pos and to_pos along the concatenated polyline.
+	var fi := _nearest_concat_index(concat, from_pos)
+	var ti := _nearest_concat_index(concat, to_pos)
+	# Extract the sub-route between fi and ti.
+	var same_chain := chain_seq.size() == 1
+	var out: Array[Vector3] = []
+	if fi == ti:
+		# from == to (same nearest point, e.g. tapping the road you are on): the
+		# GPS shows the whole enclosing chain so the route line is meaningful.
+		return _dedup_points(concat)
+	elif same_chain:
+		if fi <= ti:
+			for i in range(fi, ti + 1):
+				out.append(concat[i])
+		else:
+			for i in range(ti, fi + 1):
+				out.append(concat[i])
+			out.reverse()
+	else:
+		if ti >= fi:
+			for i in range(fi, ti + 1):
+				out.append(concat[i])
+		else:
+			for i in range(fi, concat.size()):
+				out.append(concat[i])
+			for i in range(0, ti + 1):
+				out.append(concat[i])
+	# Final dedup of any residual consecutive duplicates.
+	return _dedup_points(out)
+
+static func _nearest_concat_index(concat: Array[Vector3], world_pos: Vector3) -> int:
+	var best := 0
+	var best_sq := INF
+	for i in concat.size():
+		var sq := Vector2(world_pos.x - concat[i].x, world_pos.z - concat[i].z).length_squared()
+		if sq < best_sq:
+			best_sq = sq
+			best = i
+	return best
+
+static func _dedup_points(points: Array[Vector3]) -> Array[Vector3]:
+	if points.size() < 2:
+		return points
+	var out: Array[Vector3] = [points[0]]
+	for i in range(1, points.size()):
+		if points[i].distance_squared_to(out[out.size() - 1]) > 0.001:
+			out.append(points[i])
+	return out

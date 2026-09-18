@@ -1,0 +1,34 @@
+[gd_resource type="Resource" script_class="CarConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/vehicle/car_config.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+car_name = "Hooligan"
+car_class = "B"
+visual_path = "res://assets/cars/cc0_hatchback_sports.glb"
+engine_timbre = "rally"
+mass_kg = 1080.0
+max_torque = 265.0
+peak_rpm = 6800.0
+redline_rpm = 8200.0
+gear_ratios = Array[float]([3.6, 2.5, 1.85, 1.4, 1.1, 0.9])
+final_drive_ratio = 4.1
+upshift_speeds_kmh = Array[float]([24.0, 52.0, 82.0, 114.0, 150.0, 190.0])
+downshift_speeds_kmh = Array[float]([14.0, 34.0, 58.0, 86.0, 118.0, 150.0])
+spring_rate = 40000.0
+damper_compression = 4500.0
+damper_rebound = 5500.0
+suspension_travel = 0.14
+max_brake_torque = 2100.0
+max_steer_angle = 38.0
+steer_speed = 4.0
+tire_B = 10.5
+tire_C = 2.0
+tire_D = 1.05
+tire_E = 0.97
+drag_coefficient = 0.34
+frontal_area = 2.1
+downforce_coefficient = 0.25
+countersteer_assist = 700.0
+handbrake_grip_reduction = 0.35

@@ -35,6 +35,14 @@ var _placed: Dictionary = {}  # prop_type -> PackedVector3Array of positions
 var _mesh_builders: Dictionary = {}
 var _materials: Dictionary = {}
 
+## P7 per-region dressing state. When the scatterer is managed by a
+## RegionDresser these identify the region it belongs to and the LOD density
+## generated into it (full counts on the live ring, reduced counts on the
+## prefetch band). Purely advisory for standalone use (Vector2i.ZERO / 1.0);
+## configured via configure_for_region() before generate().
+var region_key := Vector2i.ZERO
+var density := 1.0
+
 func _init() -> void:
 	_mesh_builders = {
 		"guardrail": _build_guardrail_mesh,
@@ -54,6 +62,16 @@ func configure(preset: Dictionary) -> void:
 	road_threshold = float(preset.get("road_threshold", road_threshold))
 	placement_attempts = maxi(int(preset.get("placement_attempts", placement_attempts)), 1)
 	_preset = preset
+
+## P7 per-region hook (RegionDresser): pins this scatterer to a region and its
+## deterministic seed, and sets the LOD density for the prefetch band. Does not
+## generate -- callers call generate() once the scatterer is fully configured
+## (RegionDresser relies on _ready wiring, so the first generate runs on
+## add_child; later ones are explicit) so re-entry is bit-identical.
+func configure_for_region(p_region_key: Vector2i, p_seed: int, p_density: float = 1.0) -> void:
+	region_key = p_region_key
+	seed = p_seed
+	density = maxf(p_density, 0.0)
 
 ## Builds all prop MultiMesh instances synchronously. Idempotent: any existing
 ## children are removed first, so re-generating (or being called from _ready)
@@ -83,6 +101,34 @@ func get_instance_count() -> int:
 	for prop_type: String in _placed.keys():
 		total += (_placed[prop_type] as PackedVector3Array).size()
 	return total
+
+## P7 LOD knob for distance-banded instance culling: caps how many of the
+## placed instances are drawn per MultiMesh, clamped into [0, instance_count]
+## so the value stays valid. Cheap at runtime (no re-generation), complements
+## the generation-time density scale.
+func set_visible_instance_count(count: int) -> void:
+	var capped := maxi(count, 0)
+	for child in get_children():
+		var mmi := child as MultiMeshInstance3D
+		if mmi != null and mmi.multimesh != null:
+			mmi.multimesh.visible_instance_count = mini(capped, int(mmi.multimesh.instance_count))
+
+## Current per-child visible-instance cap (the first child's), or -1 when no
+## MultiMesh is built yet (-1 is the engine default: every instance drawn).
+func get_visible_instance_count() -> int:
+	for child in get_children():
+		var mmi := child as MultiMeshInstance3D
+		if mmi != null and mmi.multimesh != null:
+			return int(mmi.multimesh.visible_instance_count)
+	return -1
+
+## Every placed prop position across all prop types (node-local), concatenated.
+## Used to prove bit-identical per-region placement on re-entry.
+func get_instance_positions() -> PackedVector3Array:
+	var result := PackedVector3Array()
+	for prop_type: String in _placed.keys():
+		result.append_array(_placed[prop_type] as PackedVector3Array)
+	return result
 
 ## Per-zone presets mirroring plan Section 5. Counts stay small (14-28 props
 ## per zone); the integration agent may tune or replace these Dictionaries.
@@ -127,7 +173,8 @@ static func default_preset(zone: String) -> Dictionary:
 	}
 
 func _place_prop(entry: Dictionary) -> PackedVector3Array:
-	var count := int(entry.get("count", 0))
+	var base_count := int(entry.get("count", 0))
+	var count := maxi(0, int(round(float(base_count) * density)))
 	var min_spacing := float(entry.get("min_spacing", 6.0))
 	var used: Array[Vector2] = []
 	var result := PackedVector3Array()

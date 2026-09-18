@@ -148,7 +148,7 @@ func test_paint_surface_count_reports_set_overrides() -> void:
 	assert_that(carpet_mi.get_surface_override_material(0)).is_null()
 
 func test_wheel_groups_define_all_four_corners_for_every_car() -> void:
-	for car_id: Variant in ["starter_car", "muscle_car", "rally_hatch"]:
+	for car_id: Variant in ["starter_car", "muscle_car", "rally_hatch", "cc0_sedan_sports", "cc0_hatchback_sports", "cc0_race"]:
 		var corner_names: Dictionary = CarVisuals.WHEEL_GROUPS.get(car_id, {})
 		for corner: Variant in ["fl", "fr", "rl", "rr"]:
 			assert_that(corner_names.has(corner)).is_true()

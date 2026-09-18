@@ -84,6 +84,25 @@ const WHEEL_GROUPS := {
 		"rl": ["Rim_LR", "Tire_LR"],
 		"rr": ["Rim_RR", "Tire_RR"],
 	},
+	## Kenney Car Kit CC0 models (single wheel mesh per corner, named by side).
+	"cc0_sedan_sports": {
+		"fl": ["wheel-front-left"],
+		"fr": ["wheel-front-right"],
+		"rl": ["wheel-back-left"],
+		"rr": ["wheel-back-right"],
+	},
+	"cc0_hatchback_sports": {
+		"fl": ["wheel-front-left"],
+		"fr": ["wheel-front-right"],
+		"rl": ["wheel-back-left"],
+		"rr": ["wheel-back-right"],
+	},
+	"cc0_race": {
+		"fl": ["wheel-front-left"],
+		"fr": ["wheel-front-right"],
+		"rl": ["wheel-back-left"],
+		"rr": ["wheel-back-right"],
+	},
 }
 
 ## Resolves the wheel Node3D groups for a car under a visual root. Returns a

@@ -9,16 +9,18 @@ static func calculate_lateral_force(
 	slip_angle_rad: float,
 	normal_force: float,
 	config: CarConfig,
-	grip_multiplier: float = 1.0
+	grip_multiplier: float = 1.0,
+	surface_factor: float = 1.0
 ) -> float:
 	## Returns lateral tire force in Newtons.
 	## slip_angle_rad: angle between wheel heading and velocity vector (radians)
 	## normal_force: vertical load on tire (N)
 	## grip_multiplier: handling mode modifier (arcade = 1.3, sim = 1.0)
+	## surface_factor: surface grip multiplier (asphalt 1.0, snow ~0.35)
 
 	var B := config.tire_B
 	var C := config.tire_C
-	var D := normal_force * config.tire_D * grip_multiplier
+	var D := normal_force * config.tire_D * grip_multiplier * surface_factor
 	var E := config.tire_E
 
 	var x := slip_angle_rad
@@ -29,15 +31,17 @@ static func calculate_longitudinal_force(
 	slip_ratio: float,
 	normal_force: float,
 	config: CarConfig,
-	grip_multiplier: float = 1.0
+	grip_multiplier: float = 1.0,
+	surface_factor: float = 1.0
 ) -> float:
 	## Returns longitudinal tire force in Newtons.
 	## slip_ratio: (wheel_speed - road_speed) / max(wheel_speed, road_speed, 0.1)
 	## Range: -1.0 (full lock) to 1.0 (full spin)
+	## surface_factor: surface grip multiplier, scales with grip_multiplier
 
 	var B := config.tire_B * 0.8  # longitudinal is usually less stiff
 	var C := config.tire_C
-	var D := normal_force * config.tire_D * grip_multiplier * 0.95
+	var D := normal_force * config.tire_D * grip_multiplier * surface_factor * 0.95
 	var E := config.tire_E
 
 	var x := slip_ratio

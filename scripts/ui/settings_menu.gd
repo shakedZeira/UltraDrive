@@ -60,6 +60,44 @@ static func probe_enabled_for(index: int) -> bool:
 	var preset: Dictionary = preset_for(index)
 	return bool(preset["probe_enabled"])
 
+## First-boot preset for the current GPU: integral/weak adapters (Vega-less
+## AMD iGPU, Intel UHD/HD, VGA/llvmpipe fallbacks) start on Low so the game is
+## playable out of the box; discrete cards get Medium. The user can always
+## raise/lower it in Settings — this is only the no-save default.
+static func default_quality_preset() -> int:
+	var name: String = RenderingServer.get_video_adapter_name().to_lower()
+	if name.is_empty():
+		return 1
+	var weak_gpu := (
+		("radeon" in name and "rx" not in name)
+		or "uhd graphics" in name
+		or "intel hd" in name
+		or "iris" in name
+		or "vga" in name
+		or "llvmpipe" in name
+		or "swrast" in name
+	)
+	return 0 if weak_gpu else 1
+
+## Finds the first WorldEnvironment under a loaded scene and returns its
+## Environment resource (or null when the scene has none).
+static func find_scene_environment(root: Node) -> Environment:
+	if root == null:
+		return null
+	for we_node: Node in root.find_children("*", "WorldEnvironment", true, false):
+		var we := we_node as WorldEnvironment
+		if we and we.environment:
+			return we.environment
+	return null
+
+## Auto-apply entry point: pushes the ladder preset onto a loaded scene's
+## environment + the given viewport. Used by GameState on boot and on every
+## scene transition so scenes honor the saved choice instead of their baked
+## max-quality environment. Mirrors the live settings-menu path.
+static func apply_to_scene_tree(preset_index: int, scene_root: Node, viewport: Viewport) -> void:
+	var env := find_scene_environment(scene_root)
+	apply_quality_preset(env, viewport, preset_for(preset_index))
+
 static func apply_quality_preset(env: Environment, viewport: Viewport, preset: Dictionary) -> void:
 	if env:
 		env.ssao_enabled = preset["ssao_enabled"]

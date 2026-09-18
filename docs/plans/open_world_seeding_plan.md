@@ -576,6 +576,36 @@ changes where the no-tech-ceiling rule applies).
 
 ---
 
+## STATUS — 2026-09-18 (P0–P7 implemented, suite green)
+
+All eight phases landed. Batch A shipped P3 (surface grip) + P4 (regional
+climate / DayNightDriver) on 2026-09-18; Batch B shipped P5 (discovery /
+fast-travel / GPS route), P6 (living-world: event registry by car culture +
+traffic/POI wiring) and P7 (region-streamed dressing with band LOD) on
+2026-09-18.
+
+- **Full headless gate:** `Overall Summary: 263 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped` (~6 min).
+- **New suites:** `test_surface_grip` (16), `test_regional_climate` (16), `test_weather_sun`,
+  `test_road_graph` (22), `test_discovery` (9), `test_map_route`, `test_event_placement` (8),
+  `test_streaming_dressing` (8), plus the extended `test_cc0_cars` and `test_traffic_spawner`
+  (POI registry now returns base 5 + 11 event markers).
+- **Key collaborators:** `surface_registry.gd`, `day_night_driver.gd` (autoload), `regional_climate.gd`,
+  `world_discovery.gd`, `map_roads.gd`, `world_map.gd` (grey→white reveal + click fast-travel),
+  `event_registry.gd`, `living_world.gd`, `poi_registry.gd` (event markers on the pause map),
+  `region_dresser.gd` (ring mirror: spawn/free budgeting + band density + `visible_instance_count`
+  culling), `terrain_seeder.gd` corridor pre-bake, `prop_scatterer.gd` / `foliage.gd` per-region hooks.
+- **Benchmark state:** discovery loop (P5 row), living-world density (P6 row) and dressing
+  streaming (P7 row) now read "done"; remaining rows (60 km roads, ≥25 junction graph, big-arc
+  corridors, elevation ≥1,500 m) stay open per §3 — the P2 network is the 12-road classified
+  corridor plan, not yet the full kilometre count.
+- **Notes:** event markers sit on the real classified roads, which legitimately span the full
+  corridor footprint (x[−200..9702] z[−2944..8605]) — the `0..6144` tile-bound check in
+  `test_traffic_spawner` therefore applies only to base landmark POIs. `foliage.gd` and
+  `prop_scatterer.gd` sum instance counts across all MultiMesh children (grass+trees), so
+  `get_instance_count()` / `get_visible_instance_count()` total the band, not the first batch.
+
+---
+
 ## 3. BENCHMARK TARGETS — "define done"
 
 Every phase's exit is a measured row. Baseline is the codebase today

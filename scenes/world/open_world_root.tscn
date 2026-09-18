@@ -1,4 +1,4 @@
-[gd_scene load_steps=14 format=3]
+[gd_scene load_steps=18 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/world_driver.gd" id="1_driver"]
 [ext_resource type="Script" path="res://scripts/world/chunk_streamer.gd" id="2_cs"]
@@ -10,6 +10,10 @@
 [ext_resource type="Script" path="res://scripts/world/terrain_seeder.gd" id="8_seeder"]
 [ext_resource type="Script" path="res://scripts/world/road_network.gd" id="9_net"]
 [ext_resource type="PackedScene" path="res://scenes/world/regions/mountain_pass_zone.tscn" id="10_zone"]
+[ext_resource type="Script" path="res://scripts/world/living_world.gd" id="11_living"]
+[ext_resource type="Script" path="res://scripts/world/prop_scatterer.gd" id="12_prop"]
+[ext_resource type="Script" path="res://scripts/world/foliage.gd" id="13_foliage"]
+[ext_resource type="Script" path="res://scripts/world/traffic_spawner.gd" id="14_traffic"]
 
 [sub_resource type="ProceduralSkyMaterial" id="sky_mat"]
 sky_top_color = Color(0.16, 0.31, 0.62, 1)
@@ -31,33 +35,33 @@ ambient_light_color = Color(0.5, 0.5, 0.55, 1)
 ambient_light_energy = 1.0
 tonemap_mode = 3
 tonemap_exposure = 1.0
-sdfgi_enabled = true
+sdfgi_enabled = false
 sdfgi_cascades = 4
 sdfgi_min_cell_size = 0.5
 sdfgi_bounce_feedback = 0.4
 sdfgi_energy = 0.85
-ssao_enabled = true
+ssao_enabled = false
 ssao_intensity = 2.0
 ssao_radius = 0.5
 ssao_bias = 0.01
-ssr_enabled = true
+ssr_enabled = false
 ssr_max_steps = 24
 ssr_fade_in = 0.15
 ssr_fade_out = 2.0
 ssr_depth_tolerance = 0.6
-volumetric_fog_enabled = true
+volumetric_fog_enabled = false
 volumetric_fog_density = 0.006
 volumetric_fog_albedo = Color(1, 0.92, 0.82, 1)
 volumetric_fog_emission = Color(0.15, 0.12, 0.1, 1)
 volumetric_fog_length = 64.0
 volumetric_fog_gi_inject = 0.0
-glow_enabled = true
+glow_enabled = false
 glow_intensity = 0.6
 glow_strength = 1.0
 glow_bloom = 0.1
 glow_hdr_threshold = 1.0
 
-[node name="OpenWorldRoot" type="Node3D"]
+[node name="OpenWorldRoot" type="Node3D" groups=["open_world"]]
 script = ExtResource("1_driver")
 
 [node name="ChunkStreamer" type="Node" parent="."]
@@ -109,3 +113,37 @@ environment = SubResource("env")
 [node name="PauseMenu" parent="." instance=ExtResource("5_pause")]
 
 [node name="HUD" parent="." instance=ExtResource("6_hud")]
+
+[node name="Foliage" type="Node3D" parent="."]
+script = ExtResource("13_foliage")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 128, 0, 128)
+
+[node name="PropsFestival" type="Node3D" parent="."]
+script = ExtResource("12_prop")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 128, 0, 128)
+
+[node name="PropsLowlands" type="Node3D" parent="."]
+script = ExtResource("12_prop")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1536, 0, 1536)
+
+[node name="PropsCoast" type="Node3D" parent="."]
+script = ExtResource("12_prop")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5888, 0, 1536)
+
+[node name="PropsHighlands" type="Node3D" parent="."]
+script = ExtResource("12_prop")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3840, 0, 2304)
+
+[node name="PropsAlpine" type="Node3D" parent="."]
+script = ExtResource("12_prop")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5632, 0, 5632)
+
+[node name="TrafficSpawner" type="Node" parent="."]
+script = ExtResource("14_traffic")
+vehicle_scene = ExtResource("3_car")
+max_traffic = 15
+spawn_radius = 300.0
+road_network = NodePath("../RoadNetwork")
+
+[node name="LivingWorld" type="Node" parent="."]
+script = ExtResource("11_living")

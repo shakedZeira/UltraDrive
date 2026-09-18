@@ -6,6 +6,8 @@ extends Node
 const SAVE_DIR := "user://saves"
 const MAX_SLOTS := 3
 
+const DISCOVERY_KEY := "discovery"
+
 func _ready() -> void:
     DirAccess.make_dir_recursive_absolute(SAVE_DIR)
 
@@ -37,3 +39,19 @@ func load_game(slot: int) -> Dictionary:
 func has_save(slot: int) -> bool:
     var path := SAVE_DIR.path_join("slot_%d.json" % (slot + 1))
     return FileAccess.file_exists(path)
+
+## Read-only accessor for the "discovery" sub-dict inside a save slot.
+## Used by WorldDiscovery.load_from_slot() so the save contract stays
+## additive to the existing slot schema.
+func load_discovery(slot: int) -> Dictionary:
+    var data := load_game(slot)
+    var d: Variant = data.get(DISCOVERY_KEY, {})
+    return d if d is Dictionary else {}
+
+## Merge-write the discovery sub-dict into an existing save slot
+## (read-modify-write: preserves other slot fields like owned_cars,
+## active_car, quality_preset, season, etc).
+func save_discovery(slot: int, discovery: Dictionary) -> bool:
+    var data := load_game(slot)
+    data[DISCOVERY_KEY] = discovery
+    return save_game(slot, data)

@@ -7,7 +7,14 @@ extends Node
 var _owned_cars: Array[String] = []
 var _active_car: String = "starter_car"
 
-const STARTER_CARS: Array[String] = ["starter_car", "muscle_car", "rally_hatch"]
+const STARTER_CARS: Array[String] = [
+	"starter_car",
+	"muscle_car",
+	"rally_hatch",
+	"cc0_sedan_sports",
+	"cc0_hatchback_sports",
+	"cc0_race",
+]
 
 ## Builds a Garage populated from the persisted save. Seeds the starter cars
 ## (and any missing starter models) so the garage always has the base trio.

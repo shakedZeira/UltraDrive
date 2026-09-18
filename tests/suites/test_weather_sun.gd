@@ -5,18 +5,35 @@ extends GdUnitTestSuite
 ## 24h clock against WorldDriver.sun_direction() / compute_sun_transform() and
 ## verifies the baked sun stays finite, stays above the horizon, stays
 ## orthonormal, and that applying it to a DirectionalLight3D never turns
-## shadow_enabled off. Lights are built by hand and freed in after_test so the
-## suite stays orphan-free (mirrors tests/suites/test_race_loop.gd).
+## shadow_enabled off. Lights and a DayNightDriver instance are built by hand
+## and freed in after_test so the suite stays orphan-free (mirrors
+## tests/suites/test_race_loop.gd). The driver-tick test drives the real clock
+## path (Time advance + time_of_day_changed) and checks the baked sun follows
+## it, so P4 clock mechanics are pinned end-to-end with the sun math.
 
 const SAMPLE_STEP_HOURS := 0.25
 const TOLERANCE := Vector3(0.001, 0.001, 0.001)
 
 var _managed_lights: Array = []
+var _managed_nodes: Array = []
+var _tod_signal_count := 0
+var _prev_tod: float = 12.0
+
+func _on_tod(_hour: float) -> void:
+	_tod_signal_count += 1
 
 func before_test() -> void:
 	_managed_lights.clear()
+	_managed_nodes.clear()
+	_tod_signal_count = 0
+	_prev_tod = WeatherManager.time_of_day
 
 func after_test() -> void:
+	WeatherManager.time_of_day = _prev_tod
+	for node in _managed_nodes:
+		if is_instance_valid(node):
+			node.free()
+	_managed_nodes.clear()
 	for light in _managed_lights:
 		if is_instance_valid(light):
 			light.free()
@@ -90,3 +107,19 @@ func test_apply_sun_transform_lerps_toward_target_without_pop() -> void:
 		assert_bool(sun.shadow_enabled).is_true()
 		assert_float(sun.transform.basis.z.y).is_greater(0.0)
 		assert_that(_is_finite_basis(sun.transform.basis)).is_true()
+
+func test_driver_tick_advances_clock_signals_and_moves_sun() -> void:
+	var driver = preload("res://autoload/day_night_driver.gd").new()
+	_managed_nodes.append(driver)
+	add_child(driver)
+	driver._weather_timer = 9999.0
+	WeatherManager.set_time_of_day(12.0)
+	WeatherManager.time_of_day_changed.connect(_on_tod)
+	driver._tick(60.0)
+	WeatherManager.time_of_day_changed.disconnect(_on_tod)
+	assert_int(_tod_signal_count).is_equal(1)
+	var expected := fposmod(12.0 + 60.0 * DayNightDriver.HOURS_PER_SECOND, 24.0)
+	assert_float(WeatherManager.time_of_day).is_equal_approx(expected, 0.01)
+	var transform := WorldDriver.compute_sun_transform(WeatherManager.time_of_day)
+	assert_that(_is_finite_basis(transform.basis)).is_true()
+	assert_float(transform.basis.z.y).is_greater(0.0)

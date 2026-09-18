@@ -148,11 +148,11 @@ sky = SubResource("sky")
 ambient_light_source = 3
 ambient_light_energy = 1.0
 tonemap_mode = 3
-glow_enabled = true
+glow_enabled = false
 glow_intensity = 0.35
 glow_strength = 0.7
 glow_hdr_threshold = 1.0
-ssao_enabled = true
+ssao_enabled = false
 ssao_intensity = 1.5
 ssao_radius = 0.5
 

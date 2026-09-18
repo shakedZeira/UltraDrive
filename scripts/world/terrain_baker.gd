@@ -525,7 +525,7 @@ func _upsample_roads(roads: Array) -> Array[PackedVector3Array]:
 			chains.append(pts)
 	return chains
 
-func _upsample_centerline(points: Array[Vector3]) -> PackedVector3Array:
+func _upsample_centerline(points: Array) -> PackedVector3Array:
 	var out := PackedVector3Array()
 	var n := points.size()
 	if n == 0:

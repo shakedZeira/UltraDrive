@@ -20,6 +20,10 @@ const SUN_GROUP := "sun"
 const SUN_MIN_ELEVATION := 0.08
 const SUN_TRANSFORM_LERP_FACTOR := 0.35
 
+## WorldDriver registers itself in this group so the pause-map (scripts/ui/
+## world_map.gd) can resolve the driver for fast-travel without a scene node.
+const DRIVER_GROUP := "world_driver"
+
 ## Static open-world ReflectionProbes (Task 6): one over the hub ring, one over
 ## the mountain pass. UPDATE_ONCE so each bakes once and never re-renders; with
 ## the single per-car UPDATE_ALWAYS probe the blended total is 3, under the
@@ -31,12 +35,15 @@ const STATIC_PROBE_SIZE := Vector3(60.0, 30.0, 60.0)
 var _streamer: ChunkStreamer
 var _terrain_seeder: TerrainSeeder
 var _player: Node3D
+var _discovery: WorldDiscovery
 
 func _ready() -> void:
+	add_to_group(DRIVER_GROUP)
 	_streamer = get_node_or_null("ChunkStreamer") as ChunkStreamer
 	_terrain_seeder = get_node_or_null("TerrainSeeder") as TerrainSeeder
 	_player = get_node_or_null("%PlayerCar") as Node3D
 	_bootstrap_roads()
+	_bootstrap_discovery()
 	_push_player_position()
 	_bootstrap_sun_driver()
 	_bootstrap_static_probes()
@@ -47,6 +54,8 @@ func _physics_process(_delta: float) -> void:
 	if _streamer == null or _player == null:
 		return
 	_push_player_position()
+	if _discovery != null:
+		_discovery.reveal_at(_player.global_position)
 
 func _push_player_position() -> void:
 	if _streamer == null or _player == null:
@@ -55,6 +64,86 @@ func _push_player_position() -> void:
 	_streamer.set_player_position(player_pos)
 	if _terrain_seeder != null:
 		_terrain_seeder.sync_player_pos(player_pos)
+
+## P5 discovery bridge: creates (or reuses) the off-limits-autoload
+## WorldDiscovery state node, configures it with the seeded road defs so it can
+## answer visited queries, auto-reveals the spawn so fast-travel works from the
+## first frame, then restores any saved discovery data. Runs after
+## _bootstrap_roads() so __road_defs are ready; __player is resolved first so the
+## spawn reveal covers the car's spawn.
+func _bootstrap_discovery() -> void:
+	_discovery = get_tree().get_first_node_in_group(WorldDiscovery.GROUP_NAME) as WorldDiscovery
+	if _discovery == null:
+		_discovery = WorldDiscovery.new()
+		_discovery.name = "WorldDiscovery"
+		add_child(_discovery)
+	var network := get_node_or_null(road_network_path) as RoadNetwork
+	if network != null:
+		_discovery.configure(network.get_road_defs())
+	if _player != null:
+		_discovery.reveal_at(_player.global_position)
+	_discovery.load_from_slot(WorldDiscovery.DEFAULT_SLOT)
+	if not GameState.game_paused.is_connected(_on_game_paused):
+		GameState.game_paused.connect(_on_game_paused)
+
+func _on_game_paused() -> void:
+	if _discovery != null:
+		_discovery.save_to_slot(WorldDiscovery.DEFAULT_SLOT)
+
+## P5 fast travel: teleports the player car to the closest revealed road point
+## within the discovery snap distance of the given world position. Rejects
+## positions the player has not yet discovered. The car and the chase camera are
+## settled in place (no velocity, no physics interpolation residual) and the
+## streaming position is re-pushed so ground loads around the target.
+func fast_travel_to(world_pos: Vector3) -> bool:
+	if _player == null:
+		_player = get_node_or_null("%PlayerCar") as Node3D
+	if _player == null or _discovery == null:
+		return false
+	if not _discovery.is_revealed(world_pos):
+		return false
+	var target := _discovery.try_snap_to_revealed(world_pos)
+	if target == Vector3.INF:
+		return false
+	_settle_car(target)
+	_settle_chase_camera()
+	_push_player_position()
+	return true
+
+## Moves the car to an absolute position and zeroes its motion, snapping its
+## physics-interpolation so the viewport does not smear a leftover velocity.
+func _settle_car(target: Vector3) -> void:
+	_player.global_position = target
+	if _player.has_method("reset_physics_interpolation"):
+		_player.call("reset_physics_interpolation")
+	if _player is RigidBody3D:
+		var body := _player as RigidBody3D
+		body.linear_velocity = Vector3.ZERO
+		body.angular_velocity = Vector3.ZERO
+
+## Snaps the chase camera to the ideal chase position for the (now settled)
+## player and re-orients it. Duck-typed: only cameras whose `target` is this
+## driver's player and that expose chase camera_distance/camera_height are
+## handled, so orbit cameras and other players are untouched.
+func _settle_chase_camera() -> void:
+	for candidate in get_children():
+		if not candidate is Node3D:
+			continue
+		if candidate.get("target") != _player:
+			continue
+		if not ("camera_distance" in candidate and "camera_height" in candidate):
+			continue
+		var camera_distance := 6.0
+		var camera_height := 2.5
+		if typeof(candidate.get("camera_distance")) == TYPE_FLOAT:
+			camera_distance = float(candidate.get("camera_distance"))
+		if typeof(candidate.get("camera_height")) == TYPE_FLOAT:
+			camera_height = float(candidate.get("camera_height"))
+		var ideal := _player.global_position + _player.global_basis.z * camera_distance + Vector3.UP * camera_height
+		(candidate as Node3D).global_position = ideal
+		if candidate.has_method("_update_camera"):
+			candidate.call("_update_camera", 1.0 / 60.0)
+		return
 
 ## Seeds the road network before the first terrain push so Terrain3D carves
 ## recessed ground under every road on its first bake. CorridorPlanner emits

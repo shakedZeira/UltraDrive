@@ -26,11 +26,38 @@ const PRIORITY_LIVE := 0  # live-ring/frontier bakes, served first
 const PRIORITY_CORRIDOR := 1  # known-road corridor pre-bake, served next
 const PRIORITY_PREFETCH := 2  # prefetch band, served last
 const CORRIDOR_MARGIN := 1  # region locs pre-baked around each road point
-const MAX_CORRIDOR_LOCS := 48  # corridor pre-bake cap, tier-priority first
+
+## Corridor pre-bake budget bounds (P7). The per-network cap is now a *budget*
+## derived by the pure corridor_budget_locs() from driveable kilometres
+## (km -> region-locs math, directly unit-tested) -- never an arbitrary
+## constant -- so the ~100 km classified ring (~190 region-locs) saturates the
+## worker instead of being capped at the old small number. MAX_CORRIDOR_LOCS
+## keeps its historical role as the ceiling of that budget; CORRIDOR_BUDGET_FLOOR
+## keeps small/legacy networks at the historical 48-loc behaviour bit-for-bit.
+## PRIORITY_LIVE (0) still wins over this Corridor priority everywhere, so the
+## player-region sync bake is never starved by the bigger warm-up queue.
+const MAX_CORRIDOR_LOCS := 190
+const CORRIDOR_BUDGET_FLOOR := 48
+## Region-locs of corridor warm-up claimed per network kilometre. Derivation:
+## 1000 m per km / 1024 m per region = 0.977 region-lengths per km of road;
+## each claims a (2*CORRIDOR_MARGIN+1)-wide neighbourhood whose adjacent cells
+## share ~1/3 of their band, summing to ~1.9 distinct region-locs/km -- the plan
+## figure: a 100 km ring touches ~190 regions.
+const CORRIDOR_BUDGET_KM_FACTOR := 1.9
 const SPAWN_REGION := Vector2i(0, 0)  # region under the (128, 128) spawn
 
 @export var terrain: Terrain3D
 @export var bake_scale: float = 1.0
+
+## Region-lifetime callbacks (P7). Emitted exactly once per transition: when a
+## region's bake enters the live ring (fresh async apply on the main thread, or
+## a cached re-entry write) and when a region leaves the ring
+## (_remove_far_regions eviction). The RegionDresser observes these so dressing
+## rises with the ground, persists through the prefetch band and frees exactly
+## when the ring drops a region -- never a frame early or late, and never
+## guessing the sync/async difference.
+signal region_entered(loc: Vector2i)
+signal region_left(loc: Vector2i)
 
 ## Key Vector2i (region location) -> {"image": Image (FORMAT_RF),
 ## "color": Image (FORMAT_RGBA8), "height_min": float, "height_max": float},
@@ -105,7 +132,9 @@ func _ready() -> void:
 	terrain.region_size = Terrain3D.SIZE_1024
 
 ## Queues cached-only bakes (PRIORITY_CORRIDOR) for every region the known road
-## network touches plus a CORRIDOR_MARGIN border, capped at MAX_CORRIDOR_LOCS.
+## network touches plus a CORRIDOR_MARGIN border, capped at a *budget* derived
+## by corridor_budget_locs() from the network's driveable kilometres (km ->
+## region-locs math, clipped to [CORRIDOR_BUDGET_FLOOR, MAX_CORRIDOR_LOCS]).
 ## When road_defs were passed to set_roads() the cap is ordered by tier priority
 ## (HIGHWAY ring first -> ARTERIAL -> TOUGE/COASTAL -> DIRT last) so the 100 km
 ## classified network still pre-bakes ahead of the player without flooding the
@@ -137,7 +166,7 @@ func _prebake_corridor(roads: Array) -> void:
 						if not loc_tier.has(loc) or tier < loc_tier[loc]:
 							loc_tier[loc] = tier
 	loc_set.erase(SPAWN_REGION)
-	var locs = loc_set.keys()
+	var locs: Array = loc_set.keys()
 	if tiered:
 		locs.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 			var ta: int = loc_tier.get(a, RoadDef.Tier.DIRT)
@@ -148,7 +177,8 @@ func _prebake_corridor(roads: Array) -> void:
 		)
 	else:
 		locs.sort_custom(_corridor_sort)
-	for i in mini(locs.size(), MAX_CORRIDOR_LOCS):
+	var budget: int = corridor_budget_locs(_network_km(roads))
+	for i in mini(locs.size(), budget):
 		var loc: Vector2i = locs[i]
 		if not _baked.has(loc) and not _applied.has(loc) and _queued_get(loc) == -1:
 			_queue_bake(loc, int(REGION_SIZE), PRIORITY_CORRIDOR)
@@ -165,6 +195,63 @@ func _corridor_sort(a: Vector2i, b: Vector2i) -> bool:
 	if a.x != b.x:
 		return a.x < b.x
 	return a.y < b.y
+
+## Pure km -> region-locs budget for the corridor pre-bake (P7), unit-tested
+## with no engine state. road_km is the total driveable network length; the
+## budget scales linearly with it through CORRIDOR_BUDGET_KM_FACTOR (the plan
+## figure: a 100 km classified ring touches ~190 region-locs), clipped into
+## [floor_locs, max_locs] ([CORRIDOR_BUDGET_FLOOR=48, MAX_CORRIDOR_LOCS=190] by
+## default) so small/legacy networks keep the historical 48-loc bound and the
+## worker saturates at scale. corridor_margin widens the touch set the same way
+## the neighbourhood fill does, so CORRIDOR_MARGIN stays the knob that trades
+## pre-bake breadth against worker pressure. Monotone in road_km; static so a
+## test can pin the ladder without an instance.
+static func corridor_budget_locs(road_km: float, corridor_margin: int = CORRIDOR_MARGIN,
+		max_locs: int = MAX_CORRIDOR_LOCS, floor_locs: int = CORRIDOR_BUDGET_FLOOR) -> int:
+	if road_km <= 0.0:
+		return floor_locs
+	var raw := road_km * CORRIDOR_BUDGET_KM_FACTOR * (float(2 * corridor_margin + 1) / 3.0)
+	return clampi(ceili(raw), floor_locs, max_locs)
+
+## Total driveable network length in kilometres, summed over every corridor as
+## pure per-segment distance math (main thread only -- the set_roads() path --
+## and touches no Terrain3D). Feeds corridor_budget_locs() during
+## _prebake_corridor so the budget stays derived, never hard-coded.
+func _network_km(roads: Array) -> float:
+	var total_m := 0.0
+	for road in roads:
+		var pts: Array = road
+		for i in range(1, pts.size()):
+			var a: Vector3 = pts[i - 1]
+			var b: Vector3 = pts[i]
+			total_m += a.distance_to(b)
+	return total_m / 1000.0
+
+## Ground height at a world XZ position, resolved from the *cached* bake of
+## `loc` (the prefetch ring keeps that cache warm before a region goes live, so
+## the RegionDresser's prefetch-band dressing sits on the real surface instead
+## of flat ground). Returns 0.0 when the region has no cached bake or the XZ
+## lies outside the region. Main-thread only: reads _baked directly, which is
+## exactly why it is safe for the dressing path -- the dresser never reads
+## Terrain3D from a worker. Region-anchored: the cache write is a grid-aligned
+## per-region set_map, so sampling the frame-local pixel is inherently scaled
+## and anchored (no import_images snap to reason about on this path).
+func baked_region_height(loc: Vector2i, world_pos: Vector3) -> float:
+	if not _baked.has(loc):
+		return 0.0
+	var rec: Dictionary = _baked[loc]
+	var cached: Variant = rec.get("image", null)
+	if not cached is Image:
+		return 0.0
+	var img: Image = cached
+	var fx := (world_pos.x - loc.x * REGION_SIZE) / REGION_SIZE
+	var fz := (world_pos.z - loc.y * REGION_SIZE) / REGION_SIZE
+	if fx < 0.0 or fx >= 1.0 or fz < 0.0 or fz >= 1.0:
+		return 0.0
+	var w := img.get_width()
+	var ix := clampi(int(floorf(fx * float(w))), 0, w - 1)
+	var iz := clampi(int(floorf(fz * float(w))), 0, w - 1)
+	return float(img.get_pixel(ix, iz).r)
 
 func _exit_tree() -> void:
 	_stop_worker()
@@ -243,7 +330,9 @@ func _ensure_ring_regions(data: Terrain3DData, max_regions: int) -> bool:
 ## Removal defers the Terrain3D rebuild to the batched pass: remove_regionp(loc,
 ## false) only marks the region deleted and dirties the region map, and the RID
 ## bookkeeping is freed in the pass's single update. Returns true when any
-## region was removed so the pass issues exactly one rebuild.
+## region was removed so the pass issues exactly one rebuild. Fires
+## region_left(loc) once per evicted region so dressing mirrors the frees at
+## the same cadence.
 func _remove_far_regions(data: Terrain3DData, player_region: Vector2i, max_removals: int) -> bool:
 	var active: Array = data.get_region_locations()
 	var removed := false
@@ -252,6 +341,7 @@ func _remove_far_regions(data: Terrain3DData, player_region: Vector2i, max_remov
 		if abs(loc.x - player_region.x) > RING_RADIUS or abs(loc.y - player_region.y) > RING_RADIUS:
 			data.remove_regionp(_region_center(loc), false)
 			_applied.erase(loc)
+			region_left.emit(loc)
 			removed = true
 			count += 1
 			if count >= max_removals:
@@ -295,6 +385,7 @@ func _ensure_region(data: Terrain3DData, loc: Vector2i, with_update: bool = true
 			return false
 		if is_player:
 			_bake_player_region(data, region, loc)
+			region_entered.emit(loc)
 			return true
 		if _queued_get(loc) == -1:
 			_queue_bake(loc, _map_width(region), PRIORITY_LIVE)
@@ -308,9 +399,11 @@ func _ensure_region(data: Terrain3DData, loc: Vector2i, with_update: bool = true
 		if image != null:
 			_write_region(data, region, loc, image, rec["height_min"], rec["height_max"], with_update, rec.get("color"))
 			_applied[loc] = true
+			region_entered.emit(loc)
 			return true
 	if is_player:
 		_bake_player_region(data, region, loc)
+		region_entered.emit(loc)
 		return true
 	_queue_bake(loc, _map_width(region), PRIORITY_LIVE)
 	return true
@@ -529,6 +622,7 @@ func _apply_record(record: Dictionary, data: Terrain3DData) -> void:
 			_write_region(data, region, loc, image, record["height_min"], record["height_max"], true, color)
 			_applied[loc] = true
 			async_apply_count += 1
+			region_entered.emit(loc)
 	_clear_queued_if_matching(loc, gen)
 
 func _clear_queued_if_matching(loc: Vector2i, gen: int) -> void:

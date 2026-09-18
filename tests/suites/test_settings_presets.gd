@@ -145,3 +145,42 @@ func test_apply_medium_maps_msaa_to_4x_and_no_scaling() -> void:
 func test_apply_quality_preset_tolerates_null_env_and_viewport() -> void:
 	SettingsMenuScript.apply_quality_preset(null, null, SettingsMenuScript.preset_for(1))
 	assert_that(true).is_true()
+
+func test_default_quality_preset_is_within_ladder_bounds() -> void:
+	var index: int = SettingsMenuScript.default_quality_preset()
+	assert_that(index).is_greater_equal(0)
+	assert_that(index).is_less_equal(2)
+
+func test_find_scene_environment_locates_world_environment() -> void:
+	var root := Node.new()
+	var we := WorldEnvironment.new()
+	we.environment = Environment.new()
+	root.add_child(we)
+	_managed.append(root)
+	_managed.append(we.environment)
+	var env: Environment = SettingsMenuScript.find_scene_environment(root)
+	assert_that(env).is_not_null()
+	assert_that(SettingsMenuScript.find_scene_environment(null)).is_null()
+
+func test_apply_to_scene_tree_pushes_preset_onto_scene_env() -> void:
+	var root := Node.new()
+	var we := WorldEnvironment.new()
+	we.environment = Environment.new()
+	root.add_child(we)
+	var viewport: SubViewport = SubViewport.new()
+	_managed.append(root)
+	_managed.append(we.environment)
+	_managed.append(viewport)
+	SettingsMenuScript.apply_to_scene_tree(2, root, viewport)
+	assert_that(we.environment.ssao_enabled).is_true()
+	assert_that(we.environment.glow_enabled).is_true()
+	assert_that(we.environment.volumetric_fog_enabled).is_true()
+	assert_that(we.environment.ssr_enabled).is_true()
+	assert_that(we.environment.sdfgi_enabled).is_true()
+	assert_that(viewport.msaa_3d).is_equal(Viewport.MSAA_DISABLED)
+	SettingsMenuScript.apply_to_scene_tree(0, root, viewport)
+	assert_that(we.environment.ssao_enabled).is_false()
+	assert_that(we.environment.glow_enabled).is_false()
+	assert_that(we.environment.volumetric_fog_enabled).is_false()
+	assert_that(we.environment.ssr_enabled).is_false()
+	assert_that(we.environment.sdfgi_enabled).is_false()
