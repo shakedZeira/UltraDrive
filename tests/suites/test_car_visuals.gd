@@ -122,6 +122,47 @@ func test_apply_paint_leaves_unknown_materials_untouched() -> void:
 
 	assert_that(carpet_mi.get_surface_override_material(0)).is_null()
 
+func test_apply_paint_paints_colormap_cc0_body_and_dark_wheels() -> void:
+	var root := _new_root()
+	var body_mi := _new_mesh_instance(StandardMaterial3D.new(), "colormap")
+	body_mi.name = "body"
+	root.add_child(body_mi)
+	var spoiler_mi := _new_mesh_instance(StandardMaterial3D.new(), "colormap")
+	spoiler_mi.name = "spoiler"
+	root.add_child(spoiler_mi)
+	var wheel_mi := _new_mesh_instance(StandardMaterial3D.new(), "colormap")
+	wheel_mi.name = "wheel-front-left"
+	root.add_child(wheel_mi)
+
+	CarVisuals.apply_paint(root, CarVisuals.paint_profile_for("cc0_sedan_sports"))
+
+	var body_override: StandardMaterial3D = body_mi.get_surface_override_material(0) as StandardMaterial3D
+	assert_that(body_override).is_not_null()
+	assert_that(body_override.albedo_color).is_equal(CarVisuals.PAINT_COLORS["cc0_sedan_sports"])
+	assert_that(body_override.metallic).is_equal_approx(0.92, 0.001)
+	assert_that(body_override.clearcoat_enabled).is_true()
+
+	var spoiler_override: StandardMaterial3D = spoiler_mi.get_surface_override_material(0) as StandardMaterial3D
+	assert_that(spoiler_override).is_not_null()
+	assert_that(spoiler_override.albedo_color).is_equal(CarVisuals.PAINT_COLORS["cc0_sedan_sports"])
+
+	var wheel_override: StandardMaterial3D = wheel_mi.get_surface_override_material(0) as StandardMaterial3D
+	assert_that(wheel_override).is_not_null()
+	assert_that(wheel_override.albedo_color).is_equal(CarVisuals.CC0_WHEEL_COLOR)
+	assert_that(wheel_override.metallic).is_equal_approx(0.25, 0.001)
+	assert_that(wheel_override.roughness).is_equal_approx(0.6, 0.001)
+
+func test_paint_profile_for_adds_color_only_for_known_cc0_cars() -> void:
+	var cc0: Dictionary = CarVisuals.paint_profile_for("cc0_race")
+	assert_that(cc0.has("color")).is_true()
+	assert_that(cc0["color"]).is_equal(CarVisuals.PAINT_COLORS["cc0_race"])
+	assert_that(cc0.has("glass_color")).is_true()
+	assert_that(cc0["metallic"]).is_equal_approx(0.92, 0.001)
+	var ai: Dictionary = CarVisuals.paint_profile_for("starter_car")
+	assert_that(ai.has("color")).is_false()
+	assert_that(ai.has("glass_color")).is_false()
+	assert_that(CarVisuals.DEFAULT_PAINT.has("color")).is_false()
+
 func test_default_paint_profile_values_are_sane() -> void:
 	var profile: Dictionary = CarVisuals.DEFAULT_PAINT
 	assert_that(profile["metallic"]).is_between(0.9, 0.95)

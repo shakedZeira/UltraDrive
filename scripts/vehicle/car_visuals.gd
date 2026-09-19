@@ -20,6 +20,37 @@ const DEFAULT_PAINT := {
 	"tail_emission_strength": 5.0,
 }
 
+## Per-car body paint colors for the CC0/Kenney garage line. Any car id keyed
+## here gets its albedo painted at runtime through paint_profile_for(); ids
+## missing from this table keep their source (embedded) albedo untouched, so the
+## AI-built cars (sports_coupe / muscle_car / rally_hatch) never change.
+const PAINT_COLORS := {
+	"cc0_sedan_sports": Color(0.78, 0.12, 0.16, 1.0),      # Comet — competition red
+	"cc0_hatchback_sports": Color(0.07, 0.42, 0.88, 1.0), # Hooligan — rally blue
+	"cc0_race": Color(0.94, 0.63, 0.05, 1.0),             # Interceptor — racing gold
+}
+
+## CC0 wheels are a single composite mesh (tire + rim baked into one surface);
+## paint them as dark gunmetal so the rubber reads dark while the rim sculpt
+## still shows under the chase cam.
+const CC0_WHEEL_COLOR := Color(0.09, 0.09, 0.11, 1.0)
+
+## Racing-line rival body colors keyed by skill tier: concrete colors make the
+## start grid read instantly (silver = Novice, blue = Skilled, red = Expert).
+const RIVAL_PALETTE := {
+	"Novice": Color(0.78, 0.78, 0.82, 1.0),
+	"Skilled": Color(0.16, 0.51, 0.87, 1.0),
+	"Expert": Color(0.88, 0.24, 0.12, 1.0),
+}
+
+## Tint + transparency applied to CC0 glass that arrives flat-white through the
+## Kenney 'colormap' fallback (the integrated GLBs carry no real glass mesh, but
+## future kit cars may).
+const CC0_GLASS_COLOR := Color(0.70, 0.82, 0.92, 0.55)
+
+## Dark rubber tint for CC0 tire-surfaces reached via the 'colormap' fallback.
+const CC0_TIRE_COLOR := Color(0.04, 0.04, 0.05, 1.0)
+
 # --- Wheel dynamics / brake-glow (Task 4) ---
 
 ## Wheel radius (m) shared by every car visual; matches the physics tire
@@ -186,6 +217,17 @@ static func apply_paint(visual_root: Node3D, profile: Dictionary) -> void:
 		return
 	_paint_node(visual_root, profile)
 
+## Returns the paint profile (DEFAULT_PAINT plus any extra CC0 albedo keys) for
+## a garage car id. Cars without an entry in PAINT_COLORS get a bare DEFAULT_PAINT
+## clone, so call sites can route every car through this helper risk-free.
+static func paint_profile_for(car_id: String) -> Dictionary:
+	var profile: Dictionary = DEFAULT_PAINT.duplicate()
+	if PAINT_COLORS.has(car_id):
+		profile["color"] = PAINT_COLORS[car_id]
+		profile["glass_color"] = CC0_GLASS_COLOR
+		profile["tire_color"] = CC0_TIRE_COLOR
+	return profile
+
 static func _paint_node(node: Node3D, profile: Dictionary) -> void:
 	if node is MeshInstance3D:
 		_paint_mesh_instance(node as MeshInstance3D, profile)
@@ -218,12 +260,35 @@ static func _make_override(mesh_instance: MeshInstance3D, mesh: Mesh, surface_in
 	if name.contains("headlight") or name.contains("taillight"):
 		return _light_clone(standard)
 	if name.contains("tire"):
-		return _tire_clone(standard)
+		return _tire_clone(standard, profile)
 	if name.contains("trim") or name.contains("graphite"):
 		return _trim_clone(standard)
 	if name.contains("rim"):
 		return _rim_clone(standard)
+	var cc0_override := _cc0_override(mesh_instance, name, standard, profile)
+	if cc0_override != null:
+		return cc0_override
 	return null
+
+## Kenney Car Kit GLBs bake every part under one flat-white 'colormap' material
+## with no role keywords, so the material-name matcher alone leaves them plain
+## white. Classify by mesh role instead: wheels are a composite tire+rim node,
+## glass keeps the glass clone, and everything else on the shell is clearcoated
+## paint. Gated on the 'colormap' material name, so AI-built cars (which never
+## use it) are untouched.
+static func _cc0_override(mesh_instance: MeshInstance3D, material_name: String, standard: StandardMaterial3D, profile: Dictionary) -> StandardMaterial3D:
+	if material_name != "colormap":
+		return null
+	var node_name := String(mesh_instance.name).to_lower()
+	if node_name.contains("glass"):
+		return _glass_clone(standard, profile)
+	if node_name.contains("tire"):
+		return _tire_clone(standard, profile)
+	if node_name.contains("rim"):
+		return _rim_clone(standard)
+	if node_name.contains("wheel"):
+		return _cc0_wheel_clone(standard)
+	return _paint_clone(standard, profile)
 
 static func _resolved_surface_material(mesh_instance: MeshInstance3D, mesh: Mesh, surface_index: int) -> Material:
 	var override_material: Material = mesh_instance.get_surface_override_material(surface_index)
@@ -242,6 +307,8 @@ static func _surface_name(mesh_instance: MeshInstance3D, mesh: Mesh, surface_ind
 
 static func _paint_clone(source: StandardMaterial3D, profile: Dictionary) -> StandardMaterial3D:
 	var cloned: StandardMaterial3D = source.duplicate() as StandardMaterial3D
+	if profile.has("color"):
+		cloned.albedo_color = profile["color"]
 	cloned.clearcoat_enabled = true
 	cloned.clearcoat = profile["clearcoat"]
 	cloned.clearcoat_roughness = profile["clearcoat_roughness"]
@@ -251,6 +318,8 @@ static func _paint_clone(source: StandardMaterial3D, profile: Dictionary) -> Sta
 
 static func _glass_clone(source: StandardMaterial3D, profile: Dictionary) -> StandardMaterial3D:
 	var cloned: StandardMaterial3D = source.duplicate() as StandardMaterial3D
+	if profile.has("glass_color"):
+		cloned.albedo_color = profile["glass_color"]
 	cloned.roughness = profile["glass_roughness"]
 	cloned.refraction_enabled = true
 	cloned.refraction_scale = profile["glass_refraction_scale"]
@@ -262,8 +331,10 @@ static func _light_clone(source: StandardMaterial3D) -> StandardMaterial3D:
 	cloned.roughness = 0.4
 	return cloned
 
-static func _tire_clone(source: StandardMaterial3D) -> StandardMaterial3D:
+static func _tire_clone(source: StandardMaterial3D, profile: Dictionary) -> StandardMaterial3D:
 	var cloned: StandardMaterial3D = source.duplicate() as StandardMaterial3D
+	if profile.has("tire_color"):
+		cloned.albedo_color = profile["tire_color"]
 	cloned.metallic = 0.0
 	cloned.roughness = 0.95
 	return cloned
@@ -272,6 +343,13 @@ static func _rim_clone(source: StandardMaterial3D) -> StandardMaterial3D:
 	var cloned: StandardMaterial3D = source.duplicate() as StandardMaterial3D
 	cloned.metallic = 0.9
 	cloned.roughness = 0.15
+	return cloned
+
+static func _cc0_wheel_clone(source: StandardMaterial3D) -> StandardMaterial3D:
+	var cloned: StandardMaterial3D = source.duplicate() as StandardMaterial3D
+	cloned.albedo_color = CC0_WHEEL_COLOR
+	cloned.metallic = 0.25
+	cloned.roughness = 0.6
 	return cloned
 
 static func _trim_clone(source: StandardMaterial3D) -> StandardMaterial3D:

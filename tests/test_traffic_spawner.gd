@@ -24,6 +24,8 @@ const EVENT_POI_IDS := [
 	"time_attack_2",
 	"time_attack_3",
 	"time_attack_4",
+	"outbreak",
+	"convoy",
 ]
 
 func _build_ring() -> Array[Vector3]:
@@ -35,8 +37,9 @@ func _build_ring() -> Array[Vector3]:
 
 func test_poi_registry_returns_exactly_the_seeded_set() -> void:
 	var ids := POIRegistry.get_poi_ids()
-	# Base landscape POIs first, then the P6 event markers derived from the
-	# classified road network (same master seed -> same ids, same order).
+	# Base landscape POIs first, then the S7 event markers derived from the
+	# classified road network (same master seed -> same ids, same order): the
+	# 6 P6 families plus the two open-world brands (outbreak / convoy).
 	assert_array(ids).contains_exactly([
 		"festival_hub",
 		"lowland_view",
@@ -53,6 +56,8 @@ func test_poi_registry_returns_exactly_the_seeded_set() -> void:
 		"time_attack_2",
 		"time_attack_3",
 		"time_attack_4",
+		"outbreak",
+		"convoy",
 	])
 	assert_that(ids.size()).is_equal(BASE_POI_IDS.size() + EVENT_POI_IDS.size())
 	for poi_id: String in ids:

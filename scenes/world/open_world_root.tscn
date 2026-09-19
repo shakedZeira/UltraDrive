@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3]
+[gd_scene load_steps=19 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/world_driver.gd" id="1_driver"]
 [ext_resource type="Script" path="res://scripts/world/chunk_streamer.gd" id="2_cs"]
@@ -14,6 +14,7 @@
 [ext_resource type="Script" path="res://scripts/world/prop_scatterer.gd" id="12_prop"]
 [ext_resource type="Script" path="res://scripts/world/foliage.gd" id="13_foliage"]
 [ext_resource type="Script" path="res://scripts/world/traffic_spawner.gd" id="14_traffic"]
+[ext_resource type="Script" path="res://scripts/events/event_session.gd" id="15_session"]
 
 [sub_resource type="ProceduralSkyMaterial" id="sky_mat"]
 sky_top_color = Color(0.16, 0.31, 0.62, 1)
@@ -147,3 +148,6 @@ road_network = NodePath("../RoadNetwork")
 
 [node name="LivingWorld" type="Node" parent="."]
 script = ExtResource("11_living")
+
+[node name="EventSession" type="Node" parent="."]
+script = ExtResource("15_session")

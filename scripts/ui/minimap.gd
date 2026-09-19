@@ -79,11 +79,9 @@ func _draw_route(center: Vector2) -> void:
 		return
 	if not MapRoads.has_route:
 		return
-	var route := MapRoads.route_polyline(_road_source, _player_car.global_position, MapRoads.route_target)
-	if route.size() < 2:
-		return
-	var local := MapRoads.world_to_local_points(route, _player_car.global_position, center, zoom)
-	var clipped := MapRoads.clip_circle(local, center, minimap_radius)
+	# Same polyline the pause-map builds (route_polyline on the shared static
+	# route), just transformed with the minimap's car-up convention.
+	var clipped := MapRoads.minimap_route_path(Rect2(Vector2.ZERO, size), _player_car.global_position, _road_source, zoom)
 	if clipped.size() >= 2:
 		draw_polyline(clipped, route_color, road_width + 1.5)
 

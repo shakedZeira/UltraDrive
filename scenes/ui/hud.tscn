@@ -1,8 +1,9 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/minimap.gd" id="2_minimap"]
 [ext_resource type="Script" path="res://scripts/race/race_ui.gd" id="1_race"]
 [ext_resource type="Script" path="res://scripts/race/tachometer.gd" id="3_tach"]
+[ext_resource type="Script" path="res://scripts/race/results_confetti.gd" id="4_confetti"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_class_pill"]
 content_margin_left = 12.0
@@ -19,6 +20,50 @@ corner_radius_top_left = 20
 corner_radius_top_right = 20
 corner_radius_bottom_right = 20
 corner_radius_bottom_left = 20
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_flare"]
+bg_color = Color(1, 0.78, 0.1, 0.2)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(1, 0.6, 0.05, 0.45)
+corner_radius_top_left = 60
+corner_radius_top_right = 60
+corner_radius_bottom_right = 60
+corner_radius_bottom_left = 60
+shadow_color = Color(1, 0.65, 0.1, 0.3)
+shadow_size = 12
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_results_card"]
+bg_color = Color(0.05, 0.07, 0.12, 0.96)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.42, 0.55, 0.85, 0.9)
+corner_radius_top_left = 18
+corner_radius_top_right = 18
+corner_radius_bottom_right = 18
+corner_radius_bottom_left = 18
+shadow_color = Color(0, 0, 0, 0.6)
+shadow_size = 24
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_nav_pill"]
+content_margin_left = 14.0
+content_margin_top = 6.0
+content_margin_right = 14.0
+content_margin_bottom = 6.0
+bg_color = Color(0.06, 0.1, 0.2, 0.82)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(1, 0.58, 0.12, 0.55)
+corner_radius_top_left = 18
+corner_radius_top_right = 18
+corner_radius_bottom_right = 18
+corner_radius_bottom_left = 18
 
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1_race")
@@ -92,6 +137,81 @@ offset_bottom = -510.0
 grow_horizontal = 0
 grow_vertical = 0
 script = ExtResource("2_minimap")
+
+[node name="NavWidget" type="Control" parent="Root"]
+unique_name_in_owner = true
+visible = false
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 640.0
+offset_top = -560.0
+offset_right = 960.0
+offset_bottom = -300.0
+grow_vertical = 0
+mouse_filter = 2
+
+[node name="NavPill" type="Panel" parent="Root/NavWidget"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_nav_pill")
+
+[node name="NavArrow" type="Label" parent="Root/NavWidget"]
+unique_name_in_owner = true
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+offset_top = 6.0
+offset_bottom = -86.0
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_colors/font_color = Color(1, 0.72, 0.3, 1)
+theme_override_colors/font_outline_color = Color(0.15, 0.08, 0, 1)
+theme_override_constants/outline_size = 6
+theme_override_font_sizes/font_size = 76
+
+[node name="NavDistance" type="Label" parent="Root/NavWidget"]
+unique_name_in_owner = true
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+offset_left = 16.0
+offset_top = -90.0
+offset_right = -16.0
+offset_bottom = -52.0
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_colors/font_color = Color(0.96, 0.98, 1, 1)
+theme_override_colors/font_outline_color = Color(0.03, 0.05, 0.1, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 24
+
+[node name="NavHint" type="Label" parent="Root/NavWidget"]
+unique_name_in_owner = true
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+offset_left = 16.0
+offset_top = -50.0
+offset_right = -16.0
+offset_bottom = -12.0
+text = "BRAKE"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_colors/font_color = Color(1, 0.62, 0.15, 1)
+theme_override_colors/font_outline_color = Color(0.15, 0.08, 0, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 20
 
 [node name="Cluster" type="Control" parent="Root"]
 unique_name_in_owner = true
@@ -185,3 +305,166 @@ vertical_alignment = 1
 theme_override_colors/font_color = Color(0.88, 0.93, 1, 1)
 theme_override_styles/normal = SubResource("StyleBoxFlat_class_pill")
 theme_override_font_sizes/font_size = 22
+
+[node name="CountdownOverlay" type="Control" parent="Root"]
+unique_name_in_owner = true
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Flare" type="Panel" parent="Root/CountdownOverlay"]
+unique_name_in_owner = true
+anchors_preset = 1
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -260.0
+offset_top = -190.0
+offset_right = 260.0
+offset_bottom = 190.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_flare")
+
+[node name="Banner" type="Label" parent="Root/CountdownOverlay"]
+unique_name_in_owner = true
+anchors_preset = 1
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -320.0
+offset_top = -170.0
+offset_right = 320.0
+offset_bottom = 170.0
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_colors/font_color = Color(0.97, 0.99, 1, 1)
+theme_override_colors/font_outline_color = Color(0.03, 0.05, 0.1, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.6)
+theme_override_constants/shadow_offset_x = 4
+theme_override_constants/shadow_offset_y = 4
+theme_override_constants/outline_size = 10
+theme_override_font_sizes/font_size = 230
+
+[node name="ResultsOverlay" type="Control" parent="Root"]
+unique_name_in_owner = true
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Dim" type="ColorRect" parent="Root/ResultsOverlay"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.02, 0.03, 0.07, 0.72)
+
+[node name="ResultsConfetti" type="Control" parent="Root/ResultsOverlay"]
+unique_name_in_owner = true
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("4_confetti")
+
+[node name="Card" type="Panel" parent="Root/ResultsOverlay"]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -340.0
+offset_top = -280.0
+offset_right = 340.0
+offset_bottom = 280.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_results_card")
+
+[node name="VBox" type="VBoxContainer" parent="Root/ResultsOverlay/Card"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+offset_left = 36.0
+offset_top = 22.0
+offset_right = -36.0
+offset_bottom = -22.0
+theme_override_constants/separation = 8
+
+[node name="ResultsTitle" type="Label" parent="Root/ResultsOverlay/Card/VBox"]
+unique_name_in_owner = true
+text = "1ST PLACE!"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_colors/font_color = Color(0.949, 0.741, 0.167, 1)
+theme_override_colors/font_outline_color = Color(0.25, 0.16, 0.02, 1)
+theme_override_constants/outline_size = 8
+theme_override_font_sizes/font_size = 68
+
+[node name="ResultsPosition" type="Label" parent="Root/ResultsOverlay/Card/VBox"]
+unique_name_in_owner = true
+text = "P1"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_colors/font_color = Color(0.96, 0.98, 1, 1)
+theme_override_colors/font_outline_color = Color(0.03, 0.05, 0.1, 1)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 40
+
+[node name="ResultsTotal" type="Label" parent="Root/ResultsOverlay/Card/VBox"]
+unique_name_in_owner = true
+text = "TOTAL TIME  -:--"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_colors/font_color = Color(0.86, 0.9, 0.97, 1)
+theme_override_font_sizes/font_size = 24
+
+[node name="ResultsBestLap" type="Label" parent="Root/ResultsOverlay/Card/VBox"]
+unique_name_in_owner = true
+text = "BEST LAP  -:--"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_colors/font_color = Color(0.86, 0.9, 0.97, 1)
+theme_override_font_sizes/font_size = 24
+
+[node name="ResultsPoints" type="Label" parent="Root/ResultsOverlay/Card/VBox"]
+unique_name_in_owner = true
+text = "POSITION POINTS  +0"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_colors/font_color = Color(0.902, 0.698, 0.235, 1)
+theme_override_font_sizes/font_size = 22
+
+[node name="ResultsStatsRows" type="VBoxContainer" parent="Root/ResultsOverlay/Card/VBox"]
+unique_name_in_owner = true
+theme_override_constants/separation = 4
+
+[node name="Buttons" type="HBoxContainer" parent="Root/ResultsOverlay/Card/VBox"]
+alignment = 1
+theme_override_constants/separation = 16
+
+[node name="NextRaceButton" type="Button" parent="Root/ResultsOverlay/Card/VBox/Buttons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 46)
+size_flags_horizontal = 3
+text = "NEXT RACE"
+
+[node name="ReturnFreeRoamButton" type="Button" parent="Root/ResultsOverlay/Card/VBox/Buttons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 46)
+size_flags_horizontal = 3
+text = "RETURN TO FREE ROAM"

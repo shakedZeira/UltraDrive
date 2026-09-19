@@ -27,12 +27,22 @@ const WEATHER_WEIGHTS: Dictionary = {
 
 var _weather_timer: float = MIN_WEATHER_INTERVAL_SECONDS
 var _rng := RandomNumberGenerator.new()
+var _clock_enabled := true
 
 func _ready() -> void:
     _rng.randomize()
 
+## Event-mode pause gate: while an event runs the day-night clock freezes so
+## the reward run never drifts into a different time of day; resume with
+## set_enabled(true).
+func set_enabled(enabled: bool) -> void:
+    _clock_enabled = enabled
+
+func is_enabled() -> bool:
+    return _clock_enabled
+
 func _process(delta: float) -> void:
-    if _world_is_active():
+    if _clock_enabled and _world_is_active():
         _tick(delta)
 
 func _world_is_active() -> bool:

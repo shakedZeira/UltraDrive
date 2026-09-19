@@ -64,6 +64,6 @@ static func _load_events() -> void:
 	for id: String in pois.keys():
 		var poi: Dictionary = pois[id]
 		anchors.append(poi["position"] as Vector3)
-	_events = EventRegistry.place(defs, anchors)
+	_events = EventRegistry.place_data(defs, anchors)
 	for event_id: String in _events.keys():
 		pois[event_id] = _events[event_id]

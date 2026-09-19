@@ -7,14 +7,36 @@ extends Node
 @export var vehicle_scene: PackedScene
 @export var max_traffic: int = 15
 @export var spawn_radius: float = 300.0
+## Fraction (0.0..1.0) of spawns that are parked: static, never-driving visuals
+## that still count toward the ring and despawn normally.
+@export var parked_ratio: float = 0.0
 @export var road_network: RoadNetwork
 
 var _traffic: Array[VehiclePhysics] = []
+var _drivers: Dictionary = {}  # VehiclePhysics -> TrafficDriver
+var _enabled := true
 
-func update(player_pos: Vector3) -> void:
-    # Remove far traffic
+## Default tick when called outside the live physics loop (existing 1-arg call
+## sites / tests keep working).
+const DEFAULT_DELTA := 1.0 / 60.0
+
+## Event-mode pause gate: while an event runs no traffic spawns/despawns or
+## drives; resume with set_enabled(true).
+func set_enabled(enabled: bool) -> void:
+    _enabled = enabled
+
+func is_enabled() -> bool:
+    return _enabled
+
+func update(player_pos: Vector3, delta: float = DEFAULT_DELTA) -> void:
+    if not _enabled:
+        return
+    # Remove far traffic: drop the driver first so the RefCounted frees itself
+    # even if queue_free() is deferred, then queue the vehicle.
     for vehicle in _traffic.duplicate():
         if vehicle.global_position.distance_to(player_pos) > spawn_radius + 100:
+            var driver: TrafficDriver = _drivers.get(vehicle)
+            _drivers.erase(vehicle)
             vehicle.queue_free()
             _traffic.erase(vehicle)
 
@@ -24,6 +46,14 @@ func update(player_pos: Vector3) -> void:
         var audio := vehicle.get_node_or_null("CarAudio") as CarAudio
         if audio != null:
             audio.cull_by_distance(player_pos, CarAudio.TRAFFIC_AUDIO_RANGE)
+
+    # Drive every live vehicle through its TrafficDriver (input_override).
+    # player_pos is the consumer-supplied proximity probe (traffic-forward axis
+    # slow/stop against the player).
+    for vehicle in _traffic:
+        var driver: TrafficDriver = _drivers.get(vehicle)
+        if driver != null:
+            driver.update(player_pos, delta)
 
     # Spawn new traffic if under max
     if _traffic.size() < max_traffic:
@@ -46,9 +76,28 @@ func _spawn_vehicle(player_pos: Vector3) -> void:
         if not placed:
             return
     var vehicle := vehicle_scene.instantiate() as VehiclePhysics
-    vehicle.global_position = spawn_pos
     add_child(vehicle)
+    vehicle.global_position = spawn_pos
     _traffic.append(vehicle)
+    _drivers[vehicle] = _make_driver(vehicle)
+
+func _make_driver(vehicle: VehiclePhysics) -> TrafficDriver:
+    var driver := TrafficDriver.new()
+    driver.set_parked(randf() < parked_ratio)
+    if road_network == null:
+        return driver
+    var road_id := road_network.nearest_road_id(vehicle.global_position)
+    if road_id < 0:
+        return driver
+    var defs := road_network.get_road_defs()
+    if road_id >= defs.size():
+        return driver
+    var def := defs[road_id] as RoadDef
+    driver.configure(vehicle, def.points, def.closed, _traffic_speed_kmh())
+    return driver
+
+func _traffic_speed_kmh() -> float:
+    return randf_range(TrafficDriver.CRUISE_KMH * 0.75, TrafficDriver.CRUISE_KMH * 1.25)
 
 func _random_offset() -> Vector3:
     return Vector3(

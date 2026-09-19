@@ -187,7 +187,7 @@ func _swap_preview(config: CarConfig) -> void:
 	var instance: Node3D = visual.instantiate()
 	instance.transform = CAR_ORIENT
 	car_visual.add_child(instance)
-	CarVisuals.apply_paint(instance, CarVisuals.DEFAULT_PAINT)
+	CarVisuals.apply_paint(instance, CarVisuals.paint_profile_for(_selected_car))
 
 func _on_select_pressed() -> void:
 	if _selected_car != "":

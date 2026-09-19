@@ -19,10 +19,26 @@ var manual_mode: bool = false  # true = driver shifts via shift_up/shift_down
 # --- Internal ---
 var _wheel_speed: float = 0.0  # m/s (set by VehiclePhysics)
 
+## Start-gate rev override: when >= 0.0, update() forces engine_rpm toward the
+## override fraction of the rev range (0 = idle, 1 = redline) and cuts drive
+## torque so the car revs in place while controls are locked. -1 = inactive.
+var rpm_override: float = -1.0
+
 func update(delta: float, throttle: float, config: CarConfig) -> Dictionary:
     ## Main drivetrain update.
     ## throttle: [0.0, 1.0] from InputManager
     ## Returns: { engine_rpm, current_gear, drive_torque }
+
+    if rpm_override >= 0.0:
+        var target := lerpf(config.idle_rpm, config.redline_rpm, clampf(rpm_override, 0.0, 1.0))
+        engine_rpm = move_toward(engine_rpm, target, config.peak_rpm * delta * 2.0)
+        engine_rpm = clampf(engine_rpm, config.idle_rpm * 0.8, config.redline_rpm)
+        drive_torque = 0.0
+        return {
+            "engine_rpm": engine_rpm,
+            "current_gear": current_gear,
+            "drive_torque": drive_torque,
+        }
 
     # --- Shift timer ---
     if is_shifting:
@@ -140,3 +156,4 @@ func reset() -> void:
     drive_torque = 0.0
     is_shifting = false
     reverse_limiter_active = false
+    rpm_override = -1.0

@@ -1,0 +1,45 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/vehicle/vehicle_physics.gd" id="1_vp"]
+[ext_resource type="Script" path="res://scripts/vehicle/wheel_physics.gd" id="2_wp"]
+
+[sub_resource type="StandardMaterial3D" id="rival_paint_mat"]
+resource_name = "paint"
+metallic = 0.85
+roughness = 0.25
+
+[sub_resource type="BoxMesh" id="rival_body_mesh"]
+material = SubResource("rival_paint_mat")
+size = Vector3(1.8, 0.55, 4.0)
+
+[sub_resource type="BoxShape3D" id="rival_box_shape"]
+size = Vector3(1.8, 0.5, 4.0)
+
+[node name="RivalCar" type="RigidBody3D"]
+script = ExtResource("1_vp")
+mass = 1100.0
+can_sleep = false
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("rival_box_shape")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
+
+[node name="CarBody" type="MeshInstance3D" parent="."]
+mesh = SubResource("rival_body_mesh")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.45, 0)
+
+[node name="WheelFL" type="Node3D" parent="."]
+script = ExtResource("2_wp")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 0.2, -1.25)
+
+[node name="WheelFR" type="Node3D" parent="."]
+script = ExtResource("2_wp")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 0.2, -1.25)
+
+[node name="WheelRL" type="Node3D" parent="."]
+script = ExtResource("2_wp")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 0.2, 1.25)
+
+[node name="WheelRR" type="Node3D" parent="."]
+script = ExtResource("2_wp")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 0.2, 1.25)

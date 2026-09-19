@@ -93,3 +93,22 @@ func test_resolve_wheel_nodes_finds_four_corners_on_cc0_glb() -> void:
 func test_garage_starts_with_all_cc0_cars() -> void:
 	for car_id: Variant in CC0_CARS.keys():
 		assert_that(Array(Garage.STARTER_CARS).has(car_id)).is_true()
+
+func test_every_cc0_visual_paints_body_with_profile_color_and_dark_wheels() -> void:
+	for car_id: Variant in CC0_CARS.keys():
+		var entry: Dictionary = CC0_CARS[car_id]
+		var instance := _instantiate(String(entry["visual"]))
+		CarVisuals.apply_paint(instance, CarVisuals.paint_profile_for(String(car_id)))
+		var body := instance.get_node_or_null("body") as MeshInstance3D
+		assert_that(body).is_not_null()
+		var body_paint: StandardMaterial3D = body.get_surface_override_material(0) as StandardMaterial3D
+		assert_that(body_paint).is_not_null()
+		assert_that(body_paint.albedo_color).is_equal(CarVisuals.PAINT_COLORS[car_id])
+		assert_that(body_paint.clearcoat_enabled).is_true()
+		assert_that(body_paint.metallic).is_equal_approx(0.92, 0.001)
+		for wheel_name in CC0_WHEEL_NODES:
+			var wheel := instance.get_node_or_null(wheel_name) as MeshInstance3D
+			assert_that(wheel).is_not_null()
+			var wheel_material: StandardMaterial3D = wheel.get_surface_override_material(0) as StandardMaterial3D
+			assert_that(wheel_material).is_not_null()
+			assert_that(wheel_material.albedo_color).is_equal(CarVisuals.CC0_WHEEL_COLOR)

@@ -18,6 +18,12 @@ var quality_preset: int = 1
 var probe_enabled: bool = true
 var season: int = RegionalClimate.Season.SUMMER
 var is_paused: bool = false
+var session_stats: SessionStats = SessionStats.new()
+var nav_assist_enabled: bool = true
+## Race demo S5: global on/off for the rubber-band assist. When on, only
+## Novice / traffic AI get a multiplier offset — the player and Skilled/Expert
+## racers always run their exact no-rubber-band pace.
+var rubber_band_assist: bool = true
 
 func _ready() -> void:
     process_mode = Node.PROCESS_MODE_ALWAYS

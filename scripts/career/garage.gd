@@ -1,6 +1,6 @@
 # scripts/career/garage.gd
 class_name Garage
-extends Node
+extends RefCounted
 
 ## Manages player's car collection.
 

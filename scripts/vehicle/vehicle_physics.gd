@@ -4,6 +4,22 @@ extends RigidBody3D
 ## Main vehicle physics controller.
 ## Attach to a RigidBody3D with 4 WheelPhysics children.
 
+## Sharp-deceleration collision spike: emitted once when the linear-velocity
+## delta between physics ticks clears IMPACT_ACCEL_THRESHOLD. Feeds the
+## VehicleFX sparks burst and the S3 clean-lap counter
+## (GameState.session_stats.note_impact()).
+signal impact(strength: float)
+
+# --- Thresholds ---
+## Velocity-delta acceleration (m/s^2) that counts as a collision impact.
+const IMPACT_ACCEL_THRESHOLD := 320.0
+## Minimum speed (km/h) before the car can be considered drifting.
+const DRIFT_MIN_SPEED_KMH := 30.0
+## Steer input fraction required for input-driven drift smoke.
+const DRIFT_STEER_FRACTION := 0.4
+## Minimum rear-wheel lateral slip (deg) for slip-driven drift smoke.
+const DRIFT_MIN_SLIP_DEG := 6.0
+
 # --- Configuration ---
 @export var config: CarConfig
 
@@ -34,6 +50,10 @@ var _steer_input: float = 0.0
 var _drivetrain: Drivetrain
 var _wheels: Array[WheelPhysics]
 var _spawn_point: Vector3
+var _prev_linear_velocity := Vector3.ZERO
+var _impact_active := false
+var _handbrake_input := false
+var _last_lateral_slip_deg := 0.0
 
 func _ready() -> void:
     if config == null:
@@ -56,6 +76,7 @@ func _ready() -> void:
     physics_material_override = contact_mat
 
     _spawn_point = global_position
+    _prev_linear_velocity = linear_velocity
 
     if not surface_provider.is_valid():
         surface_provider = SurfaceRegistry.build_classifier(
@@ -69,19 +90,29 @@ func _physics_process(delta: float) -> void:
     if config == null:
         return
 
+    _last_lateral_slip_deg = 0.0
+    _detect_impact(delta)
+
     if global_position.y < -20.0:
         respawn_at(_spawn_point)
         return
 
-    var throttle := InputManager.get_throttle() if input_override == Vector2.ZERO else clampf(input_override.y, -1.0, 1.0)
-    var brake_input := InputManager.get_brake() if input_override == Vector2.ZERO else maxf(-input_override.y, 0.0)
-    var steer_input := InputManager.get_steer() if input_override == Vector2.ZERO else clampf(input_override.x, -1.0, 1.0)
-    var handbrake := InputManager.is_handbrake()
+    var controls_locked := RaceManager.controls_locked()
+    var throttle := 0.0
+    var brake_input := 0.0
+    var steer_input := 0.0
+    var handbrake := false
+    if not controls_locked:
+        throttle = InputManager.get_throttle() if input_override == Vector2.ZERO else clampf(input_override.y, -1.0, 1.0)
+        brake_input = InputManager.get_brake() if input_override == Vector2.ZERO else maxf(-input_override.y, 0.0)
+        steer_input = InputManager.get_steer() if input_override == Vector2.ZERO else clampf(input_override.x, -1.0, 1.0)
+        handbrake = InputManager.is_handbrake()
     _brake_input = clampf(brake_input, 0.0, 1.0)
     _steer_input = clampf(steer_input, -1.0, 1.0)
+    _handbrake_input = handbrake
 
     # --- Reset car ---
-    if InputManager.is_reset():
+    if not controls_locked and InputManager.is_reset():
         respawn_at(_spawn_point)
         return
 
@@ -97,7 +128,11 @@ func _physics_process(delta: float) -> void:
     var forward_speed := -global_basis.z.dot(linear_velocity)
     _drivetrain.set_wheel_speed(forward_speed)
     _drivetrain.manual_mode = GameState.transmission_mode == GameState.TransmissionMode.MANUAL
-    if input_override == Vector2.ZERO and _drivetrain.manual_mode:
+    if controls_locked:
+        _drivetrain.rpm_override = RaceManager.rev_override()
+    else:
+        _drivetrain.rpm_override = -1.0
+    if input_override == Vector2.ZERO and _drivetrain.manual_mode and not controls_locked:
         if InputManager.is_shift_up_just_pressed():
             _drivetrain.shift_up(config)
         elif InputManager.is_shift_down_just_pressed():
@@ -122,6 +157,7 @@ func _physics_process(delta: float) -> void:
             var wheel_forward := -wheel.global_basis.z
             var wheel_vel := linear_velocity + angular_velocity.cross(wheel.global_position - global_position)
             var slip_angle := TireModel.calculate_slip_angle(wheel_forward, wheel_vel)
+            _last_lateral_slip_deg = maxf(_last_lateral_slip_deg, rad_to_deg(absf(slip_angle)))
 
             # --- Lateral Force (grip) ---
             var lat_force := TireModel.calculate_lateral_force(
@@ -164,6 +200,7 @@ func _physics_process(delta: float) -> void:
 
     # --- Update speed ---
     current_speed_kmh = linear_velocity.length() * 3.6
+    _prev_linear_velocity = linear_velocity
 
 # --- Public API ---
 
@@ -224,6 +261,42 @@ func resolve_surface_factors() -> Dictionary:
 func get_surface_key() -> String:
     return _last_surface_key
 
+## Pure impact arithmetic: the linear-velocity delta between physics ticks
+## expressed as an acceleration (m/s^2). Positive for any change (speed-ups
+## included); gated upstream against IMPACT_ACCEL_THRESHOLD so only sharp
+## decelerations count as collisions.
+static func impact_strength(velocity_before: Vector3, velocity_after: Vector3, delta: float) -> float:
+    if delta <= 0.0:
+        return 0.0
+    return velocity_before.distance_to(velocity_after) / delta
+
+## Threshold gate used by _detect_impact; exposed for pure-headless tests.
+static func is_impact_strength(strength: float) -> bool:
+    return strength >= IMPACT_ACCEL_THRESHOLD
+
+## Drift state for the FX smoke emitter: needs speed plus either a handbrake
+## slide or committed steer with real wheel slip. No SceneTree dependency and
+## cheap enough to poll per frame.
+func is_drifting() -> bool:
+    if current_speed_kmh < DRIFT_MIN_SPEED_KMH:
+        return false
+    if _handbrake_input:
+        return true
+    return absf(_steer_input) >= DRIFT_STEER_FRACTION and _last_lateral_slip_deg >= DRIFT_MIN_SLIP_DEG
+
+## Rising-edge impact gate: a sustained pin against an obstacle stays above
+## the threshold for many ticks but emits exactly ONE impact per collision
+## spike; the edge re-arms once the delta drops back below the threshold.
+func _detect_impact(delta: float) -> void:
+    var strength := impact_strength(_prev_linear_velocity, linear_velocity, delta)
+    if strength >= IMPACT_ACCEL_THRESHOLD:
+        if not _impact_active:
+            _impact_active = true
+            impact.emit(strength)
+            GameState.session_stats.note_impact()
+    else:
+        _impact_active = false
+
 func set_handling_mode(mode: String) -> void:
     if mode in ["arcade", "simulation"]:
         handling_mode = mode
@@ -231,12 +304,14 @@ func set_handling_mode(mode: String) -> void:
 func reset_car() -> void:
     linear_velocity = Vector3.ZERO
     angular_velocity = Vector3.ZERO
+    _prev_linear_velocity = Vector3.ZERO
     _drivetrain.reset()
     global_position.y += 1.0  # lift slightly above ground
 
 func respawn_at(pos: Vector3) -> void:
     linear_velocity = Vector3.ZERO
     angular_velocity = Vector3.ZERO
+    _prev_linear_velocity = Vector3.ZERO
     _drivetrain.reset()
     # Teleport through the physics server so Jolt accepts the new transform
     # as authoritative instead of fighting the direct setter mid-step.

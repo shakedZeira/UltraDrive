@@ -276,3 +276,19 @@ static func _dedup_points(points: Array[Vector3]) -> Array[Vector3]:
 		if points[i].distance_squared_to(out[out.size() - 1]) > 0.001:
 			out.append(points[i])
 	return out
+
+## The route path the minimap draws: the SAME route polyline world_map uses
+## (route_polyline on the shared static route), transformed with the minimap's
+## car-up convention (world_to_local_points around the player) and clipped to
+## the circular radius. Empty when there is no route or source. Both maps share
+## one source of truth, so they can never disagree about the route.
+static func minimap_route_path(rect: Rect2, player_pos: Vector3, source: Object = null, zoom: float = 0.2) -> PackedVector2Array:
+	if source == null or not has_route:
+		return PackedVector2Array()
+	var route := route_polyline(source, player_pos, route_target)
+	if route.size() < 2:
+		return PackedVector2Array()
+	var center := rect.get_center()
+	var radius := minf(rect.size.x, rect.size.y) * 0.5
+	var local := world_to_local_points(route, player_pos, center, zoom)
+	return clip_circle(local, center, radius)

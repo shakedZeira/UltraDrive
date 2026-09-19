@@ -42,6 +42,9 @@ func update(delta: float, slip_angle_deg: float, drifting: bool) -> float:
 func get_total_score() -> int:
     return _total_score
 
+func get_drift_time() -> float:
+    return _drift_time
+
 func reset() -> void:
     _total_score = 0
     _drift_time = 0.0

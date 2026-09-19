@@ -20,17 +20,26 @@ extends Node
 var _terrain: Terrain3D = null
 var _road_network: RoadNetwork = null
 var _traffic_spawner: TrafficSpawner = null
+var _enabled := true
 
 func _ready() -> void:
     call_deferred("_setup")
 
-func _physics_process(_delta: float) -> void:
-    if _traffic_spawner == null:
+## Event-mode pause gate: while an event runs the living world (traffic
+## dressing tick) freezes; resume with set_enabled(true).
+func set_enabled(enabled: bool) -> void:
+    _enabled = enabled
+
+func is_enabled() -> bool:
+    return _enabled
+
+func _physics_process(delta: float) -> void:
+    if not _enabled or _traffic_spawner == null:
         return
     var player := get_node_or_null(player_path) as Node3D
     if player == null:
         return
-    _traffic_spawner.update(player.global_position)
+    _traffic_spawner.update(player.global_position, delta)
 
 func _setup() -> void:
     _terrain = get_node_or_null(terrain_path) as Terrain3D

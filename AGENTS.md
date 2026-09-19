@@ -28,7 +28,7 @@ supported!"), which has nothing to do with your code.
    path (before it, the engine bails with exit 103):
    `"D:\Godot\Godot_v4.7.2-stable_win64.exe" --headless -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd --ignoreHeadlessMode -a res://tests > _gdunit.txt 2>&1`
    Then `findstr /c:"Overall Summary:" _gdunit.txt`.
-   EXPECT: `Overall Summary: 166 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 17 orphans` (166/166 — open-world seeding (terrain_baker + mountain_pass_zone) plus D5 control-mapping / world-map / transmission / streaming suites, the D6 race-loop suite `test_race_loop.gd` (14 tests; lap clock, checkpoint gating/caching/re-arm, RaceManager lifecycle, standings ordering, Play->HUD commit; kept leak-free via a suite `after_test` that sync-frees managed stub cars/checkpoints and resets RaceManager) and the graphics-lift suites added by the 2026-09-13 plan: `test_car_visuals` (paint dresser + visual wheels/brake-glow), `test_settings_presets` (quality ladder), `test_car_audio` (3-bed crossfade), `test_chase_camera`, `test_weather_sun` (sun driver) and `test_reflection_probes` (probe toggle/budget); the P0 road-graph suite `test_road_graph.gd` (22 tests; RoadDef tier tables, junction/topology determinism + connectivity of the real 3-chain bootstrap, hop routing, RoadNetwork graph queries, TrackBuilder surface/edge/banking contracts); 17 orphans are benign).
+   EXPECT: `Overall Summary: 263 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 109 orphans` (263/263 — the 260 baseline plus 3 graphics support-ladder tests: hardware-recommended default preset, scene-env discovery, and preset auto-apply onto a scene tree; 17 orphans are benign).
    GDUnit gotchas: it treats GDScript warnings as errors (e.g. `var x := some_func_returning_Variant()` fails to load) and its vector `is_equal_approx` requires a SAME-TYPE approx arg, not a float (`assert_that(vec).is_equal_approx(vec, Vector2(0.001, 0.001))`).
 
 NOTE: if you run the GDUnit `-s` command ALONE (without the earlier headless
@@ -37,21 +37,41 @@ order above (plain --headless probe FIRST, then the -s run with the flag AFTER
 the tool-script path) is what keeps it green. When in doubt, just run step 2
 once, then step 3.
 
-## BLENDER MCP (D4 — configured and verified)
+## BLENDER MCP (D4)
 
 - Blender MCP bridges this session to a live Blender 4.5 (addon version [1,6],
   protocol 5). Tools are exposed as `blender-mcp_*` in sessions whose
   `opencode.json` includes the server; they appear AFTER opencode restarts.
-- MCP launcher (in `~/.config/opencode/opencode.json`): use the direct exe
-  `["D:\\Tools\\uv\\bin\\blender-mcp.exe"]` — NOT `uv tool run blender-mcp` (that
-  scans venvs and can hang). Env `BLENDER_HOST`/`BLENDER_PORT` default to
-  localhost:9876.
+- **This laptop (2026-09-18):** Blender 4.5.13 LTS is a portable ZIP at
+  `C:\Blender\blender-4.5.13-windows-x64\blender.exe` (matches the reference box
+  version; not installed to Program Files on this machine). The MCP bridge was
+  renamed: the package is now **`mcp-for-blender`** (installed via
+  `uvx mcp-for-blender`, uv at `C:\Users\IMOE001\.local\bin\uvx.exe`); the
+  bundled addon was installed with
+  `uvx mcp-for-blender install-addon --addons-dir "%APPDATA%\Blender Foundation\Blender\4.5\scripts\addons"`
+  (module `blender_mcp`, verified: `addon_utils.enable('blender_mcp')` OK
+  headless via `--background --python-expr`).
+- MCP launcher entry (in `~/.config/opencode/opencode.jsonc`):
+  `{"type":"local","command":["C:\\Users\\IMOE001\\.local\\bin\\uvx.exe","mcp-for-blender"],"environment":{"BLENDER_HOST":"localhost","BLENDER_PORT":"9876","DISABLE_TELEMETRY":"true"}}`.
+  Env `BLENDER_HOST`/`BLENDER_PORT` default to localhost:9876.
 - Verify with `opencode mcp list` (server should report Connected) and call
   `blender-mcp_get_addon_status` → expect `up_to_date`, protocol 5, Blender
   4.5.13. Check telemetry with `blender-mcp_get_addon_status` too.
+  To CONNECT: launch `C:\Blender\blender-4.5.13-windows-x64\blender.exe`,
+  enable "Interface: MCP for Blender" in Preferences→Add-ons, then in the 3D
+  viewport `N` panel → MCP for Blender tab → Start MCP Server (port 9876).
 - Known-good PNG → silhouette → model flow (used for the sports coupe &
   muscle/rally builds): generate in Blender via Hyper3D `rodin`, export glb to
   `assets/cars/`, consume as PackedScene.
+- **CC0 car pipeline (2026-09-18):** handcrafted public-domain vehicles replace
+  AI-scripted geometry (`docs/plans/cc0_car_assets_plan.md`). Kit at
+  `assets/cars/cc0/kenney_car-kit/` (GLB only, `License.txt` = CC0). Integrated
+  cars live at `assets/cars/cc0_*.glb` and resolve through `CarVisuals.
+  WHEEL_GROUPS` (Kenney wheel nodes are top-level, named `wheel-front-left`,
+  `wheel-back-right`, …), each with a `resources/cars/cc0_*.tres`. Kenney GLBs
+  are nose-+Z in GLB space (same as the AI cars) and carry per-corner wheel
+  meshes with an X axle — they use the stock `CAR_ORIENT` and wheel-spin
+  conventions untouched. Gate: `tests/suites/test_cc0_cars.gd`.
 
 ## TERRAIN (D4)
 - Mountain Pass ground is now a runtime-built `Terrain3D` (node named
@@ -116,6 +136,53 @@ once, then step 3.
   runtime MultiMesh props: guardrail/tent/power-pole/rock, built from fused
   primitives, rejection-sampled clear of roads via `is_on_road`, deterministic
   per seed) configurable per zone with `/self/` bridge presets.
+- P0–P7 open-world seeding (2026-09-18/19) — **suite green at 263 tests / 0 errors /
+  0 failures**. Plan: `docs/plans/open_world_seeding_plan.md` (§3.0 = execution
+  contract, STATUS block at end of §2 = what shipped).
+
+## GRAPHICS QUALITY (2026-09-18)
+- The quality ladder in `scripts/ui/settings_menu.gd` (QUALITY_PRESETS: Low/
+  Medium/High) is the single source of truth for environment + viewport quality.
+- Scenes no longer bake in max post-FX: their `Environment` sub-resources ship
+  OFF (SDFGI/SSAO/SSR/volumetric fog/glow), and `GameState` re-applies the
+  ladder on boot and on every `change_scene` (`SettingsMenuScript.apply_to_scene_tree`).
+- First-boot default is hardware-recommended: `SettingsMenuScript.default_quality_preset()`
+  detects weak/integrated GPUs (Radeon iGPU, Intel UHD/HD, VGA/llvmpipe) → Low;
+  discrete cards → Medium. `quality_preset` is persisted in the slot-0 save and
+  restored in `GameState._ready`. Raising to High in Settings works on any machine.
+  - **P3 surfaces:** `scripts/vehicle/surface_registry.gd` (class_name
+    `SurfaceRegistry`) maps terrain/weather to a grip table the tyres read via
+    `vehicle_physics.gd` / `tire_model.gd` hooks. Gate: `test_surface_grip`.
+  - **P4 climate:** `autoload/day_night_driver.gd` (DayNightDriver autoload in
+    project.godot — the game clock; `advance_time` uses **`fposmod`**, tests
+    must assert with ≥0.01 tolerance) + `scripts/world/regional_climate.gd`
+    (5 region bands, alpine year-round snow) + `weather_manager.gd` season/regional
+    sampling. Gates: `test_regional_climate`, `test_weather_sun`.
+  - **P5 discovery:** `scripts/world/world_discovery.gd` (WorldDiscovery —
+    monotonic visited-segment bitset, XZ segment math, `is_revealed`,
+    `try_snap_to_revealed`, SaveManager persistence under `SAVE_KEY`),
+    `scripts/ui/map_roads.gd` (`MapRoads` adds `route_polyline`, `screen_to_world`,
+    static `route_target`; from==to yields the full enclosing chain),
+    `scripts/ui/world_map.gd` (grey→white reveal + click-to-fast-travel gated on
+    revealed), `scripts/ui/minimap.gd`, `scripts/world/world_driver.gd` (teleport).
+    Gates: `test_discovery`, `test_map_route`.
+  - **P6 living-world:** `scripts/world/event_registry.gd` (EventRegistry.place —
+    6 event families, time_attack_N per anchor), `scripts/world/living_world.gd`
+    (traffic driver), `scripts/world/poi_registry.gd` (POIRegistry — base 5
+    landmarks + 11 event markers appended lazily via `_load_events`; `0..6144`
+    tile bounds check applies ONLY to base POIs — events sit on the real road net,
+    x[−200..9702] z[−2944..8605]). `open_world_root.tscn` gets the `open_world`
+    group. Gate: `test_event_placement`.
+  - **P7 streaming dressing:** `scripts/world/region_dresser.gd` (RegionDresser —
+    ring mirror with spawn/free budgeting, `band_density`, `band_visibility`
+    culling via `visible_instance_count`), `scripts/world/terrain_seeder.gd`
+    (region callbacks + `corridor_budget_locs` km→locs ladder, MAX 190),
+    `scripts/world/prop_scatterer.gd` + `scripts/world/foliage.gd` per-region
+    `configure_for_region` hooks. Gates: `test_streaming_dressing`.
+  - **Gotcha:** foliages/props own several MultiMesh children (grass 700 + trees
+    40 …); `get_instance_count()` / `get_visible_instance_count()` SUM across all
+    children (first-child-only reads return 700 not 740). `RegionDresser.
+    _apply_band_budget` builds `placed` from the summed counts.
 
 ## RACE LOOP (D6)
 - `RaceManager` (autoload) owns race state: `queue_race(laps)` /
