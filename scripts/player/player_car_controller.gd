@@ -41,10 +41,43 @@ func _process(delta: float) -> void:
 	var speed_kmh: float = info["speed_kmh"]
 	var steer: float = info["steer"]
 	var brake: float = info["brake"]
-	_spin_angle = _spin_angle + CarVisuals.wheel_spin_rate(speed_kmh, CarVisuals.WHEEL_RADIUS) * delta
+	# Wheel visuals now translate REAL tire spin: the integrated
+	# wheel_angular_velocity (rad/s, signed like the spin angle). When no wheel
+	# is spinning (parked, or the moderate cruise where spin matches rolling),
+	# fall back to the speed-derived rolling rate so idle visuals stay exact.
+	if _has_real_wheelspin():
+		_spin_angle = _spin_angle + _visual_wheel_angular_velocity() * delta
+	else:
+		_spin_angle = _spin_angle + CarVisuals.wheel_spin_rate(speed_kmh, CarVisuals.WHEEL_RADIUS) * delta
 	CarVisuals.apply_wheel_visuals(_visual_wheels, steer, _spin_angle)
 	CarVisuals.apply_brake_glow(_taillight_material, brake)
 	_sync_probe()
+
+## Fully-driven visual spin: |omega| must exceed the rolling match by 25% so a
+## wheelspin is unmistakable since every cog spins that much faster than the
+## road under traction loss. Returns the SIGNED angular rate (rad/s, positive =
+## forward roll) of the FASTEST wheel, so a smoke-limiter or ABS lock blow-through
+## is visible whether it's a drive wheelspin or a brake lockup.
+func _visual_wheel_angular_velocity() -> float:
+	var best: float = 0.0
+	for w in [car.wheel_fl, car.wheel_fr, car.wheel_rl, car.wheel_rr]:
+		if absf(w.wheel_angular_velocity) > absf(best):
+			best = w.wheel_angular_velocity
+	return best
+
+## True when any wheel is actually spinning off its rolling match (either
+## direction, only while it bears weight so resting wheels never shake).
+func _has_real_wheelspin() -> bool:
+	var speed := car.linear_velocity.length()
+	if speed < 0.5:
+		return false
+	for w in [car.wheel_fl, car.wheel_fr, car.wheel_rl, car.wheel_rr]:
+		if not w.is_in_contact:
+			continue  # wheel on the ground only
+		var rolling := speed / WheelPhysics.WHEEL_RADIUS
+		if absf(w.wheel_angular_velocity) > rolling * 1.25:
+			return true
+	return false
 
 ## Rebuilds the per-car ReflectionProbe under the visual body after its
 ## children were cleared in _apply_visual. Centered on the body (so it follows

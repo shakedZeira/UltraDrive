@@ -78,6 +78,47 @@ static func calculate_slip_ratio(
 	return clampf((wheel_speed - forward_speed) / denominator, -1.0, 1.0)
 
 static func get_peak_slip_angle(config: CarConfig) -> float:
-	## Returns the slip angle (in degrees) at which peak grip occurs.
-	## Useful for AI and drift detection.
-	return rad_to_deg(1.0 / config.tire_B) * 2.0
+	## Returns the slip angle (in degrees) at which the tire reaches ~peak usable
+	## grip. Used for AI and drift detection.
+	##
+	## The "1.09 / B" constant is the textbook Pacejka peak-slip rule of thumb:
+	## for a tire near the canonical C ~1.3-1.5 lateral band, sin(C*atan(...))
+	## peaks almost exactly at B*x = 1.09. Our shipped C is higher (1.8-2.0),
+	## which moves the mathematical sin() maximum a bit further out (~1.78/B for
+	## the starter; only ~3% more force than at 1.09/B), so 1.09/B stays the
+	## practical "flat, near-peak" slip for threshold grips - drift detection and
+	## rivals threshold on the SAME constant, keeping feel consistent.
+	return rad_to_deg(1.09 / config.tire_B)
+
+## Derivative of calculate_longitudinal_force() with respect to slip_ratio
+## (N per unit slip). Used by the wheel-spin integrator for a semi-implicit
+## update: the predicted NEXT-frame ground reaction is folded back into the
+## torque balance, which keeps the stiff Pacejka curve stable at 60 Hz without
+## a separate physics step. Mirrors the exact B/C/D/E shape of
+## calculate_longitudinal_force() (same *0.8 and *0.95 factors) so the slope
+## matches the curve it linearizes.
+static func calculate_longitudinal_stiffness(
+	slip_ratio: float,
+	normal_force: float,
+	config: CarConfig,
+	grip_multiplier: float = 1.0,
+	surface_factor: float = 1.0
+) -> float:
+	## Returns dF/dx of the longitudinal magic formula at the given slip.
+	## ~Linear ramp of the peak D for small |x|, crosses zero at the grip peak,
+	## negative past it (spin-away / lockup region).
+
+	var B := config.tire_B * 0.8
+	var C := config.tire_C
+	var D := normal_force * config.tire_D * grip_multiplier * surface_factor * 0.95
+	var E := config.tire_E
+
+	var x := slip_ratio
+	var bx := B * x
+	var atan_bx := atan(bx)
+	var g := bx - E * (bx - atan_bx)
+	var w := C * atan(g)
+	# dg/dx = B - E * (B - B / (1 + (B x)^2))
+	var dg := B - E * (B - B / (1.0 + bx * bx))
+	# dF/dx = D * cos(w) * C / (1 + g^2) * dg
+	return D * cos(w) * C / (1.0 + g * g) * dg

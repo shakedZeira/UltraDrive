@@ -19,9 +19,26 @@ const DRIFT_MIN_SPEED_KMH := 30.0
 const DRIFT_STEER_FRACTION := 0.4
 ## Minimum rear-wheel lateral slip (deg) for slip-driven drift smoke.
 const DRIFT_MIN_SLIP_DEG := 6.0
+## Global scale on the longitudinal (Pacejka traction) force. 1.0 ships the
+## magic-formula math straight; can be nudged below 1.0 later to soften
+## launches/threshold-brake without touching the curve shapes the tests gate.
+const LONGITUDINAL_EFFECTIVENESS := 1.0
 
 # --- Configuration ---
 @export var config: CarConfig
+
+## Analog response curve for the player's triggers (simcade input-feel). Raw
+## [0,1] trigger input is mapped through apply_analog_response() so the low end
+## is finer - trail-braking and throttle feathering get more resolution where it
+## matters. Power 2.0 + deadzone 0.02 is the shipped feel; a power of 1.0 with a
+## deadzone of 0.0 reproduces the exact linear read (identity), so the curve can
+## be disabled without touching anything else.
+const ANALOG_RESPONSE_POWER := 2.0
+const ANALOG_RESPONSE_DEADZONE := 0.02
+
+## Tuneable per scene/tests; defaults mirror the consts above.
+@export var analog_response_power: float = ANALOG_RESPONSE_POWER
+@export var analog_response_deadzone: float = ANALOG_RESPONSE_DEADZONE
 
 ## Settable surface provider: Callable(pos: Vector3) -> Dictionary with optional
 ## keys { surface_key, lateral, longitudinal }. Unset or empty result falls back
@@ -175,6 +192,14 @@ func _physics_process(delta: float) -> void:
         brake_input = InputManager.get_brake() if input_override == Vector2.ZERO else maxf(-input_override.y, 0.0)
         steer_input = InputManager.get_steer() if input_override == Vector2.ZERO else clampf(input_override.x, -1.0, 1.0)
         handbrake = InputManager.is_handbrake()
+        # Player-only analog response curve. Applied to the raw trigger read, and
+        # deliberately NOT to scripted input - rivals/traffic drive through
+        # input_override (signed y) and must keep their exact values. Keyboard
+        # keys read exactly 0.0/1.0, which the curve maps to itself, so the
+        # digital fallback is untouched.
+        if input_override == Vector2.ZERO:
+            throttle = apply_analog_response(throttle, analog_response_power, analog_response_deadzone)
+            brake_input = apply_analog_response(brake_input, analog_response_power, analog_response_deadzone)
     _throttle_input = clampf(throttle, 0.0, 1.0)
     _brake_input = clampf(brake_input, 0.0, 1.0)
     _steer_input = clampf(steer_input, -1.0, 1.0)
@@ -221,12 +246,36 @@ func _physics_process(delta: float) -> void:
         var wheel := _wheels[i]
         var wheel_info := wheel.process_wheel(delta, config, handbrake)
 
+        # --- Per-wheel axle torque ---
+        # Drive torque flows through the existing Drivetrain (gear/ratio math)
+        # unchanged, split across the driven axle. Brake torque keeps the same
+        # gear_dir sign convention as the old drive_force -= brake_force path, so
+        # reverse braking still acts as travel opposing. Fronts get brake only.
+        var drive_axle_torque := 0.0
+        if i >= 2:  # rear wheels get drive (RWD for now)
+            drive_axle_torque = drive_info["drive_torque"] / 2.0
+        var brake_torque := gear_dir * brake_input * config.max_brake_torque
+
+        # --- Tire forces (only when the wheel bears weight) ---
+        var lon_force := 0.0
+        var slip_ratio := 0.0
+        var wheel_forward_speed := 0.0
         if wheel_info["is_grounded"]:
             # --- Slip Angle ---
             var wheel_forward := -wheel.global_basis.z
             var wheel_vel := linear_velocity + angular_velocity.cross(wheel.global_position - global_position)
             var slip_angle := TireModel.calculate_slip_angle(wheel_forward, wheel_vel)
             _last_lateral_slip_deg = maxf(_last_lateral_slip_deg, rad_to_deg(absf(slip_angle)))
+
+            # --- Longitudinal slip: real tire spin vs. contact road speed ---
+            # wheel_angular_velocity is integrated per-frame by
+            # wheel.step_wheel_spin() from the axle torques minus the tire's
+            # ground reaction, so this is a true slip ratio (0 = pure rolling,
+            # > 0 = wheelspin, < 0 = lockup), not a scripted one.
+            wheel_forward_speed = wheel_forward.dot(wheel_vel)
+            slip_ratio = TireModel.calculate_slip_ratio(
+                wheel.wheel_angular_velocity, wheel_forward_speed, WheelPhysics.WHEEL_RADIUS
+            )
 
             # --- Lateral Force (grip) ---
             var lat_force := TireModel.calculate_lateral_force(
@@ -237,23 +286,58 @@ func _physics_process(delta: float) -> void:
             if handbrake and i >= 2:  # rear wheels
                 lat_force *= config.handbrake_grip_reduction
 
-            # --- Longitudinal Force (drive/brake) ---
-            var drive_force := 0.0
-            if i >= 2:  # rear wheels get drive (RWD for now)
-                drive_force = drive_info["drive_torque"] / (0.33 * 2.0)
+            # --- Longitudinal Force through the magic formula ---
+            # The Pacejka D-term (normal force * tire_D * grip * surface+weather)
+            # scales the pull/brake by how much grip the LOADED tire still has.
+            # Peak is at ~20-25% slip for the shipped tires (the E-term moves it
+            # past the textbook 10-15%), so a launch wheelspin keeps us inside
+            # 90-100% of peak torque rather than an unbounded raw force; a
+            # locked brake falls off the far side as grip is lost.
+            lon_force = TireModel.calculate_longitudinal_force(
+                slip_ratio, wheel_info["normal_force"], config, grip_mult,
+                float(surface_factors["longitudinal"]) * weather_factor
+            )
+            lon_force *= LONGITUDINAL_EFFECTIVENESS
 
-            # Braking
-            var brake_force := gear_dir * brake_input * config.max_brake_torque / (0.33 * 2.0)
-            if i < 2:  # front wheels do not drive, only brake
-                drive_force = 0.0
-            drive_force -= brake_force
+            # --- Friction circle: longitudinal load eats lateral grip ---
+            # While longitudinal force consumes the normal-load mu budget, the
+            # lateral peak shrinks (sqrt(1 - k^2)) - that is what makes power-on
+            # corner exit step out and threshold braking swing the nose. The
+            # fleet that understeers off the road through the arcade grip boost
+            # stays untouched at zero longitudinal (fade = 1).
+            var lon_capacity: float = wheel_info["normal_force"] * config.tire_D * grip_mult \
+                * float(surface_factors["longitudinal"]) * weather_factor * 0.95
+            var lon_fraction := absf(lon_force) / maxf(lon_capacity, 1.0)
+            var lateral_fade := sqrt(maxf(0.0, 1.0 - clampf(lon_fraction, 0.0, 1.0) * clampf(lon_fraction, 0.0, 1.0)))
+            lat_force *= lateral_fade
 
-            # Surface + weather scale the longitudinal axis alongside lateral.
-            drive_force *= float(surface_factors["longitudinal"]) * weather_factor
-
-            # --- Apply forces to RigidBody3D ---
-            apply_central_force(-global_basis.z * drive_force * 0.5)
+            # --- Apply lateral force (unchanged torque arm / 0.5 gain) ---
             apply_force(wheel.global_basis.x * lat_force * 0.5, wheel.global_position - global_position)
+            # --- Apply longitudinal force at the CONTACT PATCH so the drive
+            # acts below the COM (real pitch/squat torque on accel & brake) ---
+            apply_force(wheel_forward * lon_force, wheel.contact_point - global_position)
+            wheel.apply_longitudinal_force(lon_force)
+        else:
+            wheel.apply_longitudinal_force(0.0)
+
+        # --- Integrate wheel spin (grounded AND airborne) ---
+        # A wheel off the ground loses its ground reaction instantly (tire force
+        # contributes nothing), so the drive axle spins it up freely and the slip
+        # blows out - when it lands the Pacejka force starts near peak traction,
+        # exactly like a real launch or a hop over a crest.
+        wheel.step_wheel_spin(
+            delta,
+            drive_axle_torque,
+            brake_torque,
+            lon_force,
+            wheel_forward_speed,
+            wheel_info["is_grounded"],
+            TireModel.calculate_longitudinal_stiffness(
+                slip_ratio,
+                wheel_info["normal_force"], config, grip_mult,
+                float(surface_factors["longitudinal"]) * weather_factor
+            )
+        )
 
     # --- Air Resistance ---
     var drag_magnitude := 0.5 * 1.225 * config.drag_coefficient * config.frontal_area * linear_velocity.length_squared()
@@ -350,6 +434,24 @@ static func impact_strength(velocity_before: Vector3, velocity_after: Vector3, d
 ## Threshold gate used by _detect_impact; exposed for pure-headless tests.
 static func is_impact_strength(strength: float) -> bool:
     return strength >= IMPACT_ACCEL_THRESHOLD
+
+## Pure analog response curve for the player triggers (this script owns the
+## player input seam). Maps raw x in [0,1] to a curved output: x=0 -> 0, x=1 ->
+## 1, monotonic non-decreasing, below the diagonal for power > 1.0 so the low
+## end is finer. Input at or below `deadzone` reads as fully off so a resting
+## trigger cannot creep. Keyboard keys read exactly 0.0/1.0 and both endpoints
+## are fixed points, so digital key input is untouched by construction.
+## Deterministic and dimensionless (no timestep). power 1.0 + deadzone 0.0
+## returns x unchanged - byte-identical to the pre-curve linear read.
+static func apply_analog_response(value: float, power: float = ANALOG_RESPONSE_POWER, deadzone: float = ANALOG_RESPONSE_DEADZONE) -> float:
+    if value <= 0.0:
+        return 0.0
+    var x := clampf(value, 0.0, 1.0)
+    if x <= deadzone:
+        return 0.0
+    if power == 1.0:
+        return x
+    return pow(x, power)
 
 ## Arcade speed limiter: rescales a velocity whose signed forward component ran
 ## past top_speed (m/s) or the reverse cap (m/s) back onto the bound while
