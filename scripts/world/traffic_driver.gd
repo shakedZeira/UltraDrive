@@ -49,6 +49,7 @@ var _cruise_kmh := CRUISE_KMH
 var _dir := 1
 var _last_target := Vector3.ZERO
 var _parked := false
+var _suspended := false
 var _stop_latched := false
 var _rng := RandomNumberGenerator.new()
 var _stuck_anchor := Vector3.ZERO
@@ -83,7 +84,8 @@ func update(player_pos: Vector3, delta: float = 1.0 / 60.0) -> void:
 
 	var gap := _player_gap(player_pos)
 	_update_stop_latch(gap)
-	_track_stuck(delta)
+	if not _suspended:
+		_track_stuck(delta)
 
 	_update_aim()
 	var forward := -_car.global_basis.z
@@ -115,6 +117,15 @@ func set_parked(value: bool) -> void:
 
 func is_parked() -> bool:
 	return _parked
+
+func set_suspended(value: bool) -> void:
+	_suspended = value
+	if _suspended and _car != null:
+		_stuck_time = 0.0
+		_stuck_anchor = _car.global_position
+
+func is_suspended() -> bool:
+	return _suspended
 
 ## Number of stuck-rescues carried out (test seam; also exposed for telemetry).
 func get_rescue_count() -> int:

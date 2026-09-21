@@ -79,8 +79,9 @@ terrain = NodePath("../Terrain3D")
 
 [node name="Terrain3D" type="Terrain3D" parent="."]
 collision_mode = 3
+cast_shadows = 0
 show_checkered = false
-show_colormap = true
+show_colormap = false
 
 [node name="TerrainSeeder" type="Node" parent="."]
 script = ExtResource("8_seeder")
@@ -117,7 +118,8 @@ light_color = Color(1, 0.93, 0.82, 1)
 light_energy = 1.1
 light_angular_distance = 1.0
 shadow_filter = 1
-directional_shadow_max_distance = 220.0
+directional_shadow_mode = 1
+directional_shadow_max_distance = 60.0
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("env")
@@ -159,8 +161,9 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5632, 0, 5632)
 [node name="TrafficSpawner" type="Node" parent="."]
 script = ExtResource("14_traffic")
 vehicle_scene = ExtResource("3_car")
-max_traffic = 15
+max_traffic = 8
 spawn_radius = 300.0
+lod_distance = 140.0
 road_network = NodePath("../RoadNetwork")
 
 [node name="WeatherAudio" type="AudioStreamPlayer3D" parent="."]

@@ -358,6 +358,17 @@ func _physics_process(delta: float) -> void:
 
 # --- Public API ---
 
+func set_simulation_enabled(enabled: bool) -> void:
+    set_physics_process(enabled)
+    if _wheels == null:
+        return
+    for wheel in _wheels:
+        if wheel != null:
+            wheel.set_simulation_enabled(enabled)
+
+func is_awaiting_ground() -> bool:
+    return _awaiting_ground
+
 func get_speed_kmh() -> float:
     return current_speed_kmh
 

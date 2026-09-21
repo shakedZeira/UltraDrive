@@ -108,7 +108,7 @@ camera_orbit_down={
 
 [physics]
 
-common/physics_ticks_per_second=120
+common/physics_ticks_per_second=60
 3d/physics_engine="jolt"
 3d/default_gravity=9.8
 
@@ -116,7 +116,8 @@ common/physics_ticks_per_second=120
 
 renderer/rendering_method="forward_plus"
 textures/default_filters/anisotropic_filtering_level=4
-anti_aliasing/quality/msaa_3d=2
+anti_aliasing/quality/msaa_3d=0
+lights_and_shadows/directional_shadow/size=2048
 environment/defaults/default_clear_color=Color(0.3, 0.3, 0.35, 1)
 
 [editor_plugins]

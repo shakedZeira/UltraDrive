@@ -5,8 +5,9 @@ extends Node
 ## Spawns and manages traffic vehicles that follow roads.
 
 @export var vehicle_scene: PackedScene
-@export var max_traffic: int = 15
+@export var max_traffic: int = 8
 @export var spawn_radius: float = 300.0
+@export var lod_distance: float = 140.0
 ## Fraction (0.0..1.0) of spawns that are parked: static, never-driving visuals
 ## that still count toward the ring and despawn normally.
 @export var parked_ratio: float = 0.0
@@ -14,6 +15,7 @@ extends Node
 
 var _traffic: Array[VehiclePhysics] = []
 var _drivers: Dictionary = {}  # VehiclePhysics -> TrafficDriver
+var _lod_state: Dictionary = {}
 var _enabled := true
 
 ## Default tick when called outside the live physics loop (existing 1-arg call
@@ -37,6 +39,7 @@ func update(player_pos: Vector3, delta: float = DEFAULT_DELTA) -> void:
         if vehicle.global_position.distance_to(player_pos) > spawn_radius + 100:
             var driver: TrafficDriver = _drivers.get(vehicle)
             _drivers.erase(vehicle)
+            _lod_state.erase(vehicle)
             vehicle.queue_free()
             _traffic.erase(vehicle)
 
@@ -46,6 +49,9 @@ func update(player_pos: Vector3, delta: float = DEFAULT_DELTA) -> void:
         var audio := vehicle.get_node_or_null("EngineAudio") as EngineAudio
         if audio != null:
             audio.cull_by_distance(player_pos, EngineAudio.TRAFFIC_AUDIO_RANGE)
+
+    for vehicle in _traffic:
+        _apply_lod(vehicle, player_pos)
 
     # Drive every live vehicle through its TrafficDriver (input_override).
     # player_pos is the consumer-supplied proximity probe (traffic-forward axis
@@ -58,6 +64,40 @@ func update(player_pos: Vector3, delta: float = DEFAULT_DELTA) -> void:
     # Spawn new traffic if under max
     if _traffic.size() < max_traffic:
         _spawn_vehicle(player_pos)
+
+func _apply_lod(vehicle: VehiclePhysics, player_pos: Vector3) -> void:
+    var driver: TrafficDriver = _drivers.get(vehicle)
+    var parked := driver != null and driver.is_parked()
+    var far := vehicle.global_position.distance_to(player_pos) > lod_distance
+    var should_shelve := not vehicle.is_awaiting_ground() and (parked or far)
+    if should_shelve == _lod_state.has(vehicle):
+        return
+    if should_shelve:
+        _lod_state[vehicle] = {
+            "velocity": vehicle.linear_velocity,
+            "angular": vehicle.angular_velocity,
+        }
+        vehicle.freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
+        vehicle.freeze = true
+        vehicle.set_simulation_enabled(false)
+        _set_audio_processing(vehicle, false)
+        if driver != null:
+            driver.set_suspended(true)
+    else:
+        var saved: Dictionary = _lod_state.get(vehicle, {})
+        _lod_state.erase(vehicle)
+        vehicle.set_simulation_enabled(true)
+        vehicle.freeze = false
+        vehicle.linear_velocity = saved.get("velocity", Vector3.ZERO)
+        vehicle.angular_velocity = saved.get("angular", Vector3.ZERO)
+        _set_audio_processing(vehicle, true)
+        if driver != null:
+            driver.set_suspended(false)
+
+func _set_audio_processing(vehicle: VehiclePhysics, enabled: bool) -> void:
+    var audio := vehicle.get_node_or_null("EngineAudio") as EngineAudio
+    if audio != null:
+        audio.set_physics_process(enabled)
 
 func _spawn_vehicle(player_pos: Vector3) -> void:
     if vehicle_scene == null:

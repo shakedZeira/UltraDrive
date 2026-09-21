@@ -48,6 +48,10 @@ func _ready() -> void:
 
 const suspension_travel_max := 0.5  # total raycast length for ground detection
 
+func set_simulation_enabled(enabled: bool) -> void:
+    if _raycast != null:
+        _raycast.enabled = enabled
+
 func process_wheel(delta: float, config: CarConfig, handbrake: bool) -> Dictionary:
     ## Main wheel update. Call every physics frame.
     ## Returns: { normal_force, lateral_force, longitudinal_force, is_grounded }
