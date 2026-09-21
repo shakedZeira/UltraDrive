@@ -104,9 +104,10 @@ static func default_road_tier_provider(owning_node: Node) -> Callable:
 		var net: RoadNetwork = SurfaceRegistry._current_road_network(owning_node)
 		if net == null:
 			return {}
-		var nearest: Vector3 = net.get_nearest_road_pos(pos)
+		var lookup: Dictionary = net.nearest_road_lookup(pos)
+		var nearest: Vector3 = lookup["pos"]
 		var dist: float = nearest.distance_to(pos)
-		var road_id: int = net.nearest_road_id(pos)
+		var road_id: int = int(lookup["id"])
 		var tier: int = RoadDef.Tier.ARTERIAL
 		var defs: Array[RoadDef] = net.get_road_defs()
 		if road_id >= 0 and road_id < defs.size():

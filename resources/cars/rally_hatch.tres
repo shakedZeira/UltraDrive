@@ -6,6 +6,7 @@
 script = ExtResource("1_script")
 car_name = "Dirt Devil"
 car_class = "B"
+price = 28000
 visual_path = "res://assets/cars/rally_hatch.glb"
 engine_timbre = "rally"
 mass_kg = 1050.0

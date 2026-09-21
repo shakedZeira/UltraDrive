@@ -44,6 +44,7 @@ var launch_callback: Callable = _default_launch
 
 var _pending_laps: int = 0
 var _race_over: bool = false
+var _rewards_banked: bool = false
 var _best_lap: float = 0.0
 var _tracked_counter: LapCounter = null
 var _countdown_audio: CountdownAudio = null
@@ -154,6 +155,15 @@ func _on_race_finished(standings: Array) -> void:
 		{"label": "DRIFT TIME", "value": _format_time(_stats.get_drift_time())},
 	]
 	show_result(position, total, _best_lap, rows)
+	if not _rewards_banked:
+		_rewards_banked = true
+		_bank_race_rewards(position)
+
+## Item 11 economy: banks the persistent wallet deposit + career XP for a race
+## finish. Runs at most once per race lifecycle.
+func _bank_race_rewards(position: int) -> void:
+	Money.wallet_add(points_for_position(position))
+	CareerProfile.grant_xp(CareerProfile.race_position_xp(position))
 
 ## Results-card entry point. Fed by standings + per-lap data today; item 3 can
 ## append its own rows through extra_rows ([{label, value}, ...]) without a
@@ -186,12 +196,14 @@ func _rebuild_stats_rows(rows: Array[Dictionary]) -> void:
 
 func _on_next_race() -> void:
 	_race_over = false
+	_rewards_banked = false
 	results_overlay.visible = false
 	confetti.reset()
 	RaceManager.request_race(RaceManager.total_laps if RaceManager.total_laps > 0 else 3)
 
 func _on_return_free_roam() -> void:
 	_race_over = false
+	_rewards_banked = false
 	results_overlay.visible = false
 	confetti.reset()
 	launch_callback.call(FREE_ROAM_SCENE)
@@ -213,6 +225,7 @@ func _on_lap_completed(_vehicle: VehiclePhysics, _lap: int, lap_time: float) -> 
 	_stats.end_lap(lap_time)
 	_stats.start_lap()
 	_best_lap = _stats.get_best_lap()
+	CareerProfile.grant_xp(CareerProfile.RACE_LAP_XP)
 
 func _g_from_speed_delta(delta: float, speed_kmh: float) -> float:
 	if delta <= 0.0:

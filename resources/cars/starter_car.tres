@@ -6,6 +6,7 @@
 script = ExtResource("1_script")
 car_name = "Striker"
 car_class = "D"
+price = 8000
 mass_kg = 1100.0
 max_torque = 180.0
 peak_rpm = 6000.0

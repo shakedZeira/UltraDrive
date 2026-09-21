@@ -82,6 +82,9 @@ func set_speed_kmh(kmh: float) -> void:
 
 func _process(delta: float) -> void:
 	var prev := _display_rpm
+	# Ease the needle toward the target (frame-rate independent). The display
+	# lags the target, so prev != _display_rpm while converging and the redraw
+	# below fires every frame the gauge is actually moving.
 	var rate := 1.0 - exp(-10.0 * delta)
 	_display_rpm = lerpf(_display_rpm, _target_rpm, rate)
 	if _display_rpm != _target_rpm and absf(_display_rpm - _target_rpm) < 5.0:

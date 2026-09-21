@@ -105,7 +105,8 @@ func test_every_cc0_visual_paints_body_with_profile_color_and_dark_wheels() -> v
 		assert_that(body_paint).is_not_null()
 		assert_that(body_paint.albedo_color).is_equal(CarVisuals.PAINT_COLORS[car_id])
 		assert_that(body_paint.clearcoat_enabled).is_true()
-		assert_that(body_paint.metallic).is_equal_approx(0.92, 0.001)
+		assert_that(body_paint.metallic).is_equal_approx(0.25, 0.001)
+		assert_that(body_paint.roughness).is_equal_approx(0.35, 0.001)
 		for wheel_name in CC0_WHEEL_NODES:
 			var wheel := instance.get_node_or_null(wheel_name) as MeshInstance3D
 			assert_that(wheel).is_not_null()

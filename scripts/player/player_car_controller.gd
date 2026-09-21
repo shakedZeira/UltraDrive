@@ -25,6 +25,15 @@ func _ready() -> void:
 			car.config = load(car_path) as CarConfig
 	_apply_visual()
 
+## The car is freed on scene swaps but VehicleManager keeps stale refs (its
+## remove_car() had no callers), so all_cars/player_car could point at a freed
+## body that a later start_race() then calls release_ground_lock() on. Unregister
+## when this controller leaves the tree (children exit before parents, so the
+## car body is still valid here).
+func _exit_tree() -> void:
+	if is_instance_valid(car):
+		VehicleManager.remove_car(car)
+
 func _process(delta: float) -> void:
 	if not _visual_ready:
 		return
@@ -72,6 +81,8 @@ func _apply_visual() -> void:
 	if body == null:
 		return
 	for child in body.get_children():
+		if child is BodyRig:
+			continue
 		body.remove_child(child)
 		child.queue_free()
 	var visual := load(visual_path) as PackedScene

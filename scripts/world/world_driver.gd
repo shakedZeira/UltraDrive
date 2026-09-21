@@ -32,10 +32,22 @@ const HUB_PROBE_ORIGIN := Vector3(128.0, 2.0, 128.0)
 const PASS_PROBE_ORIGIN := Vector3(3800.0, 14.0, 3200.0)
 const STATIC_PROBE_SIZE := Vector3(60.0, 30.0, 60.0)
 
+## Weather VFX (S12). Street lights in this group toggle with night (headlights
+## on the car toggle themselves via WeatherManager.is_night()).
+const STREET_LIGHT_GROUP := "street_lights"
+const STREET_LIGHT_Y := 6.0
+const STREET_LIGHT_RANGE := 32.0
+const STREET_LIGHT_ENERGY := 0.6
+
 var _streamer: ChunkStreamer
 var _terrain_seeder: TerrainSeeder
 var _player: Node3D
 var _discovery: WorldDiscovery
+var _weather_audio: WeatherAudio
+var _rain_system: RainSystem
+var _fx_layer: CanvasLayer
+var _wet_overlay: ColorRect
+var _windshield_overlay: ColorRect
 
 func _ready() -> void:
 	add_to_group(DRIVER_GROUP)
@@ -47,6 +59,13 @@ func _ready() -> void:
 	_push_player_position()
 	_bootstrap_sun_driver()
 	_bootstrap_static_probes()
+	_bootstrap_weather_fx()
+
+func _exit_tree() -> void:
+	if WeatherManager.time_of_day_changed.is_connected(_on_time_of_day_changed):
+		WeatherManager.time_of_day_changed.disconnect(_on_time_of_day_changed)
+	if WeatherManager.weather_changed.is_connected(_on_weather_changed):
+		WeatherManager.weather_changed.disconnect(_on_weather_changed)
 
 func _physics_process(_delta: float) -> void:
 	if _player == null:
@@ -201,6 +220,7 @@ static func make_static_probe(origin: Vector3, size: Vector3) -> ReflectionProbe
 
 func _on_time_of_day_changed(hour: float) -> void:
 	_drive_suns(hour, false)
+	_sync_weather_state()
 
 func _drive_suns(hour: float, snap: bool) -> void:
 	for sun in get_tree().get_nodes_in_group(SUN_GROUP):
@@ -244,3 +264,83 @@ static func apply_sun_transform(sun: DirectionalLight3D, hour: float, snap: bool
 	else:
 		sun.transform = sun.transform.interpolate_with(target, SUN_TRANSFORM_LERP_FACTOR)
 	sun.shadow_enabled = true
+
+## Weather VFX (S12): wires the weather/night feel onto the scene. Wet surface
+## overlay + windshield droplets live in a CanvasLayer above the world;
+## street/dressing lights anchor per dressing band; rain and the ambience node
+## react to WeatherManager state exactly like the grip table already does.
+func _bootstrap_weather_fx() -> void:
+	_weather_audio = get_node_or_null("WeatherAudio") as WeatherAudio
+	_rain_system = get_node_or_null("RainSystem") as RainSystem
+	_fx_layer = CanvasLayer.new()
+	_fx_layer.name = "WeatherFXLayer"
+	_fx_layer.layer = 30
+	add_child(_fx_layer)
+	_wet_overlay = WetSurface.build_overlay()
+	_fx_layer.add_child(_wet_overlay)
+	_windshield_overlay = WindshieldFX.build_overlay()
+	_windshield_overlay.name = "WindshieldOverlay"
+	_fx_layer.add_child(_windshield_overlay)
+	_build_street_lights()
+	if not WeatherManager.weather_changed.is_connected(_on_weather_changed):
+		WeatherManager.weather_changed.connect(_on_weather_changed)
+	_sync_weather_state()
+
+## One warm OmniLight per static dressing band (the Props* scatterers), each
+## grouped in street_lights so the night switch toggles them as one.
+func _build_street_lights() -> void:
+	var holder := Node3D.new()
+	holder.name = "StreetLights"
+	add_child(holder)
+	for child in get_children():
+		if not child is PropScatterer:
+			continue
+		if not String(child.name).begins_with("Props"):
+			continue
+		var light := OmniLight3D.new()
+		light.name = "StreetLight_%s" % String(child.name)
+		light.light_color = Color(1.0, 0.85, 0.65, 1.0)
+		light.light_energy = STREET_LIGHT_ENERGY
+		light.omni_range = STREET_LIGHT_RANGE
+		light.visible = false
+		light.add_to_group(STREET_LIGHT_GROUP)
+		holder.add_child(light)
+		light.global_position = Vector3((child as Node3D).global_position.x, STREET_LIGHT_Y, (child as Node3D).global_position.z)
+
+func _on_weather_changed(_weather: WeatherManager.Weather) -> void:
+	_sync_weather_state()
+
+## The one switch-over: drive lights/rain/audio/wet overlay/windshield from
+## the current (time_of_day, weather) state. Pure read of WeatherManager.
+func _sync_weather_state() -> void:
+	var night := WeatherManager.is_night()
+	_sync_night_lights(night)
+	if _rain_system != null:
+		_rain_system.set_weather(WeatherManager.current_weather)
+	if _weather_audio != null:
+		_weather_audio.set_weather(WeatherManager.current_weather)
+	var grip := WeatherManager.get_road_grip_factor()
+	var intensity := WetSurface.wet_intensity(grip)
+	var storm := WeatherManager.current_weather == WeatherManager.Weather.STORM
+	WetSurface.apply_intensity(_wet_overlay, intensity, night, storm)
+	var raining := _rain_system != null and _rain_system.is_raining()
+	WindshieldFX.apply(_windshield_overlay, raining, _is_chase_mode())
+
+func _sync_night_lights(night: bool) -> void:
+	for light in get_tree().get_nodes_in_group(STREET_LIGHT_GROUP):
+		if light is OmniLight3D:
+			(light as OmniLight3D).visible = night
+	var traffic := get_node_or_null("TrafficSpawner") as TrafficSpawner
+	if traffic != null:
+		traffic.sync_headlights(night)
+
+## Chase-cam gate for windshield droplets: true while the chase camera owns the
+## viewport (orbit camera takes over when it becomes current). Falls back to
+## true when no candidate camera (or no viewport) can be inspected.
+func _is_chase_mode() -> bool:
+	var chase := get_node_or_null("ChaseCamera")
+	if chase == null:
+		return false
+	if chase.has_method("is_current_view"):
+		return bool(chase.call("is_current_view"))
+	return true

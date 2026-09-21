@@ -6,6 +6,7 @@
 script = ExtResource("1_script")
 car_name = "Hooligan"
 car_class = "B"
+price = 30000
 visual_path = "res://assets/cars/cc0_hatchback_sports.glb"
 engine_timbre = "rally"
 mass_kg = 1080.0

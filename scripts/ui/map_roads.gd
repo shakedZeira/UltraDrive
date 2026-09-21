@@ -7,6 +7,26 @@ extends RefCounted
 ## math. No node required; every function is deterministic and headless-safe.
 
 const ROAD_GROUP := "road_network"
+const OPEN_WORLD_GROUP := "open_world"
+
+## World-map terrain composite: the pause map samples a height provider on a
+## discrete grid and tints each cell by elevation (satellite-map look, FH6-style)
+## plus a subtle NW-light hillshade. Everything below is pure/deterministic, so
+## headless tests can assert exact channel orderings without a Terrain3D.
+const HILLSHADE_STRENGTH := 0.3
+const WATER_LEVEL := 0.0
+const WATER_DEEP := -8.0
+const VEGETATED_LOW := 15.0
+const VEGETATED_HIGH := 60.0
+const ALPINE_LOW := 250.0
+const ROCK_SNOW := 700.0
+const COLOR_ABYSS := Color(0.06, 0.13, 0.32)
+const COLOR_WATER := Color(0.12, 0.26, 0.50)
+const COLOR_LOWLAND := Color(0.16, 0.42, 0.13)
+const COLOR_MIDLAND := Color(0.35, 0.45, 0.18)
+const COLOR_HIGHLAND := Color(0.60, 0.30, 0.16)
+const COLOR_ROCK := Color(0.58, 0.48, 0.40)
+const COLOR_SNOW := Color(0.86, 0.87, 0.90)
 
 ## Shared GPS route state: the pause-map sets the destination, the minimap reads
 ## it. Static so both maps share one source of truth without needing a scene node.
@@ -20,6 +40,79 @@ static func set_route(target: Vector3) -> void:
 static func clear_route() -> void:
 	has_route = false
 	route_target = Vector3.ZERO
+
+## Shared "where am I" marker: the minimap and the pause map draw the player as
+## the same white-and-cyan chevron so it is unmistakable over every terrain tint
+## and POI pin. All constants below are the single source of truth both maps
+## read; marker_style() bundles them so tests can lock the two maps to one look.
+const MARKER_CORE := Color(1.0, 1.0, 1.0, 1.0)          # pure-white chevron body
+const MARKER_ACCENT := Color(0.0, 0.9, 1.0, 1.0)        # cyan rim + halo ring
+const MARKER_OUTLINE := Color(0.01, 0.02, 0.06, 1.0)    # near-black under-pin
+const MARKER_HALO := Color(0.0, 0.9, 1.0, 0.30)
+const MARKER_SIZE := 10.0                 # tip distance from the chevron centre
+const MARKER_PULSE_PERIOD := 2.6          # seconds per full halo pulse
+const MARKER_PULSE_STEP := 0.12           # redraw cadence for the pulse (seconds)
+
+static func marker_style() -> Dictionary:
+	return {
+		"core": MARKER_CORE,
+		"accent": MARKER_ACCENT,
+		"outline": MARKER_OUTLINE,
+		"halo": MARKER_HALO,
+		"size": MARKER_SIZE,
+		"pulse_period": MARKER_PULSE_PERIOD,
+	}
+
+## Screen-space draw angle (radians, y-down) of a world heading `facing` on the
+## north-up pause map: world +x renders right, world +z renders down, so the
+## on-screen direction of the heading is normalize(facing.x, facing.z).
+static func marker_world_angle(facing: Vector3) -> float:
+	return atan2(facing.z, facing.x)
+
+## Same conversion for the minimap. The minimap is north-up too (player-centred,
+## roads fixed; see world_to_local_points()), so its chevron runs along the same
+## screen orientation as the pause map. The name stays separate because a future
+## rotating/car-up minimap would need a different (heading-offset) conversion.
+static func marker_minimap_angle(facing: Vector3) -> float:
+	return atan2(facing.z, facing.x)
+
+## The chevron's three corners (tip, left wing, right wing) for a marker centred
+## at `center` pointing along `draw_angle` with `size` = tip distance. Pure
+## geometry so tests can pin the arrow to the map's orientation headlessly.
+static func marker_chevron(center: Vector2, draw_angle: float, size: float = MARKER_SIZE) -> PackedVector2Array:
+	var dir := Vector2(cos(draw_angle), sin(draw_angle))
+	var perp := Vector2(-dir.y, dir.x)
+	var tip := center + dir * size
+	var tail := center - dir * size * 0.4
+	return PackedVector2Array([
+		tip,
+		tail + perp * size * 0.62,
+		tail - perp * size * 0.62,
+	])
+
+## Draws the shared player chevron on a canvas (call ONLY from that canvas' own
+## _draw(), like Control/Control2D does). Layered back-to-front: a dim pulsing
+## cyan halo ring, a near-black under-pin triangle, a cyan accent triangle, and
+## the pure-white core chevron. `draw_angle` comes from marker_world_angle() /
+## marker_minimap_angle(); `time` (seconds) drives the subtle halo pulse. Pure
+## static: no scene access, so both maps' markers stay pixel-identical.
+static func draw_player_marker(canvas: CanvasItem, center: Vector2, draw_angle: float, time: float, size: float = MARKER_SIZE) -> void:
+	if canvas == null:
+		return
+	var pulse := 0.5 + 0.5 * sin(TAU * time / MARKER_PULSE_PERIOD)
+	var halo := Color(MARKER_HALO.r, MARKER_HALO.g, MARKER_HALO.b,
+		clampf(MARKER_HALO.a * (0.55 + 0.45 * pulse), 0.0, 1.0))
+	canvas.draw_arc(center, size * (1.45 + 0.35 * pulse), 0.0, TAU, 40, halo, 2.5, true)
+	_draw_marker_layer(canvas, center, draw_angle, size, 1.3, MARKER_OUTLINE)
+	_draw_marker_layer(canvas, center, draw_angle, size, 1.16, MARKER_ACCENT)
+	_draw_marker_layer(canvas, center, draw_angle, size, 1.0, MARKER_CORE)
+
+static func _draw_marker_layer(canvas: CanvasItem, center: Vector2, draw_angle: float, size: float, grow: float, color: Color) -> void:
+	var corners := marker_chevron(center, draw_angle, size)
+	var points := PackedVector2Array()
+	for i in 3:
+		points.append(center + (corners[i] - center) * grow)
+	canvas.draw_colored_polygon(points, color)
 
 ## Best road source for the scene: the first node in the "road_network" group,
 ## else the first node anywhere in the tree that exposes get_roads().
@@ -59,6 +152,148 @@ static func resolve_discovery_source(node: Node) -> Object:
 	if node == null or node.get_tree() == null:
 		return null
 	return node.get_tree().get_first_node_in_group(WorldDiscovery.GROUP_NAME)
+
+## Height source for the pause-map terrain composite: the Terrain3D node of the
+## open world. Resolved via the "open_world" group first, else a tree-walk that
+## duck-types a node exposing `data.get_height()` (Terrain3DData). The world map
+## additionally prefers TerrainSeeder's baked corridor cache (see
+## resolve_seeder()), so heights are known even for regions that have not been
+## baked on the live Terrain3D yet. Returns an empty Callable when neither a
+## Terrain3D nor a seeder is present, which keeps the map deterministic and
+## headless-safe: without terrain the map simply draws roads-only.
+static func resolve_seeder(node: Node) -> Object:
+	if node == null or node.get_tree() == null:
+		return null
+	var root: Node = node.get_tree().root
+	var pending: Array[Node] = [root]
+	while not pending.is_empty():
+		var candidate: Node = pending.pop_back()
+		if candidate.has_method("baked_region_height"):
+			return candidate
+		pending.append_array(candidate.get_children())
+	return null
+
+static func _find_terrain(node: Node) -> Object:
+	if node == null or node.get_tree() == null:
+		return null
+	var grouped := node.get_tree().get_first_node_in_group(OPEN_WORLD_GROUP)
+	if grouped != null:
+		var found := _walk_for_terrain(grouped)
+		if found != null:
+			return found
+	return _walk_for_terrain(node.get_tree().root)
+
+static func _walk_for_terrain(root: Node) -> Object:
+	var pending: Array[Node] = [root]
+	while not pending.is_empty():
+		var candidate: Node = pending.pop_back()
+		if _is_terrain(candidate):
+			return candidate
+		pending.append_array(candidate.get_children())
+	return null
+
+static func _is_terrain(candidate: Node) -> bool:
+	if candidate == null:
+		return false
+	var data = candidate.get("data")
+	return data != null and data.has_method("get_height")
+
+## Discrete-grid sampler contract: a Callable(Vector2 xz) -> float that returns
+## the world height at (x, 0, z). This is what terrain_cells() multiples.
+static func height_from_terrain(node: Node) -> Callable:
+	var terrain := _find_terrain(node)
+	if terrain == null:
+		return Callable()
+	var terrain_ref: Object = terrain
+	return func(xz: Vector2) -> float:
+		var data = terrain_ref.get("data")
+		if data == null:
+			return 0.0
+		var h := float(data.get_height(Vector3(xz.x, 0.0, xz.y)))
+		return h if is_finite(h) else 0.0
+
+## Satellite-biome color for a height, sampled from a deterministic palette:
+## deep water -> shore -> vegetated lowlands -> highland browns -> rock -> snow.
+## Channel orderings: blue in water, green dominant in the vegetated band, red
+## dominant on the alpine/rock highlands.
+static func biome_color(height: float) -> Color:
+	if not is_finite(height):
+		return COLOR_WATER
+	if height < WATER_LEVEL:
+		var t := clampf((height - WATER_DEEP) / (WATER_LEVEL - WATER_DEEP), 0.0, 1.0)
+		return COLOR_ABYSS.lerp(COLOR_WATER, t)
+	if height < VEGETATED_LOW:
+		return COLOR_WATER.lerp(COLOR_LOWLAND, clampf(height / VEGETATED_LOW, 0.0, 1.0))
+	if height < VEGETATED_HIGH:
+		return COLOR_LOWLAND.lerp(COLOR_MIDLAND, (height - VEGETATED_LOW) / (VEGETATED_HIGH - VEGETATED_LOW))
+	if height < ALPINE_LOW:
+		return COLOR_MIDLAND.lerp(COLOR_HIGHLAND, (height - VEGETATED_HIGH) / (ALPINE_LOW - VEGETATED_HIGH))
+	if height < ROCK_SNOW:
+		return COLOR_HIGHLAND.lerp(COLOR_ROCK, (height - ALPINE_LOW) / (ROCK_SNOW - ALPINE_LOW))
+	return COLOR_SNOW
+
+## NW-light hillshade: a cell rising toward the north or west (positive
+## east_delta/south_delta slope away from the light) darkens; faces rising
+## toward the light brighten. Bounded to [1 - strength, 1 + strength] via tanh so
+## the map never goes black or blown out, and the factor is exactly 1.0 on flat
+## ground. Apply it by multiplying a biome_color() result.
+static func hillshade_energy(east_delta: float, south_delta: float, strength: float = HILLSHADE_STRENGTH) -> float:
+	var facing := -(east_delta + south_delta)
+	return 1.0 + tanh(facing * 0.5) * clampf(strength, 0.0, 1.0)
+
+static func shade_color(color: Color, energy: float) -> Color:
+	return Color(
+		clampf(color.r * energy, 0.0, 1.0),
+		clampf(color.g * energy, 0.0, 1.0),
+		clampf(color.b * energy, 0.0, 1.0),
+		color.a)
+
+## XZ world coordinates -> the Terrain3D region grid location containing them.
+static func region_loc(xz: Vector2, region_size: float = 1024.0) -> Vector2i:
+	return Vector2i(floori(xz.x / region_size), floori(xz.y / region_size))
+
+## Sample a height provider on a uniform grid over a compute_fit() world AABB and
+## produce the cell rectangles to draw under the road network. Cells are
+## intentionally aligned to the SAME world_to_screen fit the roads use, so the
+## terrain and the road polylines stay pixel-aligned on the rectangular pause
+## map. Returns an Array of {"rect": Rect2, "color": Color} in row-major order.
+static func terrain_cells(fit: Dictionary, provider: Callable, cells_x: int, cells_z: int, strength: float = HILLSHADE_STRENGTH) -> Array:
+	if cells_x <= 0 or cells_z <= 0 or not provider.is_valid():
+		return []
+	var world_min: Vector2 = fit["world_min"]
+	var world_max: Vector2 = fit["world_max"]
+	var span := world_max - world_min
+	span.x = maxf(span.x, 1.0)
+	span.y = maxf(span.y, 1.0)
+	var cw := span.x / float(cells_x)
+	var ch := span.y / float(cells_z)
+	var origin: Vector2 = fit["origin"]
+	var scale: float = fit["scale"]
+	var heights := PackedFloat32Array()
+	heights.resize(cells_x * cells_z)
+	for jz in cells_z:
+		var wz := world_min.y + (float(jz) + 0.5) * ch
+		var row := jz * cells_x
+		for ix in cells_x:
+			var wx := world_min.x + (float(ix) + 0.5) * cw
+			var h := float(provider.call(Vector2(wx, wz)))
+			heights[row + ix] = h if is_finite(h) else 0.0
+	var out: Array = []
+	for jz in cells_z:
+		var row := jz * cells_x
+		var row_south := mini(jz + 1, cells_z - 1) * cells_x
+		for ix in cells_x:
+			var h := heights[row + ix]
+			var east := heights[row + mini(ix + 1, cells_x - 1)] - h
+			var south := heights[row_south + ix] - h
+			var energy := hillshade_energy(east, south, strength)
+			var rect_px := Vector2(cw, ch) * scale
+			var tl: Vector2 = origin + Vector2(float(ix) * cw, float(jz) * ch) * scale
+			out.append({
+				"rect": Rect2(tl, rect_px),
+				"color": shade_color(biome_color(h), energy),
+			})
+	return out
 
 ## Cheap signature for "roads changed": chain count plus the first point of
 ## each chain. Roads are static after the open-world bootstrap, so comparing

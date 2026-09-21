@@ -14,6 +14,28 @@ extends Node3D
 
 const MAX_PLACEMENT_ATTEMPTS := 64
 const GROUND_OFFSET_Y := 0.0
+const ROAD_CLEARANCE_MARGIN := 3.0
+
+## P1/P2/P4 imported CC0 meshes (Kenney Racing Kit + Quaternius via Poly Pizza),
+## loaded once per scatterer and cached. Kenney GLBs are single-node
+## single-mesh (multi-surface with native materials) so MultiMesh instances them
+## directly; fused fallbacks get a flat-colour material instead.
+const TRACK_BARRIER_PATH := "res://assets/track_props/track_barrier.glb"
+const TRACK_RAIL_PATH := "res://assets/track_props/track_rail.glb"
+const TRACK_CONE_PATH := "res://assets/track_props/track_cone.glb"
+const GRANDSTAND_PATH := "res://assets/track_props/grandstand.glb"
+const LIGHT_POLE_PATH := "res://assets/track_props/light_pole.glb"
+const FINISH_GANTRY_PATH := "res://assets/track_props/finish_gantry.glb"
+const PIT_GARAGE_PATH := "res://assets/buildings/building_pit_garage.glb"
+const PIT_OFFICE_PATH := "res://assets/buildings/building_pit_office.glb"
+const ROCK_PATH := "res://assets/rocks/rock_a.glb"
+
+## Real-mesh prop types ship native surface materials from their GLBs; the
+## primitive types (guardrail / tent / power_pole) still get a tinted override.
+const NATIVE_MATERIAL_TYPES := [
+	"track_barrier", "track_rail", "track_cone", "grandstand",
+	"light_pole", "finish_gantry", "pit_garage", "pit_office", "rock",
+]
 
 @export var radius: float = 300.0
 @export var inner_clear_radius: float = 0.0
@@ -34,6 +56,7 @@ var _preset: Dictionary = {}
 var _placed: Dictionary = {}  # prop_type -> PackedVector3Array of positions
 var _mesh_builders: Dictionary = {}
 var _materials: Dictionary = {}
+var _real_mesh_cache: Dictionary = {}  # GLB path -> cached ArrayMesh
 
 ## P7 per-region dressing state. When the scatterer is managed by a
 ## RegionDresser these identify the region it belongs to and the LOD density
@@ -49,6 +72,14 @@ func _init() -> void:
 		"tent": _build_tent_mesh,
 		"power_pole": _build_power_pole_mesh,
 		"rock": _build_rock_mesh,
+		"track_barrier": _build_track_barrier_mesh,
+		"track_rail": _build_track_rail_mesh,
+		"track_cone": _build_track_cone_mesh,
+		"grandstand": _build_grandstand_mesh,
+		"light_pole": _build_light_pole_mesh,
+		"finish_gantry": _build_finish_gantry_mesh,
+		"pit_garage": _build_pit_garage_mesh,
+		"pit_office": _build_pit_office_mesh,
 	}
 
 func _ready() -> void:
@@ -138,7 +169,14 @@ static func default_preset(zone: String) -> Dictionary:
 			return {
 				"radius": 200.0, "inner_clear_radius": 90.0, "seed": 1001,
 				"road_threshold": 8.0,
-				"props": {"tent": {"count": 14, "min_spacing": 14.0, "scale": Vector2(0.9, 1.2)}},
+				"props": {
+					"tent": {"count": 12, "min_spacing": 16.0, "scale": Vector2(0.9, 1.2)},
+					"grandstand": {"count": 3, "min_spacing": 70.0, "scale": Vector2(8.0, 10.0)},
+					"pit_garage": {"count": 4, "min_spacing": 34.0, "scale": Vector2(6.0, 6.5)},
+					"pit_office": {"count": 3, "min_spacing": 34.0, "scale": Vector2(6.0, 6.5)},
+					"track_barrier": {"count": 8, "min_spacing": 16.0, "scale": Vector2(4.0, 4.5)},
+					"track_cone": {"count": 6, "min_spacing": 12.0, "scale": Vector2(4.0, 5.0)},
+				},
 			}
 		"lowlands":
 			return {
@@ -147,13 +185,17 @@ static func default_preset(zone: String) -> Dictionary:
 				"props": {
 					"power_pole": {"count": 8, "min_spacing": 90.0, "scale": Vector2(0.9, 1.1)},
 					"rock": {"count": 20, "min_spacing": 12.0, "scale": Vector2(0.8, 1.6)},
+					"track_rail": {"count": 10, "min_spacing": 22.0, "scale": Vector2(2.5, 3.5)},
 				},
 			}
 		"coast":
 			return {
 				"radius": 400.0, "inner_clear_radius": 20.0, "seed": 1003,
 				"road_threshold": 8.0,
-				"props": {"rock": {"count": 24, "min_spacing": 15.0, "scale": Vector2(1.4, 2.4)}},
+				"props": {
+					"rock": {"count": 24, "min_spacing": 15.0, "scale": Vector2(1.4, 2.4)},
+					"track_rail": {"count": 8, "min_spacing": 24.0, "scale": Vector2(2.5, 3.5)},
+				},
 			}
 		"highlands":
 			return {
@@ -171,6 +213,47 @@ static func default_preset(zone: String) -> Dictionary:
 		"radius": 300.0, "inner_clear_radius": 0.0, "seed": 1000,
 		"road_threshold": 8.0, "props": {},
 	}
+
+static func _point_segment_distance_xz(pos: Vector3, a: Vector3, b: Vector3) -> float:
+	var abx := b.x - a.x
+	var abz := b.z - a.z
+	var len2 := abx * abx + abz * abz
+	if len2 <= 0.0001:
+		var dx := pos.x - a.x
+		var dz := pos.z - a.z
+		return sqrt(dx * dx + dz * dz)
+	var t := clampf(((pos.x - a.x) * abx + (pos.z - a.z) * abz) / len2, 0.0, 1.0)
+	var cx := a.x + abx * t
+	var cz := a.z + abz * t
+	var ex := pos.x - cx
+	var ez := pos.z - cz
+	return sqrt(ex * ex + ez * ez)
+
+static func road_clearance_info(pos: Vector3, defs: Array[RoadDef]) -> Dictionary:
+	var best := INF
+	var half_width := 0.0
+	for def: RoadDef in defs:
+		var pts: Array[Vector3] = def.points
+		var count := pts.size()
+		if count < 2:
+			continue
+		for i in range(count - 1):
+			var d := _point_segment_distance_xz(pos, pts[i], pts[i + 1])
+			if d < best:
+				best = d
+				half_width = def.width * 0.5
+		if def.closed and count > 2:
+			var d := _point_segment_distance_xz(pos, pts[count - 1], pts[0])
+			if d < best:
+				best = d
+				half_width = def.width * 0.5
+	return {"distance": best, "half_width": half_width}
+
+static func is_clear_of_road(pos: Vector3, network: RoadNetwork, floor_m: float = 0.0) -> bool:
+	if network == null:
+		return true
+	var info := road_clearance_info(pos, network.get_road_defs())
+	return float(info["distance"]) >= maxf(floor_m, float(info["half_width"]) + ROAD_CLEARANCE_MARGIN)
 
 func _place_prop(entry: Dictionary) -> PackedVector3Array:
 	var base_count := int(entry.get("count", 0))
@@ -208,8 +291,18 @@ func _build_mmi(prop_type: String, positions: PackedVector3Array, entry: Diction
 	var mmi := MultiMeshInstance3D.new()
 	mmi.name = "%sMMI" % prop_type
 	mmi.multimesh = mm
-	mmi.material_override = _prop_material(prop_type)
+	mmi.material_override = _effective_material(prop_type, mm.mesh as ArrayMesh)
 	return mmi
+
+## MultiMesh material: primitive types always get a tinted override; imported
+## GLB types keep their native surface materials when they ship any, and only
+## fall back to a flat colour when the mesh carries none (e.g. fused parts).
+func _effective_material(prop_type: String, mesh: ArrayMesh) -> StandardMaterial3D:
+	if prop_type in NATIVE_MATERIAL_TYPES:
+		if mesh != null and mesh.get_surface_count() > 0 and mesh.surface_get_material(0) != null:
+			return null
+		return _default_material(prop_type)
+	return _prop_material(prop_type)
 
 func _prop_material(prop_type: String) -> StandardMaterial3D:
 	if _materials.has(prop_type):
@@ -268,35 +361,104 @@ func _build_power_pole_mesh() -> ArrayMesh:
 	])
 
 func _build_rock_mesh() -> ArrayMesh:
-	# Chunkier than a raw octahedron: octahedron core fused with a box (~20 tris).
-	var oct_st := SurfaceTool.new()
-	oct_st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var verts := PackedVector3Array([
-		Vector3(0, 0.95, 0), Vector3(0.55, 0.35, 0), Vector3(0, 0.35, 0.5),
-		Vector3(-0.55, 0.35, 0), Vector3(0, 0.35, -0.5), Vector3(0, 0, 0),
-	])
-	for v in verts:
-		oct_st.add_vertex(v)
-	var faces := PackedInt32Array([
-		0, 2, 1,
-		0, 3, 2,
-		0, 4, 3,
-		0, 1, 4,
-		5, 1, 2,
-		5, 2, 3,
-		5, 3, 4,
-		5, 4, 1,
-	])
-	for f in faces:
-		oct_st.add_index(f)
-	oct_st.generate_normals()
-	var oct_mesh := oct_st.commit()
-	var box := BoxMesh.new()
-	box.size = Vector3(1.0, 0.6, 0.9)
-	return _fuse([
-		[oct_mesh, Transform3D(Basis.IDENTITY, Vector3(0, 0.0, 0))],
-		[box, Transform3D(Basis.IDENTITY, Vector3(0, 0.3, 0))],
-	])
+	return _load_prop_mesh(ROCK_PATH)
+
+## --- Imported CC0 prop meshes (P1/P2/P4) -------------------------------
+
+func _build_track_barrier_mesh() -> ArrayMesh:
+	return _load_prop_mesh(TRACK_BARRIER_PATH)
+
+func _build_track_rail_mesh() -> ArrayMesh:
+	return _load_prop_mesh(TRACK_RAIL_PATH)
+
+func _build_track_cone_mesh() -> ArrayMesh:
+	return _load_prop_mesh(TRACK_CONE_PATH)
+
+func _build_grandstand_mesh() -> ArrayMesh:
+	return _load_prop_mesh(GRANDSTAND_PATH)
+
+func _build_light_pole_mesh() -> ArrayMesh:
+	return _load_prop_mesh(LIGHT_POLE_PATH)
+
+func _build_finish_gantry_mesh() -> ArrayMesh:
+	return _load_prop_mesh(FINISH_GANTRY_PATH)
+
+func _build_pit_garage_mesh() -> ArrayMesh:
+	return _load_prop_mesh(PIT_GARAGE_PATH)
+
+func _build_pit_office_mesh() -> ArrayMesh:
+	return _load_prop_mesh(PIT_OFFICE_PATH)
+
+## Loads a GLB PackedScene and resolves it to one MultiMesh-friendly mesh,
+## cached per path. A single MeshInstance3D (whatever its baked node transform,
+## e.g. the wrapper glTF import adds) keeps its native multi-surface materials;
+## multiple nodes are fused into one surface (material-less flat fallback).
+func _load_prop_mesh(path: String) -> ArrayMesh:
+	if _real_mesh_cache.has(path):
+		return _real_mesh_cache[path]
+	var scene := load(path) as PackedScene
+	var inst := scene.instantiate()
+	var entries: Array = []
+	_collect_mesh_instances(inst, entries, Transform3D.IDENTITY)
+	inst.free()
+	var mesh: ArrayMesh
+	if entries.size() == 1:
+		mesh = _bake_prop_mesh(entries[0][0] as ArrayMesh, entries[0][1] as Transform3D)
+	else:
+		mesh = _fuse_entries(entries)
+	_real_mesh_cache[path] = mesh
+	return mesh
+
+## Bakes a GLB mesh (node transform included) surface by surface, re-attaching
+## each surface's native material so MultiMesh instances keep their textures.
+func _bake_prop_mesh(m: ArrayMesh, xform: Transform3D) -> ArrayMesh:
+	var out := ArrayMesh.new()
+	for s in m.get_surface_count():
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		st.append_from(m, s, xform)
+		st.generate_normals()
+		var surf := st.commit()
+		out.add_surface_from_arrays(surf.surface_get_primitive_type(0), surf.surface_get_arrays(0))
+		var mat: Material = m.surface_get_material(s)
+		if mat != null:
+			out.surface_set_material(out.get_surface_count() - 1, mat)
+	return out
+
+func _collect_mesh_instances(node: Node, out: Array, accumulated: Transform3D) -> void:
+	var local := accumulated
+	if node is Node3D:
+		local = accumulated * (node as Node3D).transform
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		var m: Mesh = mi.mesh
+		if m != null and m is ArrayMesh:
+			out.append([m, local])
+	for child in node.get_children():
+		_collect_mesh_instances(child, out, local)
+
+func _fuse_entries(entries: Array) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for entry in entries:
+		var m: ArrayMesh = entry[0]
+		var xform: Transform3D = entry[1]
+		for s in m.get_surface_count():
+			st.append_from(m, s, xform)
+	st.generate_normals()
+	return st.commit()
+
+## Flat fallback for an imported mesh that ships without surface materials.
+func _default_material(prop_type: String) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	match prop_type:
+		"rock":
+			mat.albedo_color = Color(0.45, 0.45, 0.47)
+			mat.roughness = 0.95
+		_:
+			mat.albedo_color = Color(0.62, 0.62, 0.65)
+			mat.roughness = 0.9
+	return mat
 
 func _fuse(parts: Array) -> ArrayMesh:
 	# Fuses primitives into ONE ArrayMesh surface so MultiMesh can instance it
@@ -308,9 +470,13 @@ func _fuse(parts: Array) -> ArrayMesh:
 	return st.commit()
 
 func _road_ok(pos: Vector3) -> bool:
-	if road_network != null:
-		return not road_network.is_on_road(pos, road_threshold)
-	return true
+	if road_network == null:
+		return true
+	return PropScatterer.is_clear_of_road(_world_pos(pos), road_network, road_threshold)
+
+func _world_pos(pos: Vector3) -> Vector3:
+	var gt := global_transform if is_inside_tree() else transform
+	return gt.origin + gt.basis * Vector3(pos.x, 0.0, pos.z)
 
 func _spacing_ok(pos: Vector2, used: Array[Vector2], min_spacing: float) -> bool:
 	for root: Vector2 in used:

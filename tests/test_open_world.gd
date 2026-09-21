@@ -36,7 +36,10 @@ func test_open_world_driver_streams_chunks_around_player() -> void:
 
 func test_open_world_car_lands_on_ground() -> void:
 	var runner := scene_runner(OPEN_WORLD_SCENE)
-	await runner.simulate_frames(96)
+	# 96 frames was way more soak than a 2.2 m drop needs (fall ~0.67 s after
+	# the first-frame ground bake releases the freeze latch); 64 keeps ~0.4 s
+	# of post-landing settle with a wide margin. Expected saving ~4 s.
+	await runner.simulate_frames(64)
 	var scene := runner.scene()
 	var player := scene.get_node_or_null("%PlayerCar") as VehiclePhysics
 	assert_that(player).is_not_null()

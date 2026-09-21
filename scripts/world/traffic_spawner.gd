@@ -41,11 +41,11 @@ func update(player_pos: Vector3, delta: float = DEFAULT_DELTA) -> void:
             _traffic.erase(vehicle)
 
     # Distance-cull engine audio so distant cars don't each run a full
-    # multi-bed loop (see CarAudio.TRAFFIC_AUDIO_RANGE).
+    # multi-bed loop (see EngineAudio.TRAFFIC_AUDIO_RANGE).
     for vehicle in _traffic:
-        var audio := vehicle.get_node_or_null("CarAudio") as CarAudio
+        var audio := vehicle.get_node_or_null("EngineAudio") as EngineAudio
         if audio != null:
-            audio.cull_by_distance(player_pos, CarAudio.TRAFFIC_AUDIO_RANGE)
+            audio.cull_by_distance(player_pos, EngineAudio.TRAFFIC_AUDIO_RANGE)
 
     # Drive every live vehicle through its TrafficDriver (input_override).
     # player_pos is the consumer-supplied proximity probe (traffic-forward axis
@@ -76,10 +76,35 @@ func _spawn_vehicle(player_pos: Vector3) -> void:
         if not placed:
             return
     var vehicle := vehicle_scene.instantiate() as VehiclePhysics
+    _deprivilege_vehicle(vehicle)
     add_child(vehicle)
     vehicle.global_position = spawn_pos
     _traffic.append(vehicle)
     _drivers[vehicle] = _make_driver(vehicle)
+
+## Weather VFX night switch (S12): drives every live traffic vehicle's shared
+## Headlights node from the authoritative night flag (defensive -- traffic uses
+## the same player scene, so rivals get headlights exactly like the player).
+func sync_headlights(night: bool) -> void:
+    for vehicle in _traffic:
+        var lights := vehicle.get_node_or_null("Headlights") as Node
+        if lights != null and lights.has_method("set_night"):
+            lights.call("set_night", night)
+
+## Traffic must never become the "player". A scene whose root rig carries a
+## PlayerCarController (player_car.tscn) would re-register itself as
+## VehicleManager.player_car on _ready and null that slot on despawn, so the
+## free-roam HUD cluster ends up reading a traffic car's gauges (or null) and
+## races would draft traffic cars into the grid. Strip the controller before
+## add_child so its _ready never runs; that also drops the per-car real-time
+## reflection probe the controller builds, which is the biggest per-vehicle
+## GPU cost a traffic car carries.
+func _deprivilege_vehicle(vehicle: VehiclePhysics) -> void:
+    var controller := vehicle.get_node_or_null("PlayerCarController") as Node
+    if controller == null:
+        return
+    vehicle.remove_child(controller)
+    controller.free()
 
 func _make_driver(vehicle: VehiclePhysics) -> TrafficDriver:
     var driver := TrafficDriver.new()

@@ -110,6 +110,17 @@ const COLOR_ALPINE := Color(0.92, 0.92, 0.95)
 const COLOR_FALLBACK := Color(0.60, 0.58, 0.42)
 const COLOR_ROAD := Color(0.30, 0.30, 0.32)
 
+## Band index -> RGBA8 colour, indexed by BAND_* so the colour loop never pays
+## a per-texel _band_color() match call. Order must match BAND_SEA..BAND_ALPINE.
+const BAND_COLORS := [
+	COLOR_SEA,
+	COLOR_PLAINS,
+	COLOR_ROLLING,
+	COLOR_LOWLAND,
+	COLOR_HIGHLAND,
+	COLOR_ALPINE,
+]
+
 var _bake_scale := 1.0
 var _bake_region := Vector2i.ZERO
 var _noise := FastNoiseLite.new()
@@ -131,11 +142,16 @@ func bake_region(region: Vector2i, bake_scale: float = 1.0, image_width: int = 1
 	var step := REGION_SIZE / float(image_width)
 	var origin := Vector2(region.x * REGION_SIZE, region.y * REGION_SIZE)
 	var stride := image_width
+	var K := clampi(int(floorf(float(stride) / 32.0)), 1, 4)
+	var cs := ceili(float(stride) / float(K))
+	var coarse := PackedFloat32Array()
+	coarse.resize(cs * cs)
+	_fill_coarse_natural(coarse, origin, step, K, cs)
 	var buf := PackedFloat32Array()
 	buf.resize(stride * stride)
-	_bake_natural(buf, origin, step, stride)
+	_bilinear_upsample(coarse, buf, K, cs, stride)
 	if not roads.is_empty():
-		var chains := _upsample_roads(roads)
+		var chains := _raw_road_chains(roads)
 		if not chains.is_empty():
 			_conform_roads(buf, chains, origin, step)
 	_blur3x3(buf, stride)
@@ -158,18 +174,13 @@ func _natural_height(wx: float, wz: float) -> float:
 	height *= _bake_scale
 	return clampf(height, HEIGHT_MIN, HEIGHT_MAX)
 
-## Fills `buf` (row-major, stride x stride) with the natural base field. This
-## is the very same math as _natural_height(): per-texel fBm detail over the
-## blended biome table, alpine domes, bake scale and the height clamp. The
-## arithmetic is inlined into one loop (no per-texel helper frames, no Vector2
-## temporaries), which is ~3x faster while keeping the values equivalent to
-## the reference (float results match to within 1 ulp per texel).
-func _bake_natural(buf: PackedFloat32Array, origin: Vector2, step: float, stride: int) -> void:
-	for iz in stride:
-		var wz := origin.y + (float(iz) + 0.5) * step
-		var row := iz * stride
-		for ix in stride:
-			var wx := origin.x + (float(ix) + 0.5) * step
+func _fill_coarse_natural(out: PackedFloat32Array, origin: Vector2, step: float, K: int, cs: int) -> void:
+	var cell := step * float(K)
+	for ci in cs:
+		var wz := origin.y + (float(ci) + 0.5) * cell
+		var row := ci * cs
+		for cj in cs:
+			var wx := origin.x + (float(cj) + 0.5) * cell
 			var total := 0.0
 			var acc := 0.0
 			var dx := wx - BIOME_SPAWN_CENTER.x
@@ -260,7 +271,38 @@ func _bake_natural(buf: PackedFloat32Array, origin: Vector2, step: float, stride
 				var ddz := wz - dome_c.y
 				var dd := sqrt(ddx * ddx + ddz * ddz)
 				dome += dome_a * (1.0 - smoothstep(dome_r * dome_e, dome_r, dd))
-			buf[row + ix] = clampf((base + detail + dome) * _bake_scale, HEIGHT_MIN, HEIGHT_MAX)
+			out[row + cj] = clampf((base + detail + dome) * _bake_scale, HEIGHT_MIN, HEIGHT_MAX)
+
+func _bilinear_upsample(coarse: PackedFloat32Array, fine: PackedFloat32Array, K: int, cs: int, stride: int) -> void:
+	var invK := 1.0 / float(K)
+	var xs := PackedInt32Array()
+	xs.resize(stride * 2)
+	var xt := PackedFloat32Array()
+	xt.resize(stride)
+	for ix in stride:
+		var fx := (float(ix) + 0.5) * invK - 0.5
+		var x0 := maxi(int(floorf(fx)), 0)
+		var x1 := mini(x0 + 1, cs - 1)
+		xs[ix * 2] = x0
+		xs[ix * 2 + 1] = x1
+		xt[ix] = clampf(fx - float(x0), 0.0, 1.0)
+	for iz in stride:
+		var gz := (float(iz) + 0.5) * invK - 0.5
+		var y0 := maxi(int(floorf(gz)), 0)
+		var y1 := mini(y0 + 1, cs - 1)
+		var ty := clampf(gz - float(y0), 0.0, 1.0)
+		var yrow0 := y0 * cs
+		var yrow1 := y1 * cs
+		var frow := iz * stride
+		for ix in stride:
+			var x0 := xs[ix * 2]
+			var x1 := xs[ix * 2 + 1]
+			var tx := xt[ix]
+			var a := coarse[yrow0 + x0]
+			var b := coarse[yrow0 + x1]
+			var c := coarse[yrow1 + x0]
+			var d := coarse[yrow1 + x1]
+			fine[frow + ix] = lerpf(lerpf(a, b, tx), lerpf(c, d, tx), ty)
 
 func _biome_base(wx: float, wz: float) -> float:
 	var wp := Vector2(wx, wz)
@@ -363,50 +405,18 @@ func bake_region_color(region: Vector2i, bake_scale: float = 1.0, image_width: i
 	var step := REGION_SIZE / float(image_width)
 	var origin := Vector2(region.x * REGION_SIZE, region.y * REGION_SIZE)
 	var stride := image_width
-	var img := Image.create_empty(image_width, image_width, false, Image.FORMAT_RGBA8)
-	# -- Sparse road distance field for the tint; mirror of _conform_roads's
-	# per-segment AABB splat so this is never an O(cells x segments) scan. -------
-	var core := ROAD_WIDTH * 0.5 + 0.3
-	var blend_dist := core + 3.0
-	var blend2 := blend_dist * blend_dist
-	var d2_map := PackedFloat32Array()
-	if not roads.is_empty():
-		var chains := _upsample_roads(roads)
-		if not chains.is_empty():
-			var clipped := _clip_chains(chains, origin, blend_dist + FIELD_MARGIN)
-			d2_map.resize(stride * stride)
-			d2_map.fill(INF)
-			for pts in clipped:
-				for s in pts.size() - 1:
-					var a := pts[s]
-					var b := pts[s + 1]
-					var abx := b.x - a.x
-					var abz := b.z - a.z
-					var len2 := abx * abx + abz * abz
-					if len2 <= 0.0001:
-						continue
-					var lo_ix := maxi(0, int(floorf((minf(a.x, b.x) - blend_dist - origin.x) / step)))
-					var hi_ix := mini(stride - 1, int(floorf((maxf(a.x, b.x) + blend_dist - origin.x) / step)))
-					var lo_iz := maxi(0, int(floorf((minf(a.z, b.z) - blend_dist - origin.y) / step)))
-					var hi_iz := mini(stride - 1, int(floorf((maxf(a.z, b.z) + blend_dist - origin.y) / step)))
-					for iz in range(lo_iz, hi_iz + 1):
-						var wz := origin.y + (float(iz) + 0.5) * step
-						var dz := wz - a.z
-						var row := iz * stride
-						for ix in range(lo_ix, hi_ix + 1):
-							var wx := origin.x + (float(ix) + 0.5) * step
-							var t := clampf(((wx - a.x) * abx + dz * abz) / len2, 0.0, 1.0)
-							var dx := wx - (a.x + abx * t)
-							var ddz := dz - abz * t
-							var d2 := dx * dx + ddz * ddz
-							if d2 < blend2 and d2 < d2_map[row + ix]:
-								d2_map[row + ix] = d2
-	for iz in stride:
-		var wz := origin.y + (float(iz) + 0.5) * step
-		var row_z := iz * stride
-		for ix in stride:
-			var wx := origin.x + (float(ix) + 0.5) * step
-			# -- biome base (same weighted blend as _bake_natural) ---------------
+	var K := clampi(int(floorf(float(stride) / 32.0)), 1, 4)
+	var cs := ceili(float(stride) / float(K))
+	var cell := step * float(K)
+	var coarse_h := PackedFloat32Array()
+	coarse_h.resize(cs * cs)
+	var coarse_br := PackedFloat32Array()
+	coarse_br.resize(cs * cs)
+	for ci in cs:
+		var wz := origin.y + (float(ci) + 0.5) * cell
+		var row := ci * cs
+		for cj in cs:
+			var wx := origin.x + (float(cj) + 0.5) * cell
 			var total := 0.0
 			var acc := 0.0
 			var dx := wx - BIOME_SPAWN_CENTER.x
@@ -482,7 +492,6 @@ func bake_region_color(region: Vector2i, bake_scale: float = 1.0, image_width: i
 			total += weight
 			acc += weight * BIOME_SEA_BASE
 			var base := BIOME_FALLBACK_BASE if total <= 0.0001 else acc / total
-			# -- detail + dome (same as _bake_natural) --------------------------
 			var detail := _noise.get_noise_2d(wx, wz) * (1.8 + 0.14 * base)
 			var dome := 0.0
 			var leg_dx := wx - LEGACY_DOME_CENTER.x
@@ -498,13 +507,73 @@ func bake_region_color(region: Vector2i, bake_scale: float = 1.0, image_width: i
 				var ddz := wz - dome_c.y
 				var dd := sqrt(ddx * ddx + ddz * ddz)
 				dome += dome_a * (1.0 - smoothstep(dome_r * dome_e, dome_r, dd))
-			var height := clampf((base + detail + dome) * bake_scale, HEIGHT_MIN, HEIGHT_MAX)
-			# -- band colour + brightness wobble --------------------------------
-			var band := elevation_band(height)
-			var band_col := _band_color(band)
-			var brightness := 0.92 + 0.16 * _noise.get_noise_2d(wx + 500.0, wz + 500.0)
+			coarse_h[row + cj] = clampf((base + detail + dome) * bake_scale, HEIGHT_MIN, HEIGHT_MAX)
+			coarse_br[row + cj] = _noise.get_noise_2d(wx + 500.0, wz + 500.0)
+	var h_buf := PackedFloat32Array()
+	h_buf.resize(stride * stride)
+	_bilinear_upsample(coarse_h, h_buf, K, cs, stride)
+	var br_buf := PackedFloat32Array()
+	br_buf.resize(stride * stride)
+	_bilinear_upsample(coarse_br, br_buf, K, cs, stride)
+	var img := Image.create_empty(image_width, image_width, false, Image.FORMAT_RGBA8)
+	var core := ROAD_WIDTH * 0.5 + 0.3
+	var blend_dist := core + 3.0
+	var blend2 := blend_dist * blend_dist
+	var d2_map := PackedFloat32Array()
+	if not roads.is_empty():
+		var chains := _raw_road_chains(roads)
+		if not chains.is_empty():
+			var clipped := _clip_chains(chains, origin, blend_dist + FIELD_MARGIN)
+			d2_map.resize(stride * stride)
+			d2_map.fill(INF)
+			for pts in clipped:
+				for s in pts.size() - 1:
+					var a := pts[s]
+					var b := pts[s + 1]
+					var abx := b.x - a.x
+					var abz := b.z - a.z
+					var len2 := abx * abx + abz * abz
+					if len2 <= 0.0001:
+						continue
+					var lo_ix := maxi(0, int(floorf((minf(a.x, b.x) - blend_dist - origin.x) / step)))
+					var hi_ix := mini(stride - 1, int(floorf((maxf(a.x, b.x) + blend_dist - origin.x) / step)))
+					var lo_iz := maxi(0, int(floorf((minf(a.z, b.z) - blend_dist - origin.y) / step)))
+					var hi_iz := mini(stride - 1, int(floorf((maxf(a.z, b.z) + blend_dist - origin.y) / step)))
+					for iz in range(lo_iz, hi_iz + 1):
+						var wz := origin.y + (float(iz) + 0.5) * step
+						var dz := wz - a.z
+						var row := iz * stride
+						for ix in range(lo_ix, hi_ix + 1):
+							var wx := origin.x + (float(ix) + 0.5) * step
+							var t := clampf(((wx - a.x) * abx + dz * abz) / len2, 0.0, 1.0)
+							var dx := wx - (a.x + abx * t)
+							var ddz := dz - abz * t
+							var d2 := dx * dx + ddz * ddz
+							if d2 < blend2 and d2 < d2_map[row + ix]:
+								d2_map[row + ix] = d2
+	var bytes := PackedByteArray()
+	bytes.resize(stride * stride * 4)
+	for iz in stride:
+		var wz := origin.y + (float(iz) + 0.5) * step
+		var row_z := iz * stride
+		var row_b := row_z * 4
+		for ix in stride:
+			var wx := origin.x + (float(ix) + 0.5) * step
+			var height := clampf(h_buf[row_z + ix], HEIGHT_MIN, HEIGHT_MAX)
+			var band := 5
+			if height < 0.0:
+				band = 0
+			elif height < 10.0:
+				band = 1
+			elif height < 60.0:
+				band = 2
+			elif height < 200.0:
+				band = 3
+			elif height < 600.0:
+				band = 4
+			var band_col: Color = BAND_COLORS[band]
+			var brightness := 0.92 + 0.16 * br_buf[row_z + ix]
 			var col := band_col * brightness
-			# -- road tint along conformed centreline ---------------------------
 			if not d2_map.is_empty():
 				var d2 := d2_map[row_z + ix]
 				if d2 < blend2:
@@ -514,8 +583,12 @@ func bake_region_color(region: Vector2i, bake_scale: float = 1.0, image_width: i
 					else:
 						var alpha := 1.0 - smoothstep(core, blend_dist, road_dist)
 						col = col.lerp(COLOR_ROAD, alpha)
-			img.set_pixel(ix, iz, col)
-	return img
+			var o := row_b + ix * 4
+			bytes[o] = int(col.r * 255.0)
+			bytes[o + 1] = int(col.g * 255.0)
+			bytes[o + 2] = int(col.b * 255.0)
+			bytes[o + 3] = int(col.a * 255.0)
+	return Image.create_from_data(image_width, image_width, false, Image.FORMAT_RGBA8, bytes)
 
 func _upsample_roads(roads: Array) -> Array[PackedVector3Array]:
 	var chains: Array[PackedVector3Array] = []
@@ -525,7 +598,23 @@ func _upsample_roads(roads: Array) -> Array[PackedVector3Array]:
 			chains.append(pts)
 	return chains
 
-func _upsample_centerline(points: Array) -> PackedVector3Array:
+## Same chain set as _upsample_roads but WITHOUT the 2 m point resampling:
+## the raw control points (plus the closing point for closed chains) produce
+## the IDENTICAL distance field, because upsampling only inserts collinear
+## points along existing segments. Conforming against the sparse chains is
+## therefore pixel-exact while scanning ~10-100x fewer per-segment AABBs.
+func _raw_road_chains(roads: Array) -> Array[PackedVector3Array]:
+	var chains: Array[PackedVector3Array] = []
+	for road in roads:
+		if road.size() < 2:
+			continue
+		var pts := PackedVector3Array(road)
+		if _chain_is_closed(pts):
+			pts.append(pts[0])
+		chains.append(pts)
+	return chains
+
+func _upsample_centerline(points: Array[Vector3]) -> PackedVector3Array:
 	var out := PackedVector3Array()
 	var n := points.size()
 	if n == 0:
@@ -598,11 +687,56 @@ func _conform_roads(buf: PackedFloat32Array, chains: Array[PackedVector3Array], 
 			var hi_ix := mini(stride - 1, int(floorf((maxf(a.x, b.x) + BLEND_END_DISTANCE - origin.x) / step)))
 			var lo_iz := maxi(0, int(floorf((minf(a.z, b.z) - BLEND_END_DISTANCE - origin.y) / step)))
 			var hi_iz := mini(stride - 1, int(floorf((maxf(a.z, b.z) + BLEND_END_DISTANCE - origin.y) / step)))
+			var len := sqrt(len2)
+			var blend_cap := BLEND_END_DISTANCE * len
+			var row_lo := minf(a.x, b.x) - BLEND_END_DISTANCE
+			var row_hi := maxf(a.x, b.x) + BLEND_END_DISTANCE
 			for iz in range(lo_iz, hi_iz + 1):
 				var wz := origin.y + (float(iz) + 0.5) * step
 				var dz := wz - a.z
 				var row := iz * stride
-				for ix in range(lo_ix, hi_ix + 1):
+				var c_lo := row_lo
+				var c_hi := row_hi
+				if absf(abz) > 1.0e-6:
+					var k0 := abx * dz + abz * a.x
+					var s0 := (k0 - blend_cap) / abz
+					var s1 := (k0 + blend_cap) / abz
+					var s_lo := minf(s0, s1)
+					var s_hi := maxf(s0, s1)
+					var f_lo: float
+					var f_hi: float
+					if absf(abx) > 1.0e-6:
+						var q0 := (a.x * abx - dz * abz) / abx
+						var q1 := q0 + len2 / abx
+						f_lo = minf(q0, q1)
+						f_hi = maxf(q0, q1)
+					else:
+						if dz * abz < 0.0 or dz * abz > len2:
+							f_lo = 1.0
+							f_hi = 0.0
+						else:
+							f_lo = -INF
+							f_hi = INF
+					var a_lo := maxf(s_lo, f_lo)
+					var a_hi := minf(s_hi, f_hi)
+					if a_lo <= a_hi:
+						c_lo = minf(c_lo, a_lo)
+						c_hi = maxf(c_hi, a_hi)
+				var dz2 := dz * dz
+				if dz2 <= blend2:
+					var r := sqrt(blend2 - dz2)
+					c_lo = minf(c_lo, a.x - r)
+					c_hi = maxf(c_hi, a.x + r)
+				var dzb := wz - b.z
+				var dzb2 := dzb * dzb
+				if dzb2 <= blend2:
+					var r := sqrt(blend2 - dzb2)
+					c_lo = minf(c_lo, b.x - r)
+					c_hi = maxf(c_hi, b.x + r)
+				var margin := 1.0 * step + 0.1
+				var s_lo := maxi(lo_ix, int(floorf((c_lo - margin - origin.x) / step)))
+				var s_hi := mini(hi_ix, int(floorf((c_hi + margin - origin.x) / step)) + 1)
+				for ix in range(s_lo, s_hi + 1):
 					var wx := origin.x + (float(ix) + 0.5) * step
 					var t := clampf(((wx - a.x) * abx + dz * abz) / len2, 0.0, 1.0)
 					var dx := wx - (a.x + abx * t)

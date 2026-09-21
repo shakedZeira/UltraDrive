@@ -89,3 +89,10 @@ func get_computed_sun_position() -> Vector3:
     ## Returns sun direction based on time of day.
     var angle := deg_to_rad(time_of_day / 24.0 * 360.0 - 90.0)
     return Vector3(cos(angle), sin(angle), 0.3).normalized()
+
+## Night switch-over flag (S12): night = the (unclamped) sun direction has
+## dropped below the horizon. WorldDriver clamps the baked sun transform to
+## SUN_MIN_ELEVATION so the light never sinks; this raw below-horizon test is
+## the single authority for headlights / street lights / night tint.
+func is_night() -> bool:
+    return get_computed_sun_position().y < 0.0

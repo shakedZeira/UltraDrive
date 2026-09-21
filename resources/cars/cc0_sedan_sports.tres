@@ -6,6 +6,7 @@
 script = ExtResource("1_script")
 car_name = "Comet"
 car_class = "C"
+price = 18000
 visual_path = "res://assets/cars/cc0_sedan_sports.glb"
 engine_timbre = "sport"
 mass_kg = 1200.0

@@ -5,9 +5,10 @@ extends GdUnitTestSuite
 ## impact seam. Headless-safe by construction - the player-car scene carries
 ## the FX slot but the _ready emitter cull builds zero GPUParticles3D nodes, so
 ## budget/node caps are checked as constants and via a white-box emitter build,
-## dust fires only off-asphalt, drift drives smoke, and the impact threshold is
-## pure math over a stub velocity delta. All live nodes are freed in
-## after_test so the run stays orphan-free.
+## dust fires only off-asphalt, drift drives smoke, exhaust is a small
+## throttle/idle-gated tailpipe puff, and the impact threshold is pure math
+## over a stub velocity delta. All live nodes are freed in after_test so the
+## run stays orphan-free.
 
 var _managed_nodes: Array = []
 
@@ -46,24 +47,27 @@ func test_headless_fx_ready_culls_the_emitter_build() -> void:
 	assert_that(fx.emitter_count()).is_equal(0)
 	assert_that(fx.get_child_count()).is_equal(0)
 
-func test_emitter_node_budget_is_four() -> void:
-	assert_that(VehicleFX.EMITTER_COUNT).is_equal(4)
-	assert_that(VehicleFX.emitter_budget()).is_equal(4)
+func test_emitter_node_budget_is_five() -> void:
+	assert_that(VehicleFX.EMITTER_COUNT).is_equal(5)
+	assert_that(VehicleFX.emitter_budget()).is_equal(5)
 
 func test_channel_budget_caps_and_total() -> void:
 	assert_that(VehicleFX.TOTAL_BUDGET).is_equal(
 		VehicleFX.SMOKE_AMOUNT_CAP + VehicleFX.DUST_AMOUNT_CAP
 		+ VehicleFX.SPARK_AMOUNT_CAP + VehicleFX.NITRO_AMOUNT_CAP
+		+ VehicleFX.EXHAUST_AMOUNT_CAP
 	)
 	assert_that(VehicleFX.SMOKE_AMOUNT_CAP).is_greater(0)
 	assert_that(VehicleFX.DUST_AMOUNT_CAP).is_greater(0)
 	assert_that(VehicleFX.SPARK_AMOUNT_CAP).is_greater(0)
 	assert_that(VehicleFX.NITRO_AMOUNT_CAP).is_greater(0)
+	assert_that(VehicleFX.EXHAUST_AMOUNT_CAP).is_greater(0)
 
 func test_channel_amounts_clamp_to_their_caps() -> void:
 	assert_that(VehicleFX.clamped_channel_amount(VehicleFX.CHANNEL_SMOKE, 999999)).is_equal(VehicleFX.SMOKE_AMOUNT_CAP)
 	assert_that(VehicleFX.clamped_channel_amount(VehicleFX.CHANNEL_DUST, -10)).is_equal(0)
 	assert_that(VehicleFX.channel_cap(VehicleFX.CHANNEL_SPARKS)).is_equal(VehicleFX.SPARK_AMOUNT_CAP)
+	assert_that(VehicleFX.clamped_channel_amount(VehicleFX.CHANNEL_EXHAUST, 999)).is_equal(VehicleFX.EXHAUST_AMOUNT_CAP)
 	assert_that(VehicleFX.channel_cap("bogus")).is_equal(0)
 
 func test_built_emitters_respect_the_node_and_amount_caps() -> void:
@@ -75,6 +79,7 @@ func test_built_emitters_respect_the_node_and_amount_caps() -> void:
 	var channels: Array = [
 		VehicleFX.CHANNEL_SMOKE, VehicleFX.CHANNEL_DUST,
 		VehicleFX.CHANNEL_SPARKS, VehicleFX.CHANNEL_FLAME,
+		VehicleFX.CHANNEL_EXHAUST,
 	]
 	for channel: Variant in channels:
 		var key := String(channel)
@@ -113,6 +118,20 @@ func test_nitro_flame_channel_is_gated_off_by_default() -> void:
 	assert_that(bool(fx.emission_channels()[VehicleFX.CHANNEL_FLAME])).is_true()
 	fx.set_nitro_active(false)
 	assert_that(bool(fx.emission_channels()[VehicleFX.CHANNEL_FLAME])).is_false()
+
+func test_exhaust_channel_gates_on_throttle_or_idle() -> void:
+	var fx := _new_fx()
+	assert_that(bool(fx.emission_channels()[VehicleFX.CHANNEL_EXHAUST])).is_false()
+	fx.set_throttle(0.5)
+	assert_that(bool(fx.emission_channels()[VehicleFX.CHANNEL_EXHAUST])).is_true()
+	fx.set_throttle(0.0)
+	assert_that(bool(fx.emission_channels()[VehicleFX.CHANNEL_EXHAUST])).is_false()
+	fx.set_speed_kmh(2.0)
+	assert_that(bool(fx.emission_channels()[VehicleFX.CHANNEL_EXHAUST])).is_true()
+	fx.set_speed_kmh(60.0)
+	assert_that(bool(fx.emission_channels()[VehicleFX.CHANNEL_EXHAUST])).is_false()
+	fx.set_throttle(-0.5)
+	assert_that(bool(fx.emission_channels()[VehicleFX.CHANNEL_EXHAUST])).is_true()
 
 func test_spark_burst_is_gated_by_minimum_strength_and_bounded() -> void:
 	var fx := _new_fx()

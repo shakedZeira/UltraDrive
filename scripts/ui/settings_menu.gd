@@ -9,6 +9,14 @@ extends Control
 
 ## Quality ladder shared by the settings menu and the test suite. Each preset
 ## is applied to the current scene Environment + root Viewport.
+##
+## AO/GI pass (docs/plans/graphics_gap_plan.md items 4 + 8): Medium and High
+## carry the GT7-style contact-shading knobs — tight SSAO radius so the
+## car-to-ground gap darkens without broad flat AO; High additionally tunes
+## SDFGI energy down to 0.8 so bounce light reads against the GG-Env
+## tonemap_exposure 0.9. Low keeps AO/GI off for perf but gains MSAA (2 in
+## project-settings units → Viewport.MSAA_4X) so it stops aliasing, keeping
+## scaling bilinear 1.0.
 const QUALITY_PRESETS: Dictionary = {
 	0: {
 		"ssao_enabled": false,
@@ -16,7 +24,7 @@ const QUALITY_PRESETS: Dictionary = {
 		"volumetric_fog_enabled": false,
 		"ssr_enabled": false,
 		"sdfgi_enabled": false,
-		"msaa_3d": 0,
+		"msaa_3d": 2,
 		"tonemap_mode": Environment.TONE_MAPPER_ACES,
 		"probe_enabled": false,
 		"scaling_3d_mode": 0,
@@ -33,6 +41,9 @@ const QUALITY_PRESETS: Dictionary = {
 		"probe_enabled": false,
 		"scaling_3d_mode": 0,
 		"scaling_3d_scale": 1.0,
+		"ssao_intensity": 2.0,
+		"ssao_radius": 0.05,
+		"ssao_ao_channel_affect": 0.1,
 	},
 	2: {
 		"ssao_enabled": true,
@@ -45,6 +56,14 @@ const QUALITY_PRESETS: Dictionary = {
 		"probe_enabled": true,
 		"scaling_3d_mode": 1,
 		"scaling_3d_scale": 0.9,
+		"ssao_intensity": 2.0,
+		"ssao_radius": 0.05,
+		"ssao_ao_channel_affect": 0.1,
+		"sdfgi_energy": 0.8,
+		# 4.7.2 has no sdfgi_cascaded_distance; the closest property is
+		# sdfgi_cascade0_distance (default 12.8) — stretch it a touch so the
+		# first cascade covers the car + immediate roadside.
+		"sdfgi_cascade0_distance": 16.0,
 	},
 }
 
@@ -65,7 +84,16 @@ static func probe_enabled_for(index: int) -> bool:
 ## playable out of the box; discrete cards get Medium. The user can always
 ## raise/lower it in Settings — this is only the no-save default.
 static func default_quality_preset() -> int:
-	var name: String = RenderingServer.get_video_adapter_name().to_lower()
+	return preset_for_adapter_name(RenderingServer.get_video_adapter_name())
+
+## Test-friendly seam for the GPU-name → preset decision (no server reads).
+## The /graphics-gap captures were recorded on this rig by a "GeForce GTX 970":
+## _legacy_geforce() matches below, so default is Low there. That is the
+## expected hardware-recommended default, not a bug — it just means the
+## reference look (SSAO/SDFGI/SSR ao High) is only reached by raising to
+## Medium/High, not by the first-boot preset.
+static func preset_for_adapter_name(adapter: String) -> int:
+	var name: String = adapter.to_lower()
 	if name.is_empty():
 		return 1
 	var weak_gpu := (
@@ -76,8 +104,23 @@ static func default_quality_preset() -> int:
 		or "vga" in name
 		or "llvmpipe" in name
 		or "swrast" in name
+		or _legacy_geforce(name)
 	)
 	return 0 if weak_gpu else 1
+
+static func _legacy_geforce(name: String) -> bool:
+	var gtx := name.find("gtx")
+	if gtx < 0:
+		return false
+	gtx += 3
+	while gtx < name.length() and not _is_digit_char(name[gtx]):
+		gtx += 1
+	if gtx >= name.length():
+		return true
+	return name[gtx] != "1"
+
+static func _is_digit_char(ch: String) -> bool:
+	return ch >= "0" and ch <= "9"
 
 ## Finds the first WorldEnvironment under a loaded scene and returns its
 ## Environment resource (or null when the scene has none).
@@ -106,6 +149,27 @@ static func apply_quality_preset(env: Environment, viewport: Viewport, preset: D
 		env.ssr_enabled = preset["ssr_enabled"]
 		env.sdfgi_enabled = preset["sdfgi_enabled"]
 		env.tonemap_mode = preset["tonemap_mode"]
+		env.tonemap_exposure = 0.9
+		env.glow_intensity = 0.4
+		env.glow_strength = 0.8
+		env.glow_bloom = 0.6 if preset["glow_enabled"] else 0.1
+		env.ambient_light_color = Color(0.6, 0.62, 0.7)
+		env.ambient_light_energy = 1.0
+		# GT7-style contact shading (plan item 4): tight-radius AO darkens the
+		# car-to-ground gap instead of broad flat AO. Only presets that enable
+		# SSAO carry the knobs (Low keeps them off).
+		if preset["ssao_enabled"]:
+			env.ssao_intensity = float(preset.get("ssao_intensity", 2.0))
+			env.ssao_radius = float(preset.get("ssao_radius", 0.05))
+			env.ssao_ao_channel_affect = float(preset.get("ssao_ao_channel_affect", 0.1))
+		# Bounced sky light into under-car + foliage (plan item 4, tuned on High
+		# only; Medium keeps SDFGI defaults). 4.7.2 ships sdfgi_cascade0_distance
+		# / sdfgi_max_distance instead of a single sdfgi_cascaded_distance.
+		if preset["sdfgi_enabled"]:
+			if preset.has("sdfgi_energy"):
+				env.sdfgi_energy = float(preset["sdfgi_energy"])
+			if preset.has("sdfgi_cascade0_distance"):
+				env.sdfgi_cascade0_distance = float(preset["sdfgi_cascade0_distance"])
 	if viewport:
 		viewport.msaa_3d = _msaa_enum_for(preset["msaa_3d"])
 		viewport.scaling_3d_mode = _scaling_mode_for(preset["scaling_3d_mode"])

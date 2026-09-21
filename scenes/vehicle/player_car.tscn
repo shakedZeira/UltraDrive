@@ -1,11 +1,14 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scripts/vehicle/vehicle_physics.gd" id="1_vp"]
 [ext_resource type="Script" path="res://scripts/vehicle/wheel_physics.gd" id="2_wp"]
 [ext_resource type="Script" path="res://scripts/player/player_car_controller.gd" id="3_pc"]
 [ext_resource type="Resource" path="res://resources/cars/starter_car.tres" id="4_config"]
-[ext_resource type="Script" path="res://scripts/vehicle/car_audio.gd" id="5_audio"]
+[ext_resource type="Script" path="res://scripts/audio/engine_audio.gd" id="5_audio"]
 [ext_resource type="Script" path="res://scripts/vehicle/vehicle_fx.gd" id="6_fx"]
+[ext_resource type="Script" path="res://scripts/vehicle/body_rig.gd" id="7_rig"]
+[ext_resource type="Script" path="res://scripts/vehicle/tire_marks.gd" id="8_marks"]
+[ext_resource type="Script" path="res://scripts/car/headlights.gd" id="9_hl"]
 
 [sub_resource type="BoxShape3D" id="box_shape"]
 size = Vector3(1.8, 0.5, 4.0)
@@ -17,6 +20,9 @@ mass = 1100.0
 can_sleep = false
 
 [node name="CarBody" type="Node3D" parent="."]
+
+[node name="BodyRig" type="Node3D" parent="CarBody"]
+script = ExtResource("7_rig")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 shape = SubResource("box_shape")
@@ -41,10 +47,16 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 0.2, 1.25)
 [node name="PlayerCarController" type="Node" parent="."]
 script = ExtResource("3_pc")
 
-[node name="CarAudio" type="AudioStreamPlayer3D" parent="."]
+[node name="EngineAudio" type="AudioStreamPlayer3D" parent="."]
 script = ExtResource("5_audio")
 unit_size = 2.0
 max_distance = 80.0
 
 [node name="VehicleFX" type="Node3D" parent="."]
 script = ExtResource("6_fx")
+
+[node name="TireMarks" type="Node" parent="."]
+script = ExtResource("8_marks")
+
+[node name="Headlights" type="Node" parent="."]
+script = ExtResource("9_hl")

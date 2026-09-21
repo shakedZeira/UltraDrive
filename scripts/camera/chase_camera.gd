@@ -11,7 +11,7 @@ extends Node3D
 @export var follow_speed: float = 5.0
 @export var camera_distance: float = 6.0
 @export var camera_height: float = 2.5
-@export var fov_min: float = 70.0
+@export var fov_min: float = 74.0
 @export var fov_max: float = 90.0
 @export var fov_speed_factor: float = 0.05
 
@@ -61,6 +61,12 @@ func _physics_process(delta: float) -> void:
 	if target == null:
 		return
 	_update_camera(delta)
+
+# --- Chase-mode gate (S12). The chase camera is the default view; orbit and
+# --- others take over only when their camera becomes current. Windshield
+# --- droplets are gated on this so only the chase view carries them.
+func is_current_view() -> bool:
+	return _camera != null and _camera.is_current()
 
 # --- Per-frame update. Extracted so tests can drive frames deterministically
 # --- without the physics loop; null-target guard still applies.

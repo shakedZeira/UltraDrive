@@ -37,10 +37,18 @@ func _ready() -> void:
 
 ## Ceremony-aware start seam: any start source (track select today, free-roam
 ## events later) lands here to queue a race for the HUD to commit.
+## Debounced (hardening): while a race is live or its ceremony/results run the
+## request is refused, so a second start source can never re-arm or replace the
+## active race. The HUD drains _pending_laps once per frame anyway, so a stale
+## accepted request would otherwise double-start.
 func request_race(laps: int) -> void:
+	if is_race_active:
+		return
 	_pending_laps = laps
 
 func queue_race(laps: int) -> void:
+	if is_race_active:
+		return
 	_pending_laps = laps
 
 ## The countdown gate: true while the ceremony is running (phases 3/2/1/GO).
@@ -73,6 +81,8 @@ func start_race(cars: Array, laps: int) -> void:
 	_participants.assign(cars)
 	for rival in _spawn_configured_rivals():
 		_participants.append(rival)
+	for car in _participants:
+		car.release_ground_lock()
 	total_laps = laps
 	_race_time = 0.0
 	for car in _participants:

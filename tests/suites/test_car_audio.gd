@@ -22,13 +22,14 @@ func test_build_beds_returns_three_beds_for_every_profile() -> void:
 		var beds := CarAudio.build_beds(profile)
 		assert_that(beds.size()).is_equal(3)
 
-func test_build_beds_pitch_band_stays_narrow() -> void:
+func test_build_beds_pitch_band_tracks_profile_sweep() -> void:
 	for profile: Dictionary in [SPORT, MUSCLE, RALLY]:
 		var beds := CarAudio.build_beds(profile)
 		for bed: Dictionary in beds:
-			assert_that(float(bed["pitch_min"])).is_greater_equal(0.9)
-			assert_that(float(bed["pitch_max"])).is_less_equal(1.25)
-			assert_that(float(bed["pitch_min"])).is_less_equal(float(bed["pitch_max"]))
+			assert_that(float(bed["pitch_min"])).is_equal_approx(float(profile["base_pitch"]), 0.001)
+			assert_that(float(bed["pitch_max"])).is_equal_approx(float(profile["redline_pitch"]), 0.001)
+			assert_that(float(bed["pitch_min"])).is_less(float(bed["pitch_max"]))
+			assert_that(float(bed["pitch_max"])).is_greater(1.5)
 
 func test_build_beds_center_ratios_climb() -> void:
 	for profile: Dictionary in [SPORT, MUSCLE, RALLY]:
@@ -87,6 +88,36 @@ func test_crossfade_weights_stay_in_unit_range() -> void:
 		var weights := CarAudio.crossfade_weights(t, CROSS)
 		for w: float in weights:
 			assert_that(w).is_between(0.0, 1.0)
+
+func test_layer_weights_off_load_keeps_bass_bed() -> void:
+	var weights := CarAudio.layer_weights(0.5, 0.0)
+	assert_that(weights.size()).is_equal(3)
+	assert_that(weights[0]).is_between(0.2, 0.4)
+	assert_that(weights[1]).is_greater(weights[0])
+	assert_that(weights[2]).is_less(weights[1])
+	assert_that(weights[0] + weights[1] + weights[2]).is_between(0.98, 1.02)
+
+func test_layer_weights_bass_bleed_recedes_with_load() -> void:
+	var coast := CarAudio.layer_weights(0.5, 0.0)
+	var loaded := CarAudio.layer_weights(0.5, 1.0)
+	assert_that(coast[0]).is_greater(loaded[0])
+	assert_that(coast[0] + coast[1] + coast[2]).is_between(0.98, 1.02)
+	assert_that(loaded[0] + loaded[1] + loaded[2]).is_between(0.98, 1.02)
+
+func test_layer_weights_on_load_matches_crossfade() -> void:
+	for t: float in [0.0, 0.1, 0.25, 0.5, 0.75, 1.0]:
+		var expected := CarAudio.crossfade_weights(t, CROSS)
+		var got := CarAudio.layer_weights(t, 1.0)
+		for i in range(expected.size()):
+			assert_that(got[i]).is_equal_approx(expected[i], 0.001)
+		assert_that(got[0] + got[1] + got[2]).is_between(0.98, 1.02)
+
+func test_pulse_env_is_periodic() -> void:
+	var period := 4410
+	var a := CarAudio._pulse_env(0, period, 4)
+	var b := CarAudio._pulse_env(period, period, 4)
+	assert_that(a).is_equal_approx(b, 0.000001)
+	assert_that(a).is_greater(0.0)
 
 func test_load_shaping_off_load_is_minimal() -> void:
 	var shaping := CarAudio.load_shaping(0.0)

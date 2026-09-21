@@ -6,6 +6,7 @@
 script = ExtResource("1_script")
 car_name = "Thunderhead"
 car_class = "C"
+price = 16000
 visual_path = "res://assets/cars/muscle_car.glb"
 engine_timbre = "muscle"
 mass_kg = 1420.0

@@ -57,7 +57,8 @@ func get_junctions() -> Array:
     var junctions: Array = _topology["junctions"]
     return junctions
 
-func nearest_road_id(pos: Vector3) -> int:
+func nearest_road_lookup(pos: Vector3) -> Dictionary:
+    var best_pos := pos
     var best_id := -1
     var best_dist := INF
     for i in _roads.size():
@@ -66,8 +67,12 @@ func nearest_road_id(pos: Vector3) -> int:
             var d: float = point.distance_to(pos)
             if d < best_dist:
                 best_dist = d
+                best_pos = point
                 best_id = i
-    return best_id
+    return {"pos": best_pos, "id": best_id}
+
+func nearest_road_id(pos: Vector3) -> int:
+    return int(nearest_road_lookup(pos)["id"])
 
 func neighbor_roads(road_id: int) -> PackedInt32Array:
     var adj := _routing_adjacency()
@@ -122,15 +127,8 @@ func get_roads() -> Array[Array]:
     return _roads
 
 func get_nearest_road_pos(pos: Vector3) -> Vector3:
-    var best := pos
-    var best_dist := INF
-    for road in _roads:
-        for point in road:
-            var d: float = point.distance_to(pos)
-            if d < best_dist:
-                best_dist = d
-                best = point
-    return best
+    return nearest_road_lookup(pos)["pos"]
 
 func is_on_road(pos: Vector3, threshold: float = 6.0) -> bool:
-    return pos.distance_to(get_nearest_road_pos(pos)) < threshold
+    var nearest: Vector3 = nearest_road_lookup(pos)["pos"]
+    return pos.distance_to(nearest) < threshold

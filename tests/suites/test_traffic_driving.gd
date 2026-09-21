@@ -9,8 +9,11 @@ extends GdUnitTestSuite
 ## cruise mismatch, closed-ring target progression (monotonic arc advance),
 ## the inert no-chain fallback that never hands back to player input, and the
 ## spawner's attach-on-spawn / free-on-despawn driver lifecycle. Headless-safe
-## and leak-free: raw VehiclePhysics stubs never enter the tree, and
-## after_test frees every spawner/network/car node that did.
+## and leak-free: stub VehiclePhysics cars are childed into the suite so the
+## driver's global-position reads stay fast (global_transform reads on an out-of-
+## tree RigidBody3D are pathologically slow, ~0.5 s per update call, which made
+## this suite ~80x slower), and after_test frees every spawner/network/car node
+## that entered the tree. Expected saving vs. in-tree stubs: ~256 s.
 
 const CAR_SCENE := "res://scenes/vehicle/player_car.tscn"
 const RING_RADIUS := 200.0
@@ -53,11 +56,14 @@ func _build_ring() -> Array[Vector3]:
 		points.append(Vector3(cos(angle) * RING_RADIUS, 0.0, sin(angle) * RING_RADIUS))
 	return points
 
-## Raw VehiclePhysics outside the tree: _ready never runs, so no wheels or
-## controller wiring is needed -- the driver only reads pose/speed and writes
-## input_override on it. global_position == position for a parentless node.
+## Bare VehiclePhysics childed into the tree at the suite origin: _ready runs
+## (no wheels present, but nothing steps physics while these tests run, so the
+## null wheel refs are never dereferenced), and the driver's global_position /
+## global_basis reads are instant -- the same reads on an out-of-tree body are
+## pathologically slow (probed at ~0.5 s per update call).
 func _new_stub_car(pos: Vector3) -> VehiclePhysics:
 	var car := VehiclePhysics.new()
+	add_child(car)
 	car.position = pos
 	_managed_stubs.append(car)
 	return car
@@ -278,8 +284,9 @@ func test_stuck_driver_teleports_to_a_road_point_once() -> void:
 	for _frame in range(320):
 		driver.update(FAR_PLAYER, 1.0 / 60.0)
 	assert_that(driver.get_rescue_count()).is_equal(1)
-	# Stubs live outside the tree, so global_position reads fall back to the
-	# dummy identity; the local position mirrors the actual teleport target.
+	# In-tree stubs read their real pose back, so the rescue teleport target
+	# lands on the chain exactly as the driver placed it (global == local at
+	# the suite origin).
 	assert_that(ring.has(car.position)).is_true()
 	var rescued_at := car.position
 	# Reset at the new anchor: the immediate next tick must NOT re-rescue, and

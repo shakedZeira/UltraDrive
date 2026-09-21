@@ -16,6 +16,13 @@ extends Control
 @export var road_width := 2.0
 @export var ring_color := Color(0.3, 0.5, 0.85, 0.45)
 
+## Shared player-marker accents (single source of truth in MapRoads, so the
+## minimap and the pause map stay in lock-step).
+const MARKER_CORE := MapRoads.MARKER_CORE
+const MARKER_ACCENT := MapRoads.MARKER_ACCENT
+const MARKER_OUTLINE := MapRoads.MARKER_OUTLINE
+const MARKER_SIZE := MapRoads.MARKER_SIZE
+
 var _player_car: VehiclePhysics
 var _road_source: Node = null
 var _road_signature := ""
@@ -23,6 +30,9 @@ var _scene_roads: Array = []  # cached chains for the current signature
 var _discovery_source: WorldDiscovery = null
 var _last_redraw_pos := Vector3(INF, INF, INF)
 var _last_heading := INF
+var _marker_angle := -PI / 2.0
+var _pulse_time := 0.0
+var _last_pulse_tick := -1
 
 func _ready() -> void:
 	_player_car = VehicleManager.get_player_car()
@@ -40,13 +50,9 @@ func _draw() -> void:
 	_draw_roads(center)
 	_draw_route(center)
 
-	# Player arrow (triangle pointing in facing direction)
-	var car_facing: Vector3 = -_player_car.global_basis.z
-	var angle := atan2(car_facing.x, car_facing.z)
-	var tip := center + Vector2(sin(angle), -cos(angle)) * 10.0
-	var left := center + Vector2(sin(angle + TAU / 3), -cos(angle + TAU / 3)) * 6.0
-	var right := center + Vector2(sin(angle - TAU / 3), -cos(angle - TAU / 3)) * 6.0
-	draw_colored_polygon(PackedVector2Array([tip, left, right]), Color(1, 1, 1))
+	# Player chevron: the same marker the pause map uses, so the player reads as
+	# one unmistakable object on the HUD minimap. Pointing the way the car faces.
+	MapRoads.draw_player_marker(self, center, _marker_angle, _pulse_time, MARKER_SIZE)
 	draw_arc(center, minimap_radius, 0.0, TAU, 64, ring_color, 1.5)
 
 func _draw_roads(center: Vector2) -> void:
@@ -85,7 +91,7 @@ func _draw_route(center: Vector2) -> void:
 	if clipped.size() >= 2:
 		draw_polyline(clipped, route_color, road_width + 1.5)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	_player_car = VehicleManager.get_player_car()
 	if _road_source == null:
 		_road_source = MapRoads.resolve_road_source(self) as Node
@@ -103,9 +109,15 @@ func _process(_delta: float) -> void:
 	var pos := _player_car.global_position
 	var car_facing: Vector3 = -_player_car.global_basis.z
 	var heading := atan2(car_facing.x, car_facing.z)
-	# Redraw only when the player moved enough or turned, so the arrow stays
-	# live without rebuilding road polylines every frame.
-	if _last_redraw_pos.distance_to(pos) > 4.0 or absf(heading - _last_heading) > 0.05:
+	_marker_angle = MapRoads.marker_minimap_angle(car_facing)
+	# Redraw only when the player moved enough or turned, or when the halo pulse
+	# crossed its redraw cadence, so the marker stays live without rebuilding
+	# the road polylines every frame.
+	_pulse_time += delta
+	var tick := int(_pulse_time / MapRoads.MARKER_PULSE_STEP)
+	if _last_redraw_pos.distance_to(pos) > 4.0 or absf(heading - _last_heading) > 0.05 \
+			or tick != _last_pulse_tick:
 		_last_redraw_pos = pos
 		_last_heading = heading
+		_last_pulse_tick = tick
 		queue_redraw()

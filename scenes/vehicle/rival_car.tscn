@@ -5,8 +5,11 @@
 
 [sub_resource type="StandardMaterial3D" id="rival_paint_mat"]
 resource_name = "paint"
-metallic = 0.85
-roughness = 0.25
+clearcoat_enabled = true
+clearcoat = 1.0
+clearcoat_roughness = 0.08
+metallic = 0.25
+roughness = 0.35
 
 [sub_resource type="BoxMesh" id="rival_body_mesh"]
 material = SubResource("rival_paint_mat")

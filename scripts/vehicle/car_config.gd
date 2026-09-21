@@ -8,6 +8,9 @@ extends Resource
 @export var car_class: String = "D"  # D, C, B, A, S
 @export var visual_path: String = "res://assets/cars/sports_coupe.glb"  # 3D model shown & driven
 
+# --- Economy (item 11) ---
+@export var price: int = 0  # sticker price in career credits (0 = not purchasable)
+
 # --- Procedural Engine Sound (timbre used by CarAudio PROFILES table) ---
 @export_enum("sport", "muscle", "rally") var engine_timbre: String = "sport"
 

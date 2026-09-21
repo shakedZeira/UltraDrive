@@ -490,11 +490,17 @@ func _write_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vector2i, 
 func _scan_height_range(image: Image) -> Vector2:
 	var height_min := INF
 	var height_max := -INF
-	for iz in image.get_height():
-		for ix in image.get_width():
-			var y := image.get_pixel(ix, iz).r
+	if image.get_format() == Image.FORMAT_RF:
+		var floats := image.get_data().to_float32_array()
+		for y in floats:
 			height_min = minf(height_min, y)
 			height_max = maxf(height_max, y)
+	else:
+		for iz in image.get_height():
+			for ix in image.get_width():
+				var y := image.get_pixel(ix, iz).r
+				height_min = minf(height_min, y)
+				height_max = maxf(height_max, y)
 	return Vector2(height_min, height_max)
 
 ## Queues a region bake for the worker. Never queues a region twice: _queued is

@@ -69,6 +69,9 @@ func _apply_tier_color(car: VehiclePhysics, tier: String) -> void:
 		return
 	var material := StandardMaterial3D.new()
 	material.albedo_color = CarVisuals.RIVAL_PALETTE.get(RacingLine.normalize_tier(tier), CarVisuals.RIVAL_PALETTE["Skilled"])
-	material.metallic = 0.85
-	material.roughness = 0.25
+	material.metallic = CarVisuals.DEFAULT_PAINT["metallic"]
+	material.roughness = CarVisuals.DEFAULT_PAINT["roughness"]
+	material.clearcoat_enabled = true
+	material.clearcoat = CarVisuals.DEFAULT_PAINT["clearcoat"]
+	material.clearcoat_roughness = CarVisuals.DEFAULT_PAINT["clearcoat_roughness"]
 	body.material_override = material

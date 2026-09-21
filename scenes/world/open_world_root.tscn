@@ -1,4 +1,4 @@
-[gd_scene load_steps=19 format=3]
+[gd_scene load_steps=21 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/world_driver.gd" id="1_driver"]
 [ext_resource type="Script" path="res://scripts/world/chunk_streamer.gd" id="2_cs"]
@@ -15,15 +15,17 @@
 [ext_resource type="Script" path="res://scripts/world/foliage.gd" id="13_foliage"]
 [ext_resource type="Script" path="res://scripts/world/traffic_spawner.gd" id="14_traffic"]
 [ext_resource type="Script" path="res://scripts/events/event_session.gd" id="15_session"]
+[ext_resource type="Script" path="res://scripts/weather/rain_system.gd" id="16_rain"]
+[ext_resource type="Script" path="res://scripts/weather/weather_audio.gd" id="17_audio"]
 
 [sub_resource type="ProceduralSkyMaterial" id="sky_mat"]
-sky_top_color = Color(0.16, 0.31, 0.62, 1)
-sky_horizon_color = Color(0.98, 0.85, 0.55, 1)
-ground_bottom_color = Color(0.1, 0.08, 0.06, 1)
-ground_horizon_color = Color(0.88, 0.72, 0.48, 1)
-sun_angle_max = 18.0
+sky_top_color = Color(0.25, 0.46, 0.8, 1)
+sky_horizon_color = Color(0.93, 0.92, 0.9, 1)
+ground_bottom_color = Color(0.11, 0.09, 0.06, 1)
+ground_horizon_color = Color(0.8, 0.72, 0.6, 1)
+sun_angle_max = 20.0
 sun_curve = 0.35
-energy_multiplier = 1.35
+energy_multiplier = 1.5
 
 [sub_resource type="Sky" id="sky"]
 sky_material = SubResource("sky_mat")
@@ -32,10 +34,16 @@ sky_material = SubResource("sky_mat")
 background_mode = 2
 sky = SubResource("sky")
 ambient_light_source = 2
-ambient_light_color = Color(0.5, 0.5, 0.55, 1)
+ambient_light_color = Color(0.6, 0.62, 0.7, 1)
 ambient_light_energy = 1.0
+fog_enabled = true
+fog_light_color = Color(0.82, 0.85, 0.92, 1)
+fog_light_energy = 1.0
+fog_density = 0.0008
+fog_sky_affect = 0.2
+fog_aerial_perspective = true
 tonemap_mode = 3
-tonemap_exposure = 1.0
+tonemap_exposure = 0.9
 sdfgi_enabled = false
 sdfgi_cascades = 4
 sdfgi_min_cell_size = 0.5
@@ -57,9 +65,9 @@ volumetric_fog_emission = Color(0.15, 0.12, 0.1, 1)
 volumetric_fog_length = 64.0
 volumetric_fog_gi_inject = 0.0
 glow_enabled = false
-glow_intensity = 0.6
-glow_strength = 1.0
-glow_bloom = 0.1
+glow_intensity = 0.4
+glow_strength = 0.8
+glow_bloom = 0.6
 glow_hdr_threshold = 1.0
 
 [node name="OpenWorldRoot" type="Node3D" groups=["open_world"]]
@@ -94,6 +102,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 128, 2.2, 128)
 [node name="ChaseCamera" type="Node3D" parent="."]
 script = ExtResource("4_chase")
 target = NodePath("%PlayerCar")
+transients_enabled = true
 
 [node name="OrbitCamera" type="Node3D" parent="."]
 script = ExtResource("7_orbit")
@@ -105,8 +114,10 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 128, 4.7, 134)
 transform = Transform3D(0.707107, -0.40558, 0.579228, 0, 0.819152, 0.573576, -0.707107, -0.40558, 0.579228, 0, 10, 0)
 shadow_enabled = true
 light_color = Color(1, 0.93, 0.82, 1)
-light_energy = 1.2
+light_energy = 1.1
 light_angular_distance = 1.0
+shadow_filter = 1
+directional_shadow_max_distance = 220.0
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("env")
@@ -117,26 +128,32 @@ environment = SubResource("env")
 
 [node name="Foliage" type="Node3D" parent="."]
 script = ExtResource("13_foliage")
+road_network = NodePath("../RoadNetwork")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 128, 0, 128)
 
 [node name="PropsFestival" type="Node3D" parent="."]
 script = ExtResource("12_prop")
+road_network = NodePath("../RoadNetwork")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 128, 0, 128)
 
 [node name="PropsLowlands" type="Node3D" parent="."]
 script = ExtResource("12_prop")
+road_network = NodePath("../RoadNetwork")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1536, 0, 1536)
 
 [node name="PropsCoast" type="Node3D" parent="."]
 script = ExtResource("12_prop")
+road_network = NodePath("../RoadNetwork")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5888, 0, 1536)
 
 [node name="PropsHighlands" type="Node3D" parent="."]
 script = ExtResource("12_prop")
+road_network = NodePath("../RoadNetwork")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3840, 0, 2304)
 
 [node name="PropsAlpine" type="Node3D" parent="."]
 script = ExtResource("12_prop")
+road_network = NodePath("../RoadNetwork")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5632, 0, 5632)
 
 [node name="TrafficSpawner" type="Node" parent="."]
@@ -145,6 +162,12 @@ vehicle_scene = ExtResource("3_car")
 max_traffic = 15
 spawn_radius = 300.0
 road_network = NodePath("../RoadNetwork")
+
+[node name="WeatherAudio" type="AudioStreamPlayer3D" parent="."]
+script = ExtResource("17_audio")
+
+[node name="RainSystem" type="Node3D" parent="."]
+script = ExtResource("16_rain")
 
 [node name="LivingWorld" type="Node" parent="."]
 script = ExtResource("11_living")

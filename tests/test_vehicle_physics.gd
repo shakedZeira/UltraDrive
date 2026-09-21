@@ -129,4 +129,5 @@ func test_drive_info_keeps_existing_keys() -> void:
     assert_that(info.has("gear")).is_true()
     assert_that(info.has("speed_kmh")).is_true()
     assert_that(info.has("handling_mode")).is_true()
+    assert_that(info.has("throttle")).is_true()
     car.free()

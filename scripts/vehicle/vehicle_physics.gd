@@ -43,6 +43,7 @@ var input_override: Vector2 = Vector2.ZERO  # (steer, throttle-brake)
 var _last_surface_key: String = SurfaceRegistry.ASPHALT
 
 # --- Input state (exposed via get_drive_info) ---
+var _throttle_input: float = 0.0
 var _brake_input: float = 0.0
 var _steer_input: float = 0.0
 
@@ -54,6 +55,11 @@ var _prev_linear_velocity := Vector3.ZERO
 var _impact_active := false
 var _handbrake_input := false
 var _last_lateral_slip_deg := 0.0
+var _awaiting_ground := true
+var _last_valid_position: Vector3
+var _last_valid_basis: Basis
+var _last_valid_velocity: Vector3
+var _last_valid_angular_velocity: Vector3
 
 func _ready() -> void:
     if config == null:
@@ -76,7 +82,9 @@ func _ready() -> void:
     physics_material_override = contact_mat
 
     _spawn_point = global_position
+    _snap_last_valid()
     _prev_linear_velocity = linear_velocity
+    freeze = true
 
     if not surface_provider.is_valid():
         surface_provider = SurfaceRegistry.build_classifier(
@@ -86,10 +94,70 @@ func _ready() -> void:
 func set_input_override(value: Vector2) -> void:
     input_override = value
 
+# --- Ground-release latch ---
+## Wait frozen at the spawn point while the terrain region under the car is
+## still baking, and release the body only once ground below is proven.
+## Prevents the open-world cold-start void fall (no collision yet while
+## TerrainSeeder runs its sync bake) without touching the physics math.
+func _release_when_grounded(delta: float) -> void:
+    var grounded := false
+    for wheel in _wheels:
+        if wheel.process_wheel(delta, config, false)["is_grounded"]:
+            grounded = true
+            break
+    if not grounded and _ground_exists_below():
+        grounded = true
+    if grounded:
+        freeze = false
+        _awaiting_ground = false
+
+## Ground-existence probe: a downward ray well past the terrain clamp range
+## proves there is a body under the spawn point, so the latch can drop this
+## frozen car onto it. True for meshed circuits from the first physics frame
+## and for the open world as soon as the region under the player is baked -
+## while the bake runs there is no collision, the ray misses, and the car keeps
+## freeze protection. Spawn floats above real ground (track circuits, open
+## world) release immediately; a true void never does.
+func _ground_exists_below() -> bool:
+    var space := get_world_3d().direct_space_state
+    if space == null:
+        return false
+    var query := PhysicsRayQueryParameters3D.create(
+        global_position + Vector3.UP,
+        global_position + Vector3.DOWN * 30.0,
+        0xFFFFFFFF,
+        [get_rid()]
+    )
+    return not space.intersect_ray(query).is_empty()
+
+func release_ground_lock() -> void:
+    if _awaiting_ground:
+        _awaiting_ground = false
+        freeze = false
+    _snap_last_valid()
+
 func _physics_process(delta: float) -> void:
     if config == null:
         return
 
+    if _awaiting_ground:
+        _release_when_grounded(delta)
+        return
+    # NaN guard: a corrupted body state (NaN velocity or position) would poison
+    # slip math, drag, drift and driveshafts for the whole frame, so restore the
+    # last valid snapshot and skip the frame instead.
+    if not linear_velocity.is_finite() or not angular_velocity.is_finite() or not global_position.is_finite():
+        _restore_last_valid()
+        return
+    # Arcade limiter: keep forward speed inside [-reverse cap, top speed] so the
+    # HUD, drift and wheels all agree on a bounded state (simulation untouched).
+    if handling_mode == "arcade":
+        linear_velocity = clamp_arcade_speed(
+            linear_velocity,
+            -global_basis.z,
+            config.get_max_speed() * float(config.arcade_mode.get("max_speed_modifier", 1.0)),
+            config.max_reverse_speed_kmh / 3.6
+        )
     _last_lateral_slip_deg = 0.0
     _detect_impact(delta)
 
@@ -107,6 +175,7 @@ func _physics_process(delta: float) -> void:
         brake_input = InputManager.get_brake() if input_override == Vector2.ZERO else maxf(-input_override.y, 0.0)
         steer_input = InputManager.get_steer() if input_override == Vector2.ZERO else clampf(input_override.x, -1.0, 1.0)
         handbrake = InputManager.is_handbrake()
+    _throttle_input = clampf(throttle, 0.0, 1.0)
     _brake_input = clampf(brake_input, 0.0, 1.0)
     _steer_input = clampf(steer_input, -1.0, 1.0)
     _handbrake_input = handbrake
@@ -201,6 +270,7 @@ func _physics_process(delta: float) -> void:
     # --- Update speed ---
     current_speed_kmh = linear_velocity.length() * 3.6
     _prev_linear_velocity = linear_velocity
+    _snap_last_valid()
 
 # --- Public API ---
 
@@ -216,6 +286,12 @@ func get_gear() -> int:
 func get_steer_angle() -> float:
     return rad_to_deg(steer_angle)
 
+func get_throttle() -> float:
+    return _throttle_input
+
+func get_handbrake() -> bool:
+    return _handbrake_input
+
 func get_drive_info() -> Dictionary:
     var rpm := 0.0
     var gear := 0
@@ -227,6 +303,7 @@ func get_drive_info() -> Dictionary:
         "gear": gear,
         "speed_kmh": current_speed_kmh,
         "handling_mode": handling_mode,
+        "throttle": _throttle_input,
         "brake": clampf(_brake_input, 0.0, 1.0),
         "steer": clampf(_steer_input, -1.0, 1.0),
         "surface": _last_surface_key,
@@ -274,6 +351,20 @@ static func impact_strength(velocity_before: Vector3, velocity_after: Vector3, d
 static func is_impact_strength(strength: float) -> bool:
     return strength >= IMPACT_ACCEL_THRESHOLD
 
+## Arcade speed limiter: rescales a velocity whose signed forward component ran
+## past top_speed (m/s) or the reverse cap (m/s) back onto the bound while
+## keeping its direction. Pure and headless-safe; wired into _physics_process
+## when handling_mode == "arcade" so HUD speed, drift and wheels all agree.
+static func clamp_arcade_speed(velocity: Vector3, forward: Vector3, top_speed: float, reverse_cap: float) -> Vector3:
+    if top_speed <= 0.0 or reverse_cap <= 0.0:
+        return velocity
+    var signed_speed := velocity.dot(forward)
+    if signed_speed > top_speed:
+        return velocity * (top_speed / signed_speed)
+    if signed_speed < -reverse_cap:
+        return velocity * (-reverse_cap / signed_speed)
+    return velocity
+
 ## Drift state for the FX smoke emitter: needs speed plus either a handbrake
 ## slide or committed steer with real wheel slip. No SceneTree dependency and
 ## cheap enough to poll per frame.
@@ -319,5 +410,28 @@ func respawn_at(pos: Vector3) -> void:
     # on our roof after tumbling through the void.
     var yaw := global_basis.get_euler().y
     var tfm := Transform3D(Basis(Vector3.UP, yaw), pos + Vector3.UP * 1.0)
+    sleeping = false
+    PhysicsServer3D.body_set_state(get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, tfm)
+    _last_valid_position = tfm.origin
+    _last_valid_basis = tfm.basis
+    _last_valid_velocity = Vector3.ZERO
+    _last_valid_angular_velocity = Vector3.ZERO
+
+func _snap_last_valid() -> void:
+    if not is_inside_tree():
+        return
+    _last_valid_position = global_position
+    _last_valid_basis = global_basis
+    _last_valid_velocity = linear_velocity
+    _last_valid_angular_velocity = angular_velocity
+
+func _restore_last_valid() -> void:
+    linear_velocity = _last_valid_velocity
+    angular_velocity = _last_valid_angular_velocity
+    _prev_linear_velocity = _last_valid_velocity
+    current_speed_kmh = _last_valid_velocity.length() * 3.6
+    _drivetrain.reset()
+    var tfm := Transform3D(_last_valid_basis, _last_valid_position)
+    global_transform = tfm
     sleeping = false
     PhysicsServer3D.body_set_state(get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, tfm)

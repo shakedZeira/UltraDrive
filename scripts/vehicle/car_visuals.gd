@@ -10,13 +10,22 @@ extends RefCounted
 
 const CAR_ORIENT := Transform3D(Basis(Vector3(-1.0, 0.0, 0.0), Vector3(0.0, 1.0, 0.0), Vector3(0.0, 0.0, -1.0)), Vector3.ZERO)
 
+## GT7/FH6-style clearcoat-over-colored-metallic paint. The moderate metallic
+## blends the swatch albedo into the specular/reflections ("colored metal
+## reflections" from the C2 reference) so body paint carries its color under the
+## directional sun; the clearcoat layer adds the glossy showroom response.
+## Rim uses StandardMaterial3D.rim_tint to push a soft albedo-colored grazing
+## highlight toward the light. Roughness stays >= 0.25 to keep the response
+## headless/test-stable across every quality preset.
 const DEFAULT_PAINT := {
-	"metallic": 0.92,
+	"metallic": 0.25,
 	"roughness": 0.35,
 	"clearcoat": 1.0,
-	"clearcoat_roughness": 0.03,
-	"glass_roughness": 0.1,
-	"glass_refraction_scale": 0.05,
+	"clearcoat_roughness": 0.08,
+	"rim": 0.15,
+	"rim_tint": 0.6,
+	"glass_metallic": 0.9,
+	"glass_roughness": 0.05,
 	"tail_emission_strength": 5.0,
 }
 
@@ -255,7 +264,7 @@ static func _make_override(mesh_instance: MeshInstance3D, mesh: Mesh, surface_in
 	var name := _surface_name(mesh_instance, mesh, surface_index)
 	if name.contains("paint") or standard.clearcoat_enabled:
 		return _paint_clone(standard, profile)
-	if name.contains("glass"):
+	if name.contains("glass") or name.contains("window") or name.contains("windshield"):
 		return _glass_clone(standard, profile)
 	if name.contains("headlight") or name.contains("taillight"):
 		return _light_clone(standard)
@@ -314,15 +323,20 @@ static func _paint_clone(source: StandardMaterial3D, profile: Dictionary) -> Sta
 	cloned.clearcoat_roughness = profile["clearcoat_roughness"]
 	cloned.metallic = profile["metallic"]
 	cloned.roughness = profile["roughness"]
+	if profile.has("rim"):
+		cloned.rim_enabled = true
+		cloned.rim = profile["rim"]
+	if profile.has("rim_tint"):
+		cloned.rim_tint = profile["rim_tint"]
 	return cloned
 
 static func _glass_clone(source: StandardMaterial3D, profile: Dictionary) -> StandardMaterial3D:
 	var cloned: StandardMaterial3D = source.duplicate() as StandardMaterial3D
 	if profile.has("glass_color"):
 		cloned.albedo_color = profile["glass_color"]
+	cloned.metallic = profile["glass_metallic"]
 	cloned.roughness = profile["glass_roughness"]
-	cloned.refraction_enabled = true
-	cloned.refraction_scale = profile["glass_refraction_scale"]
+	cloned.refraction_enabled = false
 	return cloned
 
 static func _light_clone(source: StandardMaterial3D) -> StandardMaterial3D:
@@ -348,8 +362,11 @@ static func _rim_clone(source: StandardMaterial3D) -> StandardMaterial3D:
 static func _cc0_wheel_clone(source: StandardMaterial3D) -> StandardMaterial3D:
 	var cloned: StandardMaterial3D = source.duplicate() as StandardMaterial3D
 	cloned.albedo_color = CC0_WHEEL_COLOR
-	cloned.metallic = 0.25
-	cloned.roughness = 0.6
+	cloned.metallic = 0.35
+	cloned.roughness = 0.4
+	cloned.clearcoat_enabled = true
+	cloned.clearcoat = 0.6
+	cloned.clearcoat_roughness = 0.2
 	return cloned
 
 static func _trim_clone(source: StandardMaterial3D) -> StandardMaterial3D:

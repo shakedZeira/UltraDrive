@@ -47,7 +47,9 @@ func test_low_preset_spot_check() -> void:
 	assert_that(preset["ssr_enabled"]).is_false()
 	assert_that(preset["sdfgi_enabled"]).is_false()
 	assert_that(preset["tonemap_mode"]).is_equal(ACES)
-	assert_that(preset["msaa_3d"]).is_equal(0)
+	# Plan item 8: Low gained MSAA (2 = MSAA_4X) to stop aliasing; the old
+	# msaa_3d==0 passthrough assertion was updated deliberately to match.
+	assert_that(preset["msaa_3d"]).is_greater_equal(2)
 	assert_that(preset["probe_enabled"]).is_false()
 	assert_that(preset["scaling_3d_mode"]).is_equal(0)
 	assert_that(preset["scaling_3d_scale"]).is_equal_approx(1.0, 0.001)
@@ -128,7 +130,8 @@ func test_apply_low_preset_flips_values() -> void:
 	assert_that(env.ssr_enabled).is_false()
 	assert_that(env.sdfgi_enabled).is_false()
 	assert_that(env.tonemap_mode).is_equal(ACES)
-	assert_that(viewport.msaa_3d).is_equal(Viewport.MSAA_DISABLED)
+	# Plan item 8: Low applies MSAA_4X (was MSAA_DISABLED) to kill aliasing.
+	assert_that(viewport.msaa_3d).is_equal(Viewport.MSAA_4X)
 	assert_that(viewport.scaling_3d_mode).is_equal(Viewport.SCALING_3D_MODE_BILINEAR)
 	assert_that(viewport.scaling_3d_scale).is_equal_approx(1.0, 0.001)
 

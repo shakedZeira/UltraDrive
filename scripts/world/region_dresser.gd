@@ -195,6 +195,7 @@ func _spawn_region(job: Dictionary) -> void:
 	foliage.name = FOLIAGE_CHILD_NAME
 	foliage.configure_for_region(loc, seed, density)
 	foliage.ground_height_provider = _make_ground_provider(loc)
+	foliage.road_network = road_network
 	node.add_child(foliage)
 	_apply_band_budget(props, foliage, band)
 	_dressed[loc] = {"band": band, "node": node}

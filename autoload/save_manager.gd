@@ -7,6 +7,8 @@ const SAVE_DIR := "user://saves"
 const MAX_SLOTS := 3
 
 const DISCOVERY_KEY := "discovery"
+const CAREER_MONEY_KEY := "career_money"
+const CAREER_PROFILE_KEY := "career_profile"
 
 func _ready() -> void:
     DirAccess.make_dir_recursive_absolute(SAVE_DIR)
@@ -54,4 +56,31 @@ func load_discovery(slot: int) -> Dictionary:
 func save_discovery(slot: int, discovery: Dictionary) -> bool:
     var data := load_game(slot)
     data[DISCOVERY_KEY] = discovery
+    return save_game(slot, data)
+
+## Read-only accessor for the "career_money" sub-dict inside a save slot.
+## Used by Money.load_from_slot() so the wallet stays additive to the
+## existing slot schema.
+func load_career_money(slot: int) -> Dictionary:
+    var data := load_game(slot)
+    var m: Variant = data.get(CAREER_MONEY_KEY, {})
+    return m if m is Dictionary else {}
+
+## Merge-write the wallet sub-dict into an existing save slot.
+func save_career_money(slot: int, money: Dictionary) -> bool:
+    var data := load_game(slot)
+    data[CAREER_MONEY_KEY] = money
+    return save_game(slot, data)
+
+## Read-only accessor for the "career_profile" sub-dict inside a save slot.
+## Used by CareerProfile.load_from_slot() (additive to the slot schema).
+func load_career_profile(slot: int) -> Dictionary:
+    var data := load_game(slot)
+    var p: Variant = data.get(CAREER_PROFILE_KEY, {})
+    return p if p is Dictionary else {}
+
+## Merge-write the career profile sub-dict into an existing save slot.
+func save_career_profile(slot: int, profile: Dictionary) -> bool:
+    var data := load_game(slot)
+    data[CAREER_PROFILE_KEY] = profile
     return save_game(slot, data)

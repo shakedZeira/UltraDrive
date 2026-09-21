@@ -32,6 +32,8 @@ var reveal_radius: float = DEFAULT_REVEAL_RADIUS
 
 var _road_defs: Array[RoadDef] = []
 var _visited: Dictionary = {}  # road_id(int) -> Array[int] of visited segment indices
+var _visited_set: Dictionary = {}
+var _fully_visited := false
 
 func _ready() -> void:
 	add_to_group(GROUP_NAME)
@@ -46,19 +48,26 @@ func reveal_at(position: Vector3) -> void:
 	reveal_at_radius(position, reveal_radius)
 
 func reveal_at_radius(position: Vector3, radius: float) -> void:
-	if radius <= 0.0:
+	if radius <= 0.0 or _fully_visited:
 		return
 	for road_id in _road_defs.size():
 		var add := PackedInt32Array()
 		var segment_count := _segment_count(road_id)
+		var visited_set: Dictionary = _visited_set.get(road_id, {})
 		for seg in segment_count:
-			if seg in _visited.get(road_id, []):
+			if visited_set.has(seg):
 				continue
 			var a := _seg_start(road_id, seg)
 			var b := _seg_end(road_id, seg)
 			if WorldDiscovery.point_segment_distance_xz(position, a, b) <= radius:
 				add.append(seg)
 		_mark_visited(road_id, add)
+	var all_complete := true
+	for road_id in _road_defs.size():
+		if _visited_set.get(road_id, {}).size() < _segment_count(road_id):
+			all_complete = false
+			break
+	_fully_visited = all_complete
 
 ## True when the nearest road segment to `position` is visited and lies within
 ## `threshold` XZ distance (Y is ignored, matching the pause-map click space).
@@ -241,31 +250,40 @@ func _nearest_segment(position: Vector3) -> Dictionary:
 
 func _mark_visited(road_id: int, indices: PackedInt32Array) -> void:
 	var current: Array = _visited.get(road_id, [])
+	var set: Dictionary = _visited_set.get(road_id, {})
 	indices.sort()
 	for idx in indices:
 		if idx not in current:
 			current.append(idx)
+			set[idx] = true
 	current.sort()
 	_visited[road_id] = current
+	_visited_set[road_id] = set
 
 ## Drops stored bits that no longer describe the configured roads (Runs after
 ## configure() and is intentionally additive elsewhere, so the save merge is
 ## safe even when the world grew or an older save has stale indices).
 func _sanitize_visited() -> void:
 	var keep := {}
+	var keep_set := {}
 	for road_id: int in _visited:
 		if road_id < 0 or road_id >= _road_defs.size():
 			continue
 		var max_seg := _segment_count(road_id)
 		var current: Array = _visited[road_id]
 		var pruned: Array[int] = []
+		var pruned_set := {}
 		for i in current:
 			var idx := int(i)
 			if idx >= 0 and idx < max_seg:
 				pruned.append(idx)
+				pruned_set[idx] = true
 		if pruned.size() > 0:
 			keep[road_id] = pruned
+			keep_set[road_id] = pruned_set
 	_visited = keep
+	_visited_set = keep_set
+	_fully_visited = false
 
 func _road_id_of(road_def: RoadDef) -> int:
 	if road_def == null:

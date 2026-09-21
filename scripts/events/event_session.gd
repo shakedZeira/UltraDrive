@@ -151,6 +151,8 @@ func submit_result(metric: float) -> Dictionary:
 	_pause_ambient(false)
 	_record_best(def, metric)
 	money.add(reward)
+	Money.wallet_add(reward)
+	CareerProfile.grant_xp(CareerProfile.EVENT_XP)
 	event_completed.emit(def, grade, reward)
 	return {"grade": grade, "reward": reward}
 
