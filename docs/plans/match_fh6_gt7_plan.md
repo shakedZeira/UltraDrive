@@ -645,7 +645,7 @@ S1–S9) + `html_prototype_lessons_plan.md` (items 1–3, 6, 8–10, 14+16 hygie
 Following item shipping per sprints, each with its own sub-agent + parent re-verification:
 - [x] S1 countdown  [x] S2 results  [x] S3 session stats  [x] S4 GPS  [x] S5 rivals
 - [x] S6 traffic   [x] S7 events   [x] S8 FX          [ ] S9 drive feel  [ ] S10 hardening
-- [ ] S11 economy  [ ] S12 weather [ ] S13 garage      [ ] S14 hood cam  [ ] S15 a11y
+- [ ] S11 economy  [x] S12 weather [ ] S13 garage      [ ] S14 hood cam  [ ] S15 a11y
 - [ ] S16 perf bar [ ] S17 P2 sink
 
 **Shipped 2026-09-19 — S8 Vehicle FX particles.** Suite `test_vehicle_fx.gd` (12 tests):

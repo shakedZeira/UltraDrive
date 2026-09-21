@@ -18,3 +18,5 @@ _mpz.txt
 _ow.txt
 _tb.txt
 diag/
+# Local vision bridge staging (pasted screenshots + captures; analyzed by Ollama)
+.vision/

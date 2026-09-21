@@ -5,6 +5,29 @@ Project knowledge for autonomous agents. Godot project root = this directory
 `D:\Godot\Godot_v4.7.2-stable_win64.exe` (win64 arrows). GDUnit4 addon at
 `addons/gdUnit4`, tests under `tests/` (suite: `tests/suites`).
 
+## VISION BRIDGE (local image analysis)
+
+- A text-only session (opencode/big-pickle) can still "see" via the
+  `vision-bridge` plugin (`.opencode/plugins/vision-bridge.js`): pasted images
+  are staged to `.vision/inbox/`, screen/window captures to `.vision/captures/`,
+  and both are inspected through the **local** vision model `qwen2.5vl:7b`
+  served by Ollama on this machine.
+- Tools provided by the plugin: `analyze_image` (LLM should ALWAYS use this to
+  read an image — it cannot see images directly) and `capture_game_window`
+  (window title defaults to "UltraDrive").
+- Ollama lifecycle: installed at `D:\Ollama` (models in `D:\Ollama\models`).
+  The plugin **spawns `ollama serve` on demand and kills it after ~60s idle** —
+  never leave it running (it grabs GPU/CPU and would slow the game). The LLM
+  backend is forced to **Vulkan** via `OLLAMA_LLM_LIBRARY=vulkan` (the bundled
+  CUDA libs are compiled with CUDA 12.8+ PTX that this GPU's driver 560.94
+  (CUDA 12.6) cannot JIT — the NVIDIA driver cannot be upgraded because the
+  Maxwell GTX 970 is EOL after the R580 branch). Vulkan works and is stable
+  (~2.6 tok/s on this GPU), just slow; if analyses come back
+  "llama-server process no longer running", check the env var survived.
+- Expect slow analyses: ~90s per screenshot at 2.6 tok/s. Keep prompts short
+  and bounded (`max_tokens` is capped in the plugin).
+- `.vision/` is gitignored (transient staging + captures).
+
 ## HEADLESS WORKFLOW (KNOWN-GOOD — reuse, don't rediscover)
 
 GDUnit4 CLI correctly drags in the headless-mode guard, but ONLY when run

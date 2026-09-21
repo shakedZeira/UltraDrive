@@ -188,6 +188,24 @@ root scene → surface grip → run the regional clock → tier metadata on exis
 
 ---
 
+## Phase A — 3D Asset Pass (CC0-first, low-poly 3D pipeline)
+
+Research closed 2026-09-20: the "looks awful" finding is a *model-source* problem,
+not an engine one. This phase swaps the fused-primitive scenery and AI-scripted
+geometry for a strict **CC0-first, low-poly 3D model pipeline** driven through the
+already-wired Blender-MCP tools: **CARS** keep the shipped Kenney CC0 swap (a
+bespoke Hyper3D-Rodin hero car is optional); **BUILDINGS / pit structures** come
+from Poly Pizza CC0; **MOUNTAIN ROCKS** are Poly Haven low-vert boulders
+herd-instanced via MultiMesh over the unchanged fBm terrain; **TREES/BUSHES** are
+2–4 Poly Haven / Poly Pizza low-poly models as new `foliage.gd` ArrayMesh sources
+(wind shader kept); and **TRACK PROPS** (Kenney Racing Kit CC0 barriers, cones,
+grandstands, guardrails) land in the `PropScatterer` presets. Licensing is the
+gate — only verifiable CC0 assets ship. Runs as the next plan, ahead of the
+remaining `match_fh6_gt7_plan.md` S9+ items; the dependency-ordered phases and
+per-phase GDUnit gates are in `docs/plans/asset_pass_3d_plan.md`.
+
+---
+
 ## Phase 2 — Content Depth & Progression (a loop worth returning to)
 
 Priority P0/P1 from `self_audit.md §2.1/§2.2`. Turns the polished loop into a campaign.
