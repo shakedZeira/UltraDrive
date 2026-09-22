@@ -1,14 +1,19 @@
 # tests/suites/test_engine_audio.gd
 extends GdUnitTestSuite
 
-## Deterministic coverage for EngineAudio's real-sample bed ladder (the V10
-## simulated by enginesound -- see LICENSES.md): bed loading/looping, the pure
-## equal-power RPM crossfade, Curve resources that reproduce it, load shaping,
-## and a scene-free node probe. All static calls + one auto_freed node; no
-## AudioServer. REMOVED from the pre-rewrite suite by design: pitch sweep
-## (_pitch_for / BASE_PITCH / REDLINE_PITCH), the 4-bed BED_* mapping and the
-## wot one-shot clip -- bands are authored at their exact RPM, so nothing is
-## ever pitch-shifted and every bed loops.
+## Deterministic coverage for EngineAudio's HYBRID engine audio: real V10
+## sample beds (enginesound -- see LICENSES.md) with CONTINUOUS per-band pitch
+## tracking, the equal-power RPM crossfade, Curve resources that reproduce it,
+## load blend + gain/LPF shaping, gear-shift and lift-off transients, and a
+## scene-free node probe. All static calls + one auto_freed node; no
+## AudioServer, no real-clock waits. Each bed is authored at its exact RPM
+## (BAND_RPMS) but is pitch-shifted every frame (band_pitch_scale = live/bed,
+## clamped PITCH_MIN..PITCH_MAX) so the crossfade hands off TIMBRE while the
+## mix pitch stays continuous -- the old static-ladder claim that "nothing is
+## ever pitch-shifted" is obsolete and covered instead by the pitch-tracking
+## tests below. REMOVED from the pre-rewrite suite by design: the old pitch
+## sweep (_pitch_for / BASE_PITCH / REDLINE_PITCH), the 4-bed BED_* mapping
+## and the wot one-shot clip.
 
 func before_test() -> void:
 	pass
@@ -244,3 +249,160 @@ func test_set_audio_active_false_mutes_to_floor() -> void:
 
 func test_traffic_audio_range_reaches_further_than_synth() -> void:
 	assert_that(EngineAudio.TRAFFIC_AUDIO_RANGE).is_greater(CarAudio.TRAFFIC_AUDIO_RANGE)
+
+## --- Hybrid continuous-pitch tracking (round 2) ---
+
+func test_band_pitch_scale_is_unity_when_live_equals_bed_rpm() -> void:
+	assert_that(EngineAudio.band_pitch_scale(800.0, 800.0)).is_equal_approx(1.0, 0.001)
+	assert_that(EngineAudio.band_pitch_scale(3500.0, 3500.0)).is_equal_approx(1.0, 0.001)
+	assert_that(EngineAudio.band_pitch_scale(6900.0, 6900.0)).is_equal_approx(1.0, 0.001)
+
+func test_band_pitch_scale_rises_above_one_for_higher_live_rpm() -> void:
+	var pitch := EngineAudio.band_pitch_scale(3000.0, 2000.0)
+	assert_that(pitch).is_greater(1.0)
+	assert_that(pitch).is_equal_approx(1.5, 0.001)
+
+func test_band_pitch_scale_falls_below_one_for_lower_live_rpm() -> void:
+	var pitch := EngineAudio.band_pitch_scale(1500.0, 2000.0)
+	assert_that(pitch).is_less(1.0)
+	assert_that(pitch).is_equal_approx(0.75, 0.001)
+
+func test_band_pitch_scale_clamps_to_floor_and_ceiling() -> void:
+	assert_that(EngineAudio.PITCH_MIN).is_equal_approx(0.5, 0.001)
+	assert_that(EngineAudio.PITCH_MAX).is_equal_approx(1.7, 0.001)
+	assert_that(EngineAudio.band_pitch_scale(100.0, 6900.0)).is_equal_approx(EngineAudio.PITCH_MIN, 0.001)
+	assert_that(EngineAudio.band_pitch_scale(6900.0, 800.0)).is_equal_approx(EngineAudio.PITCH_MAX, 0.001)
+
+func test_band_pitch_scale_degenerate_band_rpm_returns_unity() -> void:
+	assert_that(EngineAudio.band_pitch_scale(3000.0, 0.0)).is_equal_approx(1.0, 0.001)
+	assert_that(EngineAudio.band_pitch_scale(3000.0, -100.0)).is_equal_approx(1.0, 0.001)
+
+func test_effective_band_rpm_tracks_live_rpm_inside_clamp_window() -> void:
+	assert_that(EngineAudio.effective_band_rpm(2750.0, 2000.0)).is_equal_approx(2750.0, 0.001)
+	assert_that(EngineAudio.effective_band_rpm(1200.0, 800.0)).is_equal_approx(1200.0, 0.001)
+
+func test_mix_pitch_estimate_near_equals_live_rpm_at_handoff() -> void:
+	## Continuous hand-off property: wherever BOTH active neighbours are inside
+	## their PITCH_MIN..PITCH_MAX windows, each band's effective RPM equals the
+	## live RPM, so the equal-power weighted mix pitch equals the live RPM.
+	for live: float in [1200.0, 2750.0, 4500.0, 6200.0]:
+		var rpm_norm := EngineAudio.rpm_normalized(live, EngineAudio.IDLE_RPM, EngineAudio.REDLINE_RPM)
+		var mix := EngineAudio.mix_pitch_estimate(live, rpm_norm)
+		assert_that(mix).is_equal_approx(live, 0.001)
+
+func test_mix_pitch_estimate_at_ladder_endpoints() -> void:
+	var at_idle := EngineAudio.mix_pitch_estimate(EngineAudio.IDLE_RPM, 0.0)
+	assert_that(at_idle).is_equal_approx(EngineAudio.IDLE_RPM, 0.001)
+	var at_redline := EngineAudio.mix_pitch_estimate(EngineAudio.REDLINE_RPM, 1.0)
+	assert_that(at_redline).is_equal_approx(EngineAudio.REDLINE_RPM, 0.001)
+
+func test_rpm_normalized_boundaries_and_midpoint() -> void:
+	assert_that(EngineAudio.rpm_normalized(800.0, 800.0, 7000.0)).is_equal_approx(0.0, 0.001)
+	assert_that(EngineAudio.rpm_normalized(7000.0, 800.0, 7000.0)).is_equal_approx(1.0, 0.001)
+	assert_that(EngineAudio.rpm_normalized(3900.0, 800.0, 7000.0)).is_equal_approx(0.5, 0.001)
+
+func test_rpm_normalized_clamps_outside_idle_redline() -> void:
+	assert_that(EngineAudio.rpm_normalized(100.0, 800.0, 7000.0)).is_equal_approx(0.0, 0.001)
+	assert_that(EngineAudio.rpm_normalized(9000.0, 800.0, 7000.0)).is_equal_approx(1.0, 0.001)
+
+func test_rpm_normalized_is_monotonic_in_rpm() -> void:
+	var prev := -1.0
+	for i in range(9):
+		var rpm := lerpf(0.0, 8000.0, float(i) / 8.0)
+		var norm := EngineAudio.rpm_normalized(rpm, 800.0, 7000.0)
+		assert_that(norm).is_greater_equal(prev)
+		prev = norm
+
+func test_load_value_boundaries() -> void:
+	assert_that(EngineAudio.load_value(0.0, 0.0, 0.0)).is_equal_approx(0.0, 0.001)
+	assert_that(EngineAudio.load_value(0.5, 1.0, 0.0)).is_equal_approx(0.675, 0.001)
+	assert_that(EngineAudio.load_value(1.0, 1.0, 1.0)).is_equal_approx(1.0, 0.001)
+	assert_that(EngineAudio.load_value(-1.0, -1.0, -5.0)).is_equal_approx(0.0, 0.001)
+
+func test_load_value_is_monotonic_in_throttle() -> void:
+	var coast := EngineAudio.load_value(0.5, 0.0, 0.0)
+	var half := EngineAudio.load_value(0.5, 0.5, 0.0)
+	var full := EngineAudio.load_value(0.5, 1.0, 0.0)
+	assert_that(half).is_greater(coast)
+	assert_that(full).is_greater(half)
+
+func test_load_value_is_monotonic_in_rpm_norm() -> void:
+	var low := EngineAudio.load_value(0.2, 0.3, 0.0)
+	var high := EngineAudio.load_value(0.8, 0.3, 0.0)
+	assert_that(high).is_greater(low)
+
+func test_load_value_positive_rpm_slew_adds_load() -> void:
+	var coast := EngineAudio.load_value(0.5, 0.0, 0.0)
+	var blip := EngineAudio.load_value(0.5, 0.0, 0.5)
+	assert_that(blip).is_greater(coast)
+	assert_that(blip).is_equal_approx(0.325, 0.001)
+
+func test_gear_shift_pitch_mult_dips_then_recovers() -> void:
+	var catch := EngineAudio.gear_shift_pitch_mult(0.0)
+	assert_that(catch).is_equal_approx(EngineAudio.SHIFT_DIP_MIN, 0.001)
+	assert_that(catch).is_equal_approx(0.82, 0.001)
+	var done := EngineAudio.gear_shift_pitch_mult(EngineAudio.SHIFT_DURATION)
+	assert_that(done).is_equal_approx(1.0, 0.001)
+
+func test_gear_shift_pitch_mult_recovers_monotonically() -> void:
+	var prev := -1.0
+	for i in range(11):
+		var elapsed := EngineAudio.SHIFT_DURATION * float(i) / 10.0
+		var mult := EngineAudio.gear_shift_pitch_mult(elapsed)
+		assert_that(mult).is_between(EngineAudio.SHIFT_DIP_MIN - 0.001, 1.001)
+		assert_that(mult).is_greater_equal(prev)
+		prev = mult
+
+func test_gear_shift_gain_mult_blips_then_returns_to_unity() -> void:
+	var blip := EngineAudio.gear_shift_gain_mult(0.0)
+	assert_that(blip).is_greater(1.0)
+	assert_that(blip).is_equal_approx(EngineAudio.SHIFT_BLIP_GAIN, 0.001)
+	var done := EngineAudio.gear_shift_gain_mult(EngineAudio.SHIFT_DURATION)
+	assert_that(done).is_equal_approx(1.0, 0.001)
+
+func test_gear_shift_gain_mult_decays_monotonically() -> void:
+	var prev := 10.0
+	for i in range(11):
+		var elapsed := EngineAudio.SHIFT_DURATION * float(i) / 10.0
+		var mult := EngineAudio.gear_shift_gain_mult(elapsed)
+		assert_that(mult).is_between(0.999, EngineAudio.SHIFT_BLIP_GAIN + 0.001)
+		assert_that(mult).is_less_equal(prev)
+		prev = mult
+
+func test_lift_pop_envelope_shape() -> void:
+	assert_that(EngineAudio.lift_pop(EngineAudio.LIFT_ENV_SECONDS)).is_equal_approx(1.0, 0.001)
+	assert_that(EngineAudio.lift_pop(EngineAudio.LIFT_ENV_SECONDS * 0.5)).is_equal_approx(0.5, 0.001)
+	assert_that(EngineAudio.lift_pop(0.0)).is_equal_approx(0.0, 0.001)
+
+func test_lift_pop_is_clamped_and_monotonic() -> void:
+	assert_that(EngineAudio.lift_pop(EngineAudio.LIFT_ENV_SECONDS * 4.0)).is_equal_approx(1.0, 0.001)
+	assert_that(EngineAudio.lift_pop(-0.1)).is_equal_approx(0.0, 0.001)
+	assert_that(EngineAudio.lift_pop(0.10)).is_greater(EngineAudio.lift_pop(0.05))
+
+func test_transient_gain_db_is_zero_when_nothing_firing() -> void:
+	assert_that(EngineAudio.transient_gain_db(EngineAudio.SHIFT_DURATION, 0.0)).is_equal_approx(0.0, 0.001)
+
+func test_transient_gain_db_positive_on_shift_and_lift() -> void:
+	var shift := EngineAudio.transient_gain_db(0.0, 0.0)
+	assert_that(shift).is_greater(0.0)
+	var lift := EngineAudio.transient_gain_db(EngineAudio.SHIFT_DURATION, EngineAudio.LIFT_ENV_SECONDS)
+	assert_that(lift).is_greater(0.0)
+	assert_that(lift).is_equal_approx(EngineAudio.LIFT_GAIN_DB, 0.001)
+
+func test_band_gain_db_mutes_to_floor_at_zero_weight() -> void:
+	assert_that(EngineAudio.band_gain_db(0.0, 0.0, 0.0)).is_equal_approx(EngineAudio.MUTE_FLOOR_DB, 0.001)
+	assert_that(EngineAudio.band_gain_db(0.0, EngineAudio.LOAD_GAIN_DB, 6.0)).is_equal_approx(EngineAudio.MUTE_FLOOR_DB, 0.001)
+
+func test_band_gain_db_ceiling_is_six_db() -> void:
+	var hot := EngineAudio.band_gain_db(1.0, EngineAudio.LOAD_GAIN_DB, 20.0)
+	assert_that(hot).is_equal_approx(6.0, 0.001)
+	assert_that(EngineAudio.band_gain_db(1.0, 100.0, 100.0)).is_equal_approx(6.0, 0.001)
+
+func test_band_gain_db_full_weight_nominal_is_master_trim() -> void:
+	var nominal := EngineAudio.band_gain_db(1.0, 0.0, 0.0)
+	assert_that(nominal).is_equal_approx(EngineAudio.MASTER_TRIM_DB, 0.001)
+
+func test_band_gain_db_is_monotonic_in_weight() -> void:
+	var quiet := EngineAudio.band_gain_db(0.1, 0.0, 0.0)
+	var loud := EngineAudio.band_gain_db(0.9, 0.0, 0.0)
+	assert_that(loud).is_greater(quiet)

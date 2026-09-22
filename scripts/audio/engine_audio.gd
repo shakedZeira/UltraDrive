@@ -1,13 +1,19 @@
 class_name EngineAudio
 extends AudioStreamPlayer3D
 
-## Real-engine ladder player. Replaces the old pitched Freesound MP3s (0.85-1.3
-## chipmunk sweep) with five steady-state loop beds -- one V10 engine simulated
-## by enginesound (MIT, see assets/audio/engine/LICENSES.md) at exactly
-## 800 / 2000 / 3500 / 5500 / 6900 RPM. Each bed is already the engine at its
-## RPM, so bands are never pitch-shifted: the two neighbours of the live RPM
-## are equal-power crossfaded through exported Curve resources the same
-## linearly-mapped way, and load (on vs off) is shaped by gain + low-pass.
+## Real-engine ladder player with CONTINUOUS PITCH TRACKING (hybrid round 2).
+## Five steady-state loop beds -- one V10 engine simulated by enginesound (MIT,
+## see assets/audio/engine/LICENSES.md) at exactly 800 / 2000 / 3500 / 5500 /
+## 6900 RPM (BAND_RPMS). The centrepiece fix over the round-2 "static" ladder
+## and the round-1 pure sine-bank: the real beds now pitch-shift per frame so
+## the exhaust-pulse firing frequency moves continuously with the live RPM
+## (`band_pitch_scale = live_rpm / band_rpm`, clamped 0.5..1.7). Because both
+## active neighbours pitch to (almost) the same frequency, the equal-power
+## band crossfade hands off TIMBRE while pitch stays continuous -- the standard
+## Forza/GT technique. On top: load shaping (on-throttle louder + brighter via
+## gain + LPF, off-throttle darker coast), a gear-change clutch catch (pitch
+## sag + torque blip), and a lift-off pop (short gain nudge) -- all applied to
+## the real-bed mix, never as synthetic sine tones.
 ##
 ## External contract kept for TrafficSpawner:
 ##   TRAFFIC_AUDIO_RANGE + cull_by_distance + set_audio_active.
@@ -34,13 +40,29 @@ const MUTE_FLOOR_DB: float = -80.0
 const VOL_SLEW_DB: float = 4.0
 
 ## Load shaping retained from the previous generation: off-load = quieter + a
-## darker low-pass (coast); on-load = +3 dB-ish lift and a bright high-pass.
+## darker low-pass (coast); on-load = +6 dB lift and a bright high-pass.
 const LOAD_GAIN_DB: float = 6.0
 const LPF_OFF_HZ: float = 900.0
 const LPF_ON_HZ: float = 8000.0
 const LPF_SLEW_HZ: float = 1200.0
 
-const LOAD_DERIV_GAIN: float = 20.0
+## Continuous pitch tracking window per band. A band is never warped more than
+## 0.5x..1.7x; beyond that the crossfade has already handed the mix to the
+## neighbour whose clamp window contains the live RPM.
+const PITCH_MIN: float = 0.5
+const PITCH_MAX: float = 1.7
+
+## Gear-change clutch catch: pitch sags to 0.82 at the catch and recovers on a
+## sqrt ramp; a ~1.18x torque blip rides on top.
+const SHIFT_DURATION: float = 0.18
+const SHIFT_DIP_MIN: float = 0.82
+const SHIFT_BLIP_GAIN: float = 1.18
+
+## Lift-off pop: on a sudden throttle release a short gain nudge (max
+## LIFT_GAIN_DB) ramps down linearly over LIFT_ENV_SECONDS. A gain bump on the
+## real-bed mix, NOT a synthetic sine tone.
+const LIFT_ENV_SECONDS: float = 0.22
+const LIFT_GAIN_DB: float = 3.0
 
 ## Optional editor override for the per-band RPM crossfade curves. When left
 ## empty, _ready installs build_default_curves(), which exactly reproduces
@@ -61,6 +83,11 @@ var _is_player: bool = false
 var _lpf_effect: AudioEffectLowPassFilter = null
 var _lpf_bus_index: int = -1
 var _lpf_added: bool = false
+var _prev_gear: int = 0
+var _gear_primed: bool = false
+var _shift_elapsed: float = SHIFT_DURATION
+var _prev_throttle: float = 0.0
+var _lift_env: float = 0.0
 
 
 func _ready() -> void:
@@ -119,29 +146,45 @@ func _physics_process(delta: float) -> void:
 
 	var info := _car.get_drive_info()
 	var rpm: float = float(info.get("rpm", idle))
-	var rpm_norm := clampf((rpm - idle) / maxf(redline - idle, 1.0), 0.0, 1.0)
+	var rpm_norm := rpm_normalized(rpm, idle, redline)
 	var throttle := clampf(float(info.get("throttle", 0.0)), 0.0, 1.0)
+	var gear := int(info.get("gear", 1))
+
+	if not _gear_primed:
+		_prev_gear = gear
+		_gear_primed = true
+	if gear != _prev_gear:
+		_prev_gear = gear
+		_shift_elapsed = 0.0
+	else:
+		_shift_elapsed = minf(_shift_elapsed + delta, SHIFT_DURATION)
+
+	if _prev_throttle > 0.5 and throttle < 0.15:
+		_lift_env = LIFT_ENV_SECONDS
+	_prev_throttle = throttle
+	if _lift_env > 0.0:
+		_lift_env = maxf(_lift_env - delta, 0.0)
 
 	var rpm_delta := rpm_norm - _prev_rpm_norm
 	_prev_rpm_norm = rpm_norm
 	_rpm_deriv = lerpf(_rpm_deriv, rpm_delta, 0.15)
-	var load := clampf(rpm_norm * 0.25 + throttle * 0.55 + maxf(_rpm_deriv, 0.0) * LOAD_DERIV_GAIN * 0.02, 0.0, 1.0)
+	var load := load_value(rpm_norm, throttle, _rpm_deriv)
 
 	_time += delta
 	var bound := 4.0 * delta if rpm_norm >= _smooth_rpm else 2.2 * delta
 	_smooth_rpm = move_toward(_smooth_rpm, rpm_norm, bound)
+	var live_rpm := lerpf(idle, redline, _smooth_rpm)
 
 	var weights := sample_curves(_curves, _smooth_rpm)
 	var shaping := load_shaping(load)
 	var load_gain: float = float(shaping["gain_db"])
+	var shift_pitch := gear_shift_pitch_mult(_shift_elapsed)
+	var trans_db := transient_gain_db(_shift_elapsed, _lift_env)
 
 	for i in range(_band_players.size()):
 		var player := _band_players[i]
-		player.pitch_scale = 1.0
-		var target_db := MUTE_FLOOR_DB
-		var weight: float = weights[i]
-		if weight > 0.001:
-			target_db = clampf(linear_to_db(sqrt(weight)) + load_gain + MASTER_TRIM_DB, MUTE_FLOOR_DB, 6.0)
+		player.pitch_scale = band_pitch_scale(live_rpm, BAND_RPMS[i]) * shift_pitch
+		var target_db := band_gain_db(weights[i], load_gain, trans_db)
 		var vol: float = move_toward(_vol_ema[i], target_db, VOL_SLEW_DB)
 		_vol_ema[i] = vol
 		player.volume_db = vol
@@ -282,6 +325,86 @@ static func normalized_centers() -> Array[float]:
 	for rpm: float in BAND_RPMS:
 		centers.append(clampf((rpm - IDLE_RPM) / (REDLINE_RPM - IDLE_RPM), 0.0, 1.0))
 	return centers
+
+
+## rpm on the 0..1 ladder between idle and redline.
+static func rpm_normalized(rpm: float, idle: float, redline: float) -> float:
+	return clampf((rpm - idle) / maxf(redline - idle, 1.0), 0.0, 1.0)
+
+
+## Load blends rpm position, throttle and a positive-rpm-slew bonus (blips feel
+## loaded). Same determinism contract as the procedural voice it replaced.
+static func load_value(rpm_norm: float, throttle: float, rpm_deriv: float = 0.0) -> float:
+	return clampf(0.25 * clampf(rpm_norm, 0.0, 1.0) + 0.55 * clampf(throttle, 0.0, 1.0) + maxf(rpm_deriv, 0.0) * 0.4, 0.0, 1.0)
+
+
+## Per-bed pitch multiplier for a live RPM: the bed authored at band_rpm is
+## played band_rpm*scale Hz so its firing frequency lands on the live RPM.
+## Clamped to PITCH_MIN..PITCH_MAX so no band warps beyond recognition; the
+## crossfade hands the mix to a neighbour whose clamp window holds the live RPM.
+static func band_pitch_scale(live_rpm: float, band_rpm: float) -> float:
+	if band_rpm <= 0.0:
+		return 1.0
+	return clampf(live_rpm / band_rpm, PITCH_MIN, PITCH_MAX)
+
+
+## Effective (post-pitch-shift) engine speed a given bed sounds like.
+static func effective_band_rpm(live_rpm: float, band_rpm: float) -> float:
+	return band_rpm * band_pitch_scale(live_rpm, band_rpm)
+
+
+## Pitch of the whole crossfaded mix: the band_weights() equal-power ladder
+## sums the effective frequencies of the active bands. Wherever both active
+## neighbours are inside their clamp windows this equals the live RPM, which is
+## exactly the continuous pitch hand-off the hybrid is built around.
+static func mix_pitch_estimate(live_rpm: float, rpm_norm: float) -> float:
+	var centers := normalized_centers()
+	var weights := band_weights(rpm_norm, centers)
+	var num := 0.0
+	var den := 0.0
+	for i in range(BAND_RPMS.size()):
+		var w: float = weights[i] if i < weights.size() else 0.0
+		if w > 0.0:
+			num += w * effective_band_rpm(live_rpm, BAND_RPMS[i])
+			den += w
+	if den <= 0.0:
+		return live_rpm
+	return num / den
+
+
+## Per-band volume command: equal-power weight -> db, plus load and transient
+## gain nudges, inside the mute floor..6 dB ceiling.
+static func band_gain_db(weight: float, load_gain_db: float, transient_db: float = 0.0) -> float:
+	return clampf(linear_to_db(sqrt(clampf(weight, 0.0, 1.0))) + load_gain_db + MASTER_TRIM_DB + transient_db, MUTE_FLOOR_DB, 6.0)
+
+
+## Clutch-catch pitch sag: dips to SHIFT_DIP_MIN at the catch and recovers fast.
+static func gear_shift_pitch_mult(elapsed: float, duration: float = SHIFT_DURATION) -> float:
+	if elapsed >= duration or duration <= 0.0:
+		return 1.0
+	return lerpf(SHIFT_DIP_MIN, 1.0, sqrt(clampf(elapsed / duration, 0.0, 1.0)))
+
+
+## Torque blip that rides on top of the shift dip.
+static func gear_shift_gain_mult(elapsed: float, duration: float = SHIFT_DURATION) -> float:
+	if elapsed >= duration or duration <= 0.0:
+		return 1.0
+	return lerpf(SHIFT_BLIP_GAIN, 1.0, clampf(elapsed / duration, 0.0, 1.0))
+
+
+## Lift-off pop envelope: a short gain nudge (0..1) ramping down linearly from
+## the trigger. Decays to silence exactly at LIFT_ENV_SECONDS.
+static func lift_pop(remaining: float) -> float:
+	return clampf(remaining / LIFT_ENV_SECONDS, 0.0, 1.0)
+
+
+## Combined transient volume offset (db): gear torque blip (always on during a
+## shift) plus the lift-off pop. 0 dB when nothing is firing.
+static func transient_gain_db(shift_elapsed: float, lift_env: float = 0.0) -> float:
+	var db := linear_to_db(gear_shift_gain_mult(shift_elapsed))
+	if lift_env > 0.0:
+		db += LIFT_GAIN_DB * lift_pop(lift_env)
+	return db
 
 
 static func load_shaping(load: float) -> Dictionary:
