@@ -350,6 +350,29 @@ area (e.g. the mountain-pass corridor) shows up as the outlier in the probe.
 | **traffic LOD** | ~84 | | 617,216 | ~611 | 15->8 cars + 140 m shelf; physics 22.9 -> **15.3** (under 60 Hz budget) |
 | **HUD cut** | ~92 | | 616,905 | **268** | process 22.8 -> **14.0**; minimap run-merge + 25 m route cache + overlay gating |
 | **COMBINED** | **94.9** | **10.5** | 616,813 | **268** | traffic LOD + HUD cut on GTX 970 @1080p Low (three runs: 92.2 / 93.1 / 94.9; min 87, max 105); 60 FPS target EXCEEDED |
+
+**PRESET GATE (real quality ladder, via `PERF_QUALITY` env on the probe; GTX 970 @1080p):**
+
+| preset | fps (2 runs) | frame_ms | process_ms | physics_ms | draws | prims | vram_mb | acceptance |
+|---|---|---|---|---|---|---|---|---|
+| Low | 92.7 / 94.7 | ~10.7 | 12.3 | 13.1 | 268 | 617k | 763 | ≥60 **MET (92+)** |
+| Medium | **64.6 / 64.6** | 15.5 | 20.3 | 12.2 | 268 | 617k | 1261 | ≥30 **MET (64)** |
+| High | **56.5 / 56.5** | 17.7 | 19.9 | 12.1 | 291 | 617k | 1309 | ≥30 **MET (56)** |
+
+**Medium GPU budget (top-3, each toggled off from Medium):** SDFGI ≈ 2.5 ms +
++416 MB VRAM (15.5→13.0 ms; the full-world GI bake is the dominant cost),
+Glow ≈ 1.0 ms, SSAO ≈ 0.4 ms. Shadow settings are untouched by the ladder and do
+not differ Low↔Medium. High reaches 56.5 only because FSR2 0.9 + MSAA handle the
+extra volumetrics/SSR.
+
+**Phase dispositions:** Phase 0 (Low MSAA) — leave alone, no longer relevant
+(93 FPS). Phase 3 (resolution scaling) — **NOT NEEDED** (High is already 56.5 on
+FSR2 0.9). Phase 4 — RESOLVED LOW VALUE (CPU-bound reframe). Phase 5 (mesh LOD) —
+**NOT NEEDED**; prims are 617k at every preset but no preset is GPU-bound,
+so LOD would buy nothing for playability. Phase 6 (CPU) — **RESOLVED** by traffic
+LOD + HUD cut (process 12-14 ms, physics ~12-13 ms/tick; CPU under budget at all
+presets). Acceptance achieved on all three presets; open-world perf work is CLOSED
+as of `d8610ef`.
 | Phase 0 | | | | | DEFERRED (~2% measured, would rewrite deliberate tests) |
 | Phase 3 | | | | | scaling (still pending, lower value now) |
 | Phase 5 | | | | | mesh LOD on dressing prims — only matters once CPU is no longer binding |
