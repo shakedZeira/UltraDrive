@@ -22,6 +22,10 @@ const STARTER_PROTECTED: Array[String] = ["starter_car", "muscle_car", "rally_ha
 ## Resale returns this fraction of the sticker price (item 11 economy).
 const RESALE_RATIO: float = 0.5
 
+## S13 garage save block: a per-car-id dict { "overrides": {...}, "paint_id": "..." }
+## persisted in the same slot as owned_cars/active_car so tuning survives drives.
+const TUNING_KEY := "car_tuning"
+
 static func get_price(car_id: String) -> int:
 	var config := load("res://resources/cars/%s.tres" % car_id) as CarConfig
 	return config.price if config != null else 0
@@ -47,6 +51,7 @@ func remove_car(car_id: String) -> void:
 	_owned_cars.erase(car_id)
 	if _active_car == car_id:
 		_active_car = _owned_cars[0] if _owned_cars.size() > 0 else ""
+	_save_tuning_block(car_id, null)
 	save()
 
 func get_owned_cars() -> Array[String]:
@@ -115,3 +120,70 @@ func load_data(data: Dictionary) -> void:
 		_owned_cars.assign(data["owned_cars"])
 	if data.has("active_car"):
 		_active_car = data["active_car"]
+
+## S13 edit gate: a car may be tuned/painted only when the player owns it AND
+## its license unlocks its class. Mirrors the buy/access gate so the garage
+## never mutates config the driver could not have reached.
+func is_car_unlocked(car_id: String) -> bool:
+	if car_id not in _owned_cars:
+		return false
+	var config := load("res://resources/cars/%s.tres" % car_id) as CarConfig
+	if config == null:
+		return false
+	return LicenseSystem.load_from_save().is_car_unlocked(config.car_class)
+
+## Merges a partial overrides write into the car's saved override dict so a
+## later write that only changes gear ratios never wipes a saved final_drive or
+## mass override (mirrors the entry-level merge in _save_tuning_block).
+func set_car_tuning(car_id: String, overrides: Dictionary) -> void:
+	if not is_car_unlocked(car_id):
+		return
+	var merged := get_car_overrides(car_id)
+	for key: String in overrides:
+		merged[key] = overrides[key]
+	_save_tuning_block(car_id, {"overrides": merged})
+
+func get_car_overrides(car_id: String) -> Dictionary:
+	var entry := _tuning_entry(car_id)
+	if entry.is_empty() or not entry.has("overrides"):
+		return {}
+	var stored: Variant = entry["overrides"]
+	return stored.duplicate(true) if stored is Dictionary else {}
+
+func set_car_paint(car_id: String, paint_id: String) -> void:
+	if not is_car_unlocked(car_id):
+		return
+	_save_tuning_block(car_id, {"paint_id": paint_id})
+
+func get_car_paint(car_id: String) -> String:
+	var entry := _tuning_entry(car_id)
+	if entry.is_empty() or not entry.has("paint_id"):
+		return ""
+	return String(entry["paint_id"])
+
+func _tuning_entry(car_id: String) -> Dictionary:
+	var data := SaveManager.load_game(0)
+	var block: Variant = data.get(TUNING_KEY, {})
+	if block is not Dictionary:
+		return {}
+	var entry: Variant = block.get(car_id, {})
+	return entry if entry is Dictionary else {}
+
+## Read-modify-write clamp: entry == null removes the car's tuning block (used
+## when a car is sold); otherwise only the given keys are merged into it so an
+## overrides write never wipes a saved paint id and vice-versa.
+func _save_tuning_block(car_id: String, entry: Variant) -> void:
+	var data := SaveManager.load_game(0)
+	var block: Variant = data.get(TUNING_KEY, {})
+	if block is not Dictionary:
+		block = {}
+	if entry == null:
+		block.erase(car_id)
+	else:
+		var current: Variant = block.get(car_id, {})
+		var merged: Dictionary = current if current is Dictionary else {}
+		for key: String in entry:
+			merged[key] = entry[key]
+		block[car_id] = merged
+	data[TUNING_KEY] = block
+	SaveManager.save_game(0, data)

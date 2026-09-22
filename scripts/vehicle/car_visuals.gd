@@ -44,6 +44,32 @@ const PAINT_COLORS := {
 ## still shows under the chase cam.
 const CC0_WHEEL_COLOR := Color(0.09, 0.09, 0.11, 1.0)
 
+## S13 garage paint swatches. A paint_id is persisted per car in the garage
+## tuning block and resolves to a color here, so the garage repaints any owned
+## car live without touching its base albedo. The first entries mirror the
+## stock PAINT_COLORS so a default swatch matches every comp's base paint.
+const PAINT_SWATCHES: Array[Dictionary] = [
+	{"id": "competition_red", "name": "Competition Red", "color": Color(0.78, 0.12, 0.16, 1.0)},
+	{"id": "rally_blue", "name": "Rally Blue", "color": Color(0.07, 0.42, 0.88, 1.0)},
+	{"id": "racing_gold", "name": "Racing Gold", "color": Color(0.94, 0.63, 0.05, 1.0)},
+	{"id": "pearl_white", "name": "Pearl White", "color": Color(0.92, 0.92, 0.94, 1.0)},
+	{"id": "midnight", "name": "Midnight", "color": Color(0.10, 0.10, 0.13, 1.0)},
+	{"id": "slate", "name": "Slate", "color": Color(0.40, 0.44, 0.50, 1.0)},
+]
+
+## Resolves a swatch id to its albedo. Unknown ids fall back to a neutral
+## titanium-gray so garage paint never errors on a corrupt/hand-edited save.
+static func paint_color_for(paint_id: String) -> Color:
+	for swatch in PAINT_SWATCHES:
+		if swatch["id"] == paint_id:
+			return swatch["color"]
+	return Color(0.45, 0.47, 0.52, 1.0)
+
+## Empty means "no custom paint saved" (use the car's stock PAINT_COLORS entry,
+## which is what apply-time paint_profile_for already does).
+static func default_paint_id(_car_id: String) -> String:
+	return ""
+
 ## Racing-line rival body colors keyed by skill tier: concrete colors make the
 ## start grid read instantly (silver = Novice, blue = Skilled, red = Expert).
 const RIVAL_PALETTE := {
@@ -229,10 +255,17 @@ static func apply_paint(visual_root: Node3D, profile: Dictionary) -> void:
 ## Returns the paint profile (DEFAULT_PAINT plus any extra CC0 albedo keys) for
 ## a garage car id. Cars without an entry in PAINT_COLORS get a bare DEFAULT_PAINT
 ## clone, so call sites can route every car through this helper risk-free.
-static func paint_profile_for(car_id: String) -> Dictionary:
+## An optional paint_id (S13 garage swatch) overrides the albedo color, and any
+## repainted car gets the CC0 glass/tire tinting so the new color reads across
+## the whole shell. No paint_id = stock behavior unchanged.
+static func paint_profile_for(car_id: String, paint_id: String = "") -> Dictionary:
 	var profile: Dictionary = DEFAULT_PAINT.duplicate()
 	if PAINT_COLORS.has(car_id):
 		profile["color"] = PAINT_COLORS[car_id]
+		profile["glass_color"] = CC0_GLASS_COLOR
+		profile["tire_color"] = CC0_TIRE_COLOR
+	if not paint_id.is_empty():
+		profile["color"] = paint_color_for(paint_id)
 		profile["glass_color"] = CC0_GLASS_COLOR
 		profile["tire_color"] = CC0_TIRE_COLOR
 	return profile

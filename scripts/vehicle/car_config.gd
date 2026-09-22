@@ -96,6 +96,21 @@ extends Resource
 
 # --- Helper Functions ---
 
+## Returns a NEW CarConfig with the given tuning overrides applied on top of
+## this base, leaving the base untouched (controllers can hold both the stock
+## and a tuned variant from the same resource). Recognized override keys:
+## gear_ratios (Array[float]), final_drive_ratio, mass_kg. Unknown keys and
+## wrong-typed values are ignored, so the clone is always safe to drive.
+func with_overrides(overrides: Dictionary) -> CarConfig:
+    var clone := duplicate(true) as CarConfig
+    if overrides.has("gear_ratios") and overrides["gear_ratios"] is Array:
+        clone.gear_ratios.assign(overrides["gear_ratios"])
+    if overrides.has("final_drive_ratio") and overrides["final_drive_ratio"] is float:
+        clone.final_drive_ratio = overrides["final_drive_ratio"]
+    if overrides.has("mass_kg") and overrides["mass_kg"] is float:
+        clone.mass_kg = overrides["mass_kg"]
+    return clone
+
 func get_engine_torque(rpm: float) -> float:
     ## Returns engine torque at given RPM using a simplified torque curve.
     if rpm < idle_rpm:

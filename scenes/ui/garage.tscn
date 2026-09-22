@@ -140,7 +140,7 @@ sun_energy = 1.2
 
 [sub_resource type="Sky" id="sky"]
 sky_material = SubResource("sky_mat")
-radiance_size = 256
+radiance_size = 3
 
 [sub_resource type="Environment" id="env"]
 background_mode = 2
@@ -277,7 +277,6 @@ mesh = SubResource("floor_mesh")
 size = Vector3(20, 9, 20)
 update_mode = 0
 ambient_mode = 2
-resolution = 256
 
 [node name="Turntable" type="Node3D" parent="Margin/MainRow/PreviewPanel/PreviewViewport/SubViewport"]
 unique_name_in_owner = true
@@ -292,27 +291,37 @@ size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 12
 
-[node name="GarageTitleLabel" type="Label" parent="Margin/MainRow/RightPanel"]
+[node name="TuningTabs" type="TabContainer" parent="Margin/MainRow/RightPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/tab_font_separation = 6
+
+[node name="Garage" type="VBoxContainer" parent="Margin/MainRow/RightPanel/TuningTabs"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="GarageTitleLabel" type="Label" parent="Margin/MainRow/RightPanel/TuningTabs/Garage"]
 text = "GARAGE"
 theme_override_colors/font_color = Color(0.902, 0.698, 0.235, 1)
 theme_override_font_sizes/font_size = 22
 theme_override_fonts/font = SubResource("font_bold")
 
-[node name="CarNameLabel" type="Label" parent="Margin/MainRow/RightPanel"]
+[node name="CarNameLabel" type="Label" parent="Margin/MainRow/RightPanel/TuningTabs/Garage"]
 unique_name_in_owner = true
 text = "SELECT A CAR"
 theme_override_colors/font_color = Color(0.95, 0.96, 0.98, 1)
 theme_override_font_sizes/font_size = 40
 theme_override_fonts/font = SubResource("font_bold")
 
-[node name="BadgeRow" type="HBoxContainer" parent="Margin/MainRow/RightPanel"]
+[node name="BadgeRow" type="HBoxContainer" parent="Margin/MainRow/RightPanel/TuningTabs/Garage"]
 theme_override_constants/separation = 10
 
-[node name="ClassCircle" type="PanelContainer" parent="Margin/MainRow/RightPanel/BadgeRow"]
+[node name="ClassCircle" type="PanelContainer" parent="Margin/MainRow/RightPanel/TuningTabs/Garage/BadgeRow"]
 custom_minimum_size = Vector2(34, 34)
 theme_override_styles/panel = SubResource("circle_box")
 
-[node name="ClassCircleLabel" type="Label" parent="Margin/MainRow/RightPanel/BadgeRow/ClassCircle"]
+[node name="ClassCircleLabel" type="Label" parent="Margin/MainRow/RightPanel/TuningTabs/Garage/BadgeRow/ClassCircle"]
 unique_name_in_owner = true
 text = "D"
 horizontal_alignment = 1
@@ -321,32 +330,32 @@ theme_override_colors/font_color = Color(0.09, 0.1, 0.14, 1)
 theme_override_font_sizes/font_size = 18
 theme_override_fonts/font = SubResource("font_bold")
 
-[node name="ClassBadge" type="PanelContainer" parent="Margin/MainRow/RightPanel/BadgeRow"]
+[node name="ClassBadge" type="PanelContainer" parent="Margin/MainRow/RightPanel/TuningTabs/Garage/BadgeRow"]
 theme_override_styles/panel = SubResource("badge_box")
 
-[node name="ClassBadgeLabel" type="Label" parent="Margin/MainRow/RightPanel/BadgeRow/ClassBadge"]
+[node name="ClassBadgeLabel" type="Label" parent="Margin/MainRow/RightPanel/TuningTabs/Garage/BadgeRow/ClassBadge"]
 unique_name_in_owner = true
 text = "CLASS D"
 theme_override_colors/font_color = Color(0.09, 0.1, 0.14, 1)
 theme_override_font_sizes/font_size = 15
 theme_override_fonts/font = SubResource("font_bold")
 
-[node name="StatsBox" type="VBoxContainer" parent="Margin/MainRow/RightPanel"]
+[node name="StatsBox" type="VBoxContainer" parent="Margin/MainRow/RightPanel/TuningTabs/Garage"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 theme_override_constants/separation = 8
 
-[node name="SpecsLabel" type="Label" parent="Margin/MainRow/RightPanel"]
+[node name="SpecsLabel" type="Label" parent="Margin/MainRow/RightPanel/TuningTabs/Garage"]
 unique_name_in_owner = true
 text = ""
 theme_override_colors/font_color = Color(0.5, 0.55, 0.66, 1)
 theme_override_font_sizes/font_size = 14
 
-[node name="ButtonsRow" type="HBoxContainer" parent="Margin/MainRow/RightPanel"]
+[node name="ButtonsRow" type="HBoxContainer" parent="Margin/MainRow/RightPanel/TuningTabs/Garage"]
 theme_override_constants/separation = 14
 
-[node name="SelectButton" type="Button" parent="Margin/MainRow/RightPanel/ButtonsRow"]
+[node name="SelectButton" type="Button" parent="Margin/MainRow/RightPanel/TuningTabs/Garage/ButtonsRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(160, 46)
 text = "SELECT"
@@ -360,7 +369,7 @@ theme_override_styles/hover = SubResource("btn_gold_hover")
 theme_override_styles/pressed = SubResource("btn_gold_down")
 theme_override_styles/focus = SubResource("btn_gold")
 
-[node name="BackButton" type="Button" parent="Margin/MainRow/RightPanel/ButtonsRow"]
+[node name="BackButton" type="Button" parent="Margin/MainRow/RightPanel/TuningTabs/Garage/ButtonsRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(160, 46)
 text = "BACK"
@@ -372,6 +381,14 @@ theme_override_styles/normal = SubResource("btn_dark")
 theme_override_styles/hover = SubResource("btn_dark_hover")
 theme_override_styles/pressed = SubResource("btn_dark_down")
 theme_override_styles/focus = SubResource("btn_dark")
+
+[node name="Tune" type="VBoxContainer" parent="Margin/MainRow/RightPanel/TuningTabs"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Paint" type="VBoxContainer" parent="Margin/MainRow/RightPanel/TuningTabs"]
+layout_mode = 2
+theme_override_constants/separation = 6
 
 [node name="Footer" type="Label" parent="."]
 anchors_preset = 2
