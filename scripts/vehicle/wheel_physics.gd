@@ -36,6 +36,14 @@ var wheel_angular_velocity: float = 0.0  # rad/s
 var lateral_force: float = 0.0
 var longitudinal_force: float = 0.0
 
+# --- Aero ---
+## Extra vertical load (N) pushed into this wheel by the car's aero
+## downforce (v^2-based). Set by the vehicle per physics frame BEFORE
+## process_wheel so the contact load — and with it the Pacejka D term — sees
+## the full weight + aero grip at speed. Default 0.0 keeps every other
+## consumer (ground-latch probe, pure wheel tests) byte-identical to before.
+var aero_normal_load: float = 0.0
+
 # --- Internal ---
 var _raycast: RayCast3D
 var _prev_suspension_length: float = 0.1
@@ -78,7 +86,7 @@ func process_wheel(delta: float, config: CarConfig, handbrake: bool) -> Dictiona
         var damper_force := config.damper_compression * maxf(suspension_velocity, 0.0) \
                           + config.damper_rebound * minf(suspension_velocity, 0.0)
 
-        normal_force = maxf(spring_force + damper_force, config.mass_kg * 9.8 / 4.0)
+        normal_force = maxf(spring_force + damper_force, config.mass_kg * 9.8 / 4.0) + aero_normal_load
     else:
         normal_force = 0.0
         suspension_length = config.suspension_travel

@@ -24,6 +24,20 @@ const DRIFT_MIN_SLIP_DEG := 6.0
 ## launches/threshold-brake without touching the curve shapes the tests gate.
 const LONGITUDINAL_EFFECTIVENESS := 1.0
 
+# --- High-speed stability (aero downforce + yaw assist) ---
+## Air density (kg/m^3); mirrors the 1.225 the drag term inlines so the aero
+## downforce formula reads the same physics.
+const AIR_DENSITY := 1.225
+## Fraction of the aero downforce applied per wheel (even split keeps the
+## front/rear balance neutral so cornering character is unchanged, only the
+## grip envelope grows).
+const AERO_WHEEL_SPLIT := 4.0
+## Yaw assist ramps in above this speed (km/h). Below it the arcade low-speed
+## drift feel is byte-for-byte untouched.
+const COUNTERSTEER_RAMP_START_KMH := 70.0
+## Speed (km/h) at which the yaw assist reaches full strength.
+const COUNTERSTEER_RAMP_END_KMH := 140.0
+
 # --- Configuration ---
 @export var config: CarConfig
 
@@ -235,6 +249,39 @@ func _physics_process(delta: float) -> void:
     # Brake/drive direction runs through the gearbox: reverse flips it.
     var gear_dir := -1.0 if _drivetrain.current_gear < 0 else 1.0
 
+    # --- High-speed stability ---
+    # (a) Aero downforce (v^2): mirrors the drag formula (0.5 * rho * Cl * A *
+    # v^2) over the HORIZONTAL speed so `downforce_coefficient` reads as a real
+    # lift coefficient. The load is split across the wheels and injected into the
+    # Pacejka D term via wheel.aero_normal_load in the loop below (high-speed
+    # grip margin), and the SAME force is applied as a chassis push-down. Zero at
+    # rest/creep, so the parking-lot and low-speed arcade feel is untouched.
+    var horizontal_speed := Vector2(linear_velocity.x, linear_velocity.z).length()
+    var aero_load := 0.5 * AIR_DENSITY * config.downforce_coefficient * config.frontal_area * horizontal_speed * horizontal_speed
+    var aero_load_per_wheel := aero_load / AERO_WHEEL_SPLIT
+
+    # (b) Countersteer/stability yaw assist: damps angular_velocity toward the
+    # kinematic yaw-rate target v * tan(steer) / wheelbase (positive steer ->
+    # positive heading -> positive target yaw, matching angular_velocity.y).
+    # Speed-tapered (ramps in above COUNTERSTEER_RAMP_START_KMH, full by
+    # COUNTERSTEER_RAMP_END_KMH), OFF while handbraking, and clamped to the
+    # config torque (Nm) so a committed drift is only guided, never fought.
+    var yaw_taper := 0.0
+    if config.countersteer_assist > 0.0 and not handbrake and forward_speed > 0.0:
+        yaw_taper = clampf(
+            (current_speed_kmh - COUNTERSTEER_RAMP_START_KMH)
+            / (COUNTERSTEER_RAMP_END_KMH - COUNTERSTEER_RAMP_START_KMH),
+            0.0, 1.0
+        )
+        if yaw_taper > 0.0:
+            var yaw_target := forward_speed * tan(steer_angle) / maxf(config.wheelbase, 0.5)
+            var yaw_torque := clampf(
+                config.countersteer_assist * (yaw_target - angular_velocity.y),
+                -config.countersteer_assist,
+                config.countersteer_assist
+            )
+            apply_torque(Vector3.UP * yaw_torque * yaw_taper)
+
     # --- Tire Forces ---
     var grip_mult: float = config.arcade_mode["grip_multiplier"] if handling_mode == "arcade" else config.simulation_mode["grip_multiplier"]
     var weather_factor := WeatherManager.get_road_grip_factor()
@@ -244,6 +291,7 @@ func _physics_process(delta: float) -> void:
     # Process each wheel
     for i in range(4):
         var wheel := _wheels[i]
+        wheel.aero_normal_load = aero_load_per_wheel
         var wheel_info := wheel.process_wheel(delta, config, handbrake)
 
         # --- Per-wheel axle torque ---
@@ -339,10 +387,20 @@ func _physics_process(delta: float) -> void:
             )
         )
 
-    # --- Air Resistance ---
+    # --- Air Resistance + aero chassis push-down ---
+    # The aero load is injected into the tire D terms above AND applied here as
+    # a single central force combined with drag (RigidBody3D.apply_central_force
+    # replaces the accumulator in Godot 4, so one call carries both). When
+    # aero_load is 0 (stationary, or a car with downforce_coefficient 0.0) this
+    # reduces to the exact pre-existing drag behaviour.
     var drag_magnitude := 0.5 * 1.225 * config.drag_coefficient * config.frontal_area * linear_velocity.length_squared()
+    var aero_force := Vector3.ZERO
     if linear_velocity.length() > 0.1:
-        apply_central_force(-linear_velocity.normalized() * drag_magnitude)
+        aero_force = -linear_velocity.normalized() * drag_magnitude
+    if aero_load > 0.0:
+        aero_force += Vector3.DOWN * aero_load
+    if aero_force != Vector3.ZERO:
+        apply_central_force(aero_force)
 
     # --- Anti-flip (arcade mode only) ---
     if handling_mode == "arcade" and config.arcade_mode.get("anti_flip", false):

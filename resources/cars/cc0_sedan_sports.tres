@@ -30,6 +30,6 @@ tire_D = 1.0
 tire_E = 0.96
 drag_coefficient = 0.33
 frontal_area = 2.15
-downforce_coefficient = 0.1
+downforce_coefficient = 0.3
 countersteer_assist = 850.0
 handbrake_grip_reduction = 0.32

@@ -74,11 +74,11 @@ extends Resource
 # --- Aerodynamics ---
 @export var drag_coefficient: float = 0.35
 @export var frontal_area: float = 2.2  # m^2
-@export var downforce_coefficient: float = 0.0  # 0 = none, higher = more downforce
+@export var downforce_coefficient: float = 0.0  # read as a lift coefficient Cl: aero load = 0.5*rho*Cl*A*v^2, fed into the tire Pacejka D terms + applied as a chassis push-down. 0 = none.
 
 # --- Drift ---
 @export var handbrake_grip_reduction: float = 0.3  # 0.0 = no grip, 1.0 = full grip
-@export var countersteer_assist: float = 800.0     # Nm of yaw correction
+@export var countersteer_assist: float = 800.0  # max Nm of kinematic-yaw damping (damps angular_velocity toward v*tan(steer)/wheelbase, ramps in above ~70 km/h, off while handbraking)
 
 # --- Handling Mode Modifiers ---
 @export var arcade_mode: Dictionary = {

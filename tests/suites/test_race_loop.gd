@@ -37,11 +37,18 @@ func after_test() -> void:
 func test_total_time_is_relative_to_race_start() -> void:
 	var counter := LapCounter.new()
 	add_child(counter)
+	# _race_start_time is set in start_race, so total time is measured from the
+	# race start anchor, NOT from node creation. Capture the wall clock just
+	# before start_race: if the anchor were node _ready/creation, total time
+	# would be large here; from the race start it must be near zero.
+	var before := Time.get_ticks_msec() / 1000.0
 	counter.start_race(3)
-	# _race_start_time is set in start_race, so total time starts near zero.
-	assert_that(counter.get_total_time()).is_less(0.5)
-	await await_millis(250)
-	assert_that(counter.get_total_time()).is_greater(0.04)
+	assert_that(counter.get_total_time()).is_less(1.0)
+	# Deterministic clock advance without waiting on real wall time: rewind the
+	# anchor 5 s, then total time must track elapsed wall clock from the race
+	# start (5 s + the tiny elapsed-since-start, so comfortably above 4.5).
+	counter._race_start_time -= 5.0
+	assert_that(counter.get_total_time()).is_greater(4.5)
 
 func test_checkpoint_reset_arms_and_counts_once_per_pass() -> void:
 	var stub := _new_stub()
