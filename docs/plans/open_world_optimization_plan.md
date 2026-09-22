@@ -349,6 +349,7 @@ area (e.g. the mountain-pass corridor) shows up as the outlier in the probe.
 | collision_mode 1 | 27.0 | 37.0 | 607,024 | 589 | **REJECTED** — process +13.4 ms, physics unchanged |
 | **traffic LOD** | ~84 | | 617,216 | ~611 | 15->8 cars + 140 m shelf; physics 22.9 -> **15.3** (under 60 Hz budget) |
 | **HUD cut** | ~92 | | 616,905 | **268** | process 22.8 -> **14.0**; minimap run-merge + 25 m route cache + overlay gating |
+| **COMBINED** | **94.9** | **10.5** | 616,813 | **268** | traffic LOD + HUD cut on GTX 970 @1080p Low (three runs: 92.2 / 93.1 / 94.9; min 87, max 105); 60 FPS target EXCEEDED |
 | Phase 0 | | | | | DEFERRED (~2% measured, would rewrite deliberate tests) |
 | Phase 3 | | | | | scaling (still pending, lower value now) |
 | Phase 5 | | | | | mesh LOD on dressing prims — only matters once CPU is no longer binding |
