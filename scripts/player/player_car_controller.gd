@@ -17,12 +17,15 @@ var _probe_synced_enabled: bool = true
 
 func _ready() -> void:
 	VehicleManager.register_player_car(car)
-	var active := Garage.new_from_save().get_active_car()
+	var garage := Garage.new_from_save()
+	var active := garage.get_active_car()
 	_car_id = active
 	if active != "":
 		var car_path := "res://resources/cars/%s.tres" % active
 		if ResourceLoader.exists(car_path):
-			car.config = load(car_path) as CarConfig
+			var base := load(car_path) as CarConfig
+			var tuned := garage.get_car_overrides(active)
+			car.config = base.with_overrides(tuned) if not tuned.is_empty() else base
 	_apply_visual()
 
 ## The car is freed on scene swaps but VehicleManager keeps stale refs (its

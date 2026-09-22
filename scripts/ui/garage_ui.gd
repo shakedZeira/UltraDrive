@@ -121,11 +121,27 @@ func _show_car(index: int) -> void:
 	car_name_label.text = config.car_name.to_upper()
 	class_badge_label.text = "CLASS %s" % config.car_class
 	class_circle_label.text = config.car_class
-	specs_label.text = "%d Nm  •  %d kg  •  CLASS %s" % [int(config.max_torque), int(config.mass_kg), config.car_class]
-	_update_stats(_compute_stats(config))
+	_refresh_tuning_state()
+	_update_garage_info(config)
 	_swap_preview(config)
 	_update_cards()
-	_refresh_tuning_state()
+
+## The car's tuned config for garage-tab display: applies the loaded overrides,
+## falling back to the stock config when nothing is tuned.
+func _display_config(base: CarConfig) -> CarConfig:
+	if _profile == null or _profile.overrides.is_empty():
+		return base
+	var applied := _profile.applied()
+	return applied if applied != null else base
+
+## Re-renders the Garage-tab specs + stat bars from the current (tuned) config
+## so a slider change is reflected as soon as the player switches tabs.
+func _update_garage_info(base: CarConfig) -> void:
+	if base == null:
+		return
+	var display := _display_config(base)
+	specs_label.text = "%d Nm  •  %d kg  •  CLASS %s" % [int(display.max_torque), int(display.mass_kg), display.car_class]
+	_update_stats(_compute_stats(display))
 
 func _compute_stats(config: CarConfig) -> Dictionary:
 	if config == null:
@@ -315,6 +331,7 @@ func _on_mass_slider_changed(t: float) -> void:
 func _persist_tuning() -> void:
 	_garage.set_car_tuning(_selected_car, _profile.to_dict())
 	_update_dyno()
+	_update_garage_info(_profile.base_config)
 
 ## S13 --- Paint tab ----------------------------------------------------------
 
