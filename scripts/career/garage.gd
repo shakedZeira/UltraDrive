@@ -121,9 +121,14 @@ func load_data(data: Dictionary) -> void:
 	if data.has("active_car"):
 		_active_car = data["active_car"]
 
-## S13 edit gate: a car may be tuned/painted only when the player owns it AND
-## its license unlocks its class. Mirrors the buy/access gate so the garage
-## never mutates config the driver could not have reached.
+## S13 edit gate: a car may be tuned/painted only when the player owns it.
+## (License still gates buying/accessing new classes via is_car_unlocked, but an
+## owned car — even a B/A-class starter — is always editable in the garage.)
+func is_car_owned(car_id: String) -> bool:
+	return car_id in _owned_cars
+
+## License+ownership gate for buying/using a car: the driver must have reached
+## its class AND own it (or be able to afford it via is_car_accessible).
 func is_car_unlocked(car_id: String) -> bool:
 	if car_id not in _owned_cars:
 		return false
@@ -136,7 +141,7 @@ func is_car_unlocked(car_id: String) -> bool:
 ## later write that only changes gear ratios never wipes a saved final_drive or
 ## mass override (mirrors the entry-level merge in _save_tuning_block).
 func set_car_tuning(car_id: String, overrides: Dictionary) -> void:
-	if not is_car_unlocked(car_id):
+	if not is_car_owned(car_id):
 		return
 	var merged := get_car_overrides(car_id)
 	for key: String in overrides:
@@ -151,7 +156,7 @@ func get_car_overrides(car_id: String) -> Dictionary:
 	return stored.duplicate(true) if stored is Dictionary else {}
 
 func set_car_paint(car_id: String, paint_id: String) -> void:
-	if not is_car_unlocked(car_id):
+	if not is_car_owned(car_id):
 		return
 	_save_tuning_block(car_id, {"paint_id": paint_id})
 

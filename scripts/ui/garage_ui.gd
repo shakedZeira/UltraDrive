@@ -344,7 +344,7 @@ func _build_paint_panel() -> void:
 	paint_panel.add_child(_paint_state_label)
 
 func _on_swatch_pressed(index: int) -> void:
-	if _selected_car == "" or not _garage.is_car_unlocked(_selected_car):
+	if _selected_car == "" or not _garage.is_car_owned(_selected_car):
 		return
 	var swatch: Dictionary = CarVisuals.PAINT_SWATCHES[index]
 	var paint_id := String(swatch["id"])
@@ -365,7 +365,7 @@ func _refresh_tuning_state() -> void:
 		return
 	_profile = TuningProfile.new(config)
 	_profile.from_dict(_garage.get_car_overrides(_selected_car))
-	var can_edit := _garage.is_car_unlocked(_selected_car)
+	var can_edit := _garage.is_car_owned(_selected_car)
 	for i in config.gear_ratios.size():
 		if i >= _gear_sliders.size():
 			break

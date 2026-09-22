@@ -153,18 +153,20 @@ func test_garage_tuning_and_paint_round_trip_via_save() -> void:
 	assert_that(after_merge.get_car_paint("starter_car")).is_equal("pearl_white")
 	assert_that(after_merge.get_car_overrides("starter_car").has("final_drive_ratio")).is_true()
 
-func test_is_car_unlocked_gates_non_owned_and_license_locked_edits() -> void:
+func test_is_car_owned_gates_edits_not_license() -> void:
 	_reset_license()
 	var garage := Garage.new()
 	garage.load_data({"owned_cars": ["starter_car", "cc0_hatchback_sports"]})
-	assert_that(garage.is_car_unlocked("starter_car")).is_true()
-	assert_that(garage.is_car_unlocked("cc0_hatchback_sports")).is_false()
-	assert_that(garage.is_car_unlocked("cc0_race")).is_false()
+	assert_that(garage.is_car_owned("starter_car")).is_true()
+	assert_that(garage.is_car_owned("cc0_hatchback_sports")).is_true()
+	assert_that(garage.is_car_owned("cc0_race")).is_false()
 
 	# Non-owned car edits are silently rejected.
 	garage.set_car_paint("cc0_race", "midnight")
 	garage.set_car_tuning("cc0_race", {"mass_kg": 500.0, "final_drive_ratio": 9.9})
-	# Owned but license-locked (class B above the default tier) is rejected too.
+
+	# Owned cars edit freely even when their class is above the license tier
+	# (fresh save = tier B, but the class-B hatchback is owned and editable).
 	garage.set_car_paint("cc0_hatchback_sports", "slate")
 	garage.set_car_tuning("cc0_hatchback_sports", {"mass_kg": 800.0})
 
@@ -172,10 +174,13 @@ func test_is_car_unlocked_gates_non_owned_and_license_locked_edits() -> void:
 	reloaded.load_data(SaveManager.load_game(0))
 	assert_that(reloaded.get_car_paint("cc0_race")).is_equal("")
 	assert_that(reloaded.get_car_overrides("cc0_race")).is_equal({})
-	assert_that(reloaded.get_car_paint("cc0_hatchback_sports")).is_equal("")
-	assert_that(reloaded.get_car_overrides("cc0_hatchback_sports")).is_equal({})
+	assert_that(reloaded.get_car_paint("cc0_hatchback_sports")).is_equal("slate")
+	assert_that(reloaded.get_car_overrides("cc0_hatchback_sports")).is_equal({"mass_kg": 800.0})
+	var owned := Garage.new()
+	owned.load_data({"owned_cars": ["cc0_hatchback_sports"]})
+	assert_that(owned.is_car_owned("cc0_hatchback_sports")).is_true()
 
-	# The freely-owned unlocked starter accepts edits.
+	# The owned starter accepts edits normally.
 	garage.set_car_paint("starter_car", "midnight")
 	garage.set_car_tuning("starter_car", {"mass_kg": 980.0})
 	var editable := Garage.new()
