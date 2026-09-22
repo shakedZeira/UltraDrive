@@ -78,7 +78,7 @@ extends Resource
 
 # --- Drift ---
 @export var handbrake_grip_reduction: float = 0.3  # 0.0 = no grip, 1.0 = full grip
-@export var countersteer_assist: float = 800.0  # max Nm of kinematic-yaw damping (damps angular_velocity toward v*tan(steer)/wheelbase, ramps in above ~70 km/h, off while handbraking)
+@export var countersteer_assist: float = 800.0  # max Nm of stability-yaw damping (damps angular_velocity toward the GRIP-achievable yaw target v*tan(steer)/wheelbase clamped to mu*g/v, ramps in above ~70 km/h, off while handbraking)
 
 # --- Handling Mode Modifiers ---
 @export var arcade_mode: Dictionary = {

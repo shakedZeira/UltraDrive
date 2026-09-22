@@ -19,5 +19,5 @@ tire_D = 0.95
 tire_E = 0.95
 spring_rate = 30000.0
 max_brake_torque = 2000.0
-downforce_coefficient = 0.35
+downforce_coefficient = 0.5
 countersteer_assist = 800.0

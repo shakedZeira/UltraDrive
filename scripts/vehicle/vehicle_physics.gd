@@ -249,6 +249,13 @@ func _physics_process(delta: float) -> void:
     # Brake/drive direction runs through the gearbox: reverse flips it.
     var gear_dir := -1.0 if _drivetrain.current_gear < 0 else 1.0
 
+    # --- Surface & grip context (resolved BEFORE the high-speed blocks that
+    # need the same grip envelope the tires use later in the frame) ---
+    var grip_mult: float = config.arcade_mode["grip_multiplier"] if handling_mode == "arcade" else config.simulation_mode["grip_multiplier"]
+    var weather_factor := WeatherManager.get_road_grip_factor()
+    var surface_factors := resolve_surface_factors()
+    var grip_mult_lateral := grip_mult * float(surface_factors["lateral"]) * weather_factor
+
     # --- High-speed stability ---
     # (a) Aero downforce (v^2): mirrors the drag formula (0.5 * rho * Cl * A *
     # v^2) over the HORIZONTAL speed so `downforce_coefficient` reads as a real
@@ -257,13 +264,18 @@ func _physics_process(delta: float) -> void:
     # grip margin), and the SAME force is applied as a chassis push-down. Zero at
     # rest/creep, so the parking-lot and low-speed arcade feel is untouched.
     var horizontal_speed := Vector2(linear_velocity.x, linear_velocity.z).length()
-    var aero_load := 0.5 * AIR_DENSITY * config.downforce_coefficient * config.frontal_area * horizontal_speed * horizontal_speed
+    var aero_load := compute_aero_load(horizontal_speed, config)
     var aero_load_per_wheel := aero_load / AERO_WHEEL_SPLIT
 
     # (b) Countersteer/stability yaw assist: damps angular_velocity toward the
-    # kinematic yaw-rate target v * tan(steer) / wheelbase (positive steer ->
-    # positive heading -> positive target yaw, matching angular_velocity.y).
-    # Speed-tapered (ramps in above COUNTERSTEER_RAMP_START_KMH, full by
+    # GRIP-LIMITED yaw-rate target. The kinematic rate v*tan(steer)/wheelbase
+    # demands far more rotation at speed than the tires can actually sustain
+    # (Pacejka saturates), and chasing that unachievable target pushed the body
+    # to over-rotate past the grip envelope - the "no stability" feel. The
+    # target is now clamped into the achievable envelope mu*g/v, so the assist
+    # guides the car up to the cornering yaw its tires CAN hold and only ever
+    # damps yaw beyond it (the actual countersteer function). Speed-tapered
+    # (ramps in above COUNTERSTEER_RAMP_START_KMH, full by
     # COUNTERSTEER_RAMP_END_KMH), OFF while handbraking, and clamped to the
     # config torque (Nm) so a committed drift is only guided, never fought.
     var yaw_taper := 0.0
@@ -274,19 +286,16 @@ func _physics_process(delta: float) -> void:
             0.0, 1.0
         )
         if yaw_taper > 0.0:
-            var yaw_target := forward_speed * tan(steer_angle) / maxf(config.wheelbase, 0.5)
-            var yaw_torque := clampf(
-                config.countersteer_assist * (yaw_target - angular_velocity.y),
-                -config.countersteer_assist,
-                config.countersteer_assist
+            var lateral_grip := config.tire_D * grip_mult * float(surface_factors["lateral"]) * weather_factor
+            var yaw_target := compute_stability_yaw_target(
+                forward_speed, steer_angle, config.wheelbase, lateral_grip
+            )
+            var yaw_torque := stability_yaw_torque(
+                yaw_target, angular_velocity.y, config.countersteer_assist
             )
             apply_torque(Vector3.UP * yaw_torque * yaw_taper)
 
     # --- Tire Forces ---
-    var grip_mult: float = config.arcade_mode["grip_multiplier"] if handling_mode == "arcade" else config.simulation_mode["grip_multiplier"]
-    var weather_factor := WeatherManager.get_road_grip_factor()
-    var surface_factors := resolve_surface_factors()
-    var grip_mult_lateral := grip_mult * float(surface_factors["lateral"]) * weather_factor
 
     # Process each wheel
     for i in range(4):
@@ -521,6 +530,43 @@ static func apply_analog_response(value: float, power: float = ANALOG_RESPONSE_P
     if power == 1.0:
         return x
     return pow(x, power)
+
+## Aero downforce load (N) at the given HORIZONTAL speed (m/s): the textbook
+## 0.5 * rho * Cl * A * v^2. Zero at rest/creep so the low-speed arcade feel is
+## untouched; quadratic in speed so the high-speed grip margin grows exactly
+## where stability is scarce. Mirrors the drag formula so `downforce_coefficient`
+## reads as a real lift coefficient. Pure and headless-safe.
+static func compute_aero_load(horizontal_speed: float, config: CarConfig) -> float:
+    return 0.5 * AIR_DENSITY * config.downforce_coefficient * config.frontal_area \
+        * horizontal_speed * horizontal_speed
+
+## Grip-limited peak yaw rate (rad/s) the tires can sustain: the lateral
+## acceleration the grip envelope can hold (tire_D * lateral-grip * g) divided
+## by forward speed. At speed this is FAR below the kinematic v*tan(steer)/L
+## rate, so any yaw demand above it is physically unachievable - and chasing it
+## was what over-rotated the car. Floored so a near-stop never divides by zero.
+static func max_achievable_yaw_rate(forward_speed: float, lateral_grip: float) -> float:
+    return maxf(lateral_grip, 0.0) * 9.8 / maxf(forward_speed, 1.0)
+
+## Stability-assist yaw target (rad/s): the kinematic ideal v*tan(steer)/L
+## clamped into the physically achievable yaw envelope. Below the grip cap it
+## is the plain kinematic rate, so mid/low-speed cornering assistance is
+## unchanged; above it the demand is flattened so the assist can never push the
+## body to rotate faster than its tires can hold.
+static func compute_stability_yaw_target(
+    forward_speed: float, steer_angle: float, wheelbase: float, lateral_grip: float
+) -> float:
+    var kinematic := forward_speed * tan(steer_angle) / maxf(wheelbase, 0.5)
+    var cap := max_achievable_yaw_rate(forward_speed, lateral_grip)
+    return clampf(kinematic, -cap, cap)
+
+## Stability-assist torque (N*m): proportional yaw-rate error toward the
+## grip-limited target, clamped to +/- `assist_torque`. While the car rotates
+## no faster than the target, the torque guides it UP to the achievable
+## cornering yaw (entry assistance); any yaw beyond what the tires can produce
+## (a spin) is opposed - which is the actual countersteer function.
+static func stability_yaw_torque(yaw_target: float, current_yaw: float, assist_torque: float) -> float:
+    return clampf(assist_torque * (yaw_target - current_yaw), -assist_torque, assist_torque)
 
 ## Arcade speed limiter: rescales a velocity whose signed forward component ran
 ## past top_speed (m/s) or the reverse cap (m/s) back onto the bound while
