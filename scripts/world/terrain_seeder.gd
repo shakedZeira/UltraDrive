@@ -18,9 +18,10 @@ extends Node
 ## Images only — no Terrain3D regions are added — so the first step into a
 ## fresh ring writes a cached bake instead of stalling on a sync bake.
 
-const REGION_SIZE := 1024.0
-const RING_RADIUS := 1  # 3x3 = 9 regions live around the player
-const PREFETCH_RADIUS := 2  # async pre-bake band outside the live ring
+const REGION_SIZE := 256.0
+const RING_RADIUS := 1  # 3x3 = 9 regions live around the player (+-256m); wider rings superlinear (see memo)
+const PREFETCH_RADIUS := 2  # async pre-bake band outside the live ring (ring + 1)
+const MAX_RING_ADD_PER_FRAME := 1  # live-ring blank adds per idle frame (Jolt heightfield build)
 const MAX_APPLY_PER_TICK := 2  # finished async regions drained per main-thread tick
 const PRIORITY_LIVE := 0  # live-ring/frontier bakes, served first
 const PRIORITY_CORRIDOR := 1  # known-road corridor pre-bake, served next
@@ -97,6 +98,9 @@ var _ring_pass_dirty := false
 ## The ring mutated since the last full Terrain3D rebuild; the single
 ## update_maps() is issued on its own idle frame once the pass work is done.
 var _ring_update_due := false
+var _hitch := OS.get_environment("HITCH_TIMING") != ""
+var _hitch_max: Dictionary = {}
+var _player_pos := Vector3.ZERO
 
 ## Test-visible counters: sync bakes happen inline on the main thread while
 ## async bakes complete on the worker and are applied during the drain.
@@ -129,7 +133,7 @@ func _ready() -> void:
 	if terrain == null:
 		return
 	terrain.collision_mode = 3
-	terrain.region_size = Terrain3D.SIZE_1024
+	terrain.region_size = Terrain3D.SIZE_256
 
 ## Queues cached-only bakes (PRIORITY_CORRIDOR) for every region the known road
 ## network touches plus a CORRIDOR_MARGIN border, capped at a *budget* derived
@@ -256,10 +260,10 @@ func baked_region_height(loc: Vector2i, world_pos: Vector3) -> float:
 func _exit_tree() -> void:
 	_stop_worker()
 
-## Runs the batched ring pass first (removals + new-ring regions in a single
-## Terrain3D rebuild), then drains finished async bakes a bounded handful per
-## frame so physics is never stalled by the region backlog. Does not run while
-## idle (both paths are cheap flag/lock checks).
+## Runs the ring pass first (a bounded removal/add slice, then its Terrain3D
+## rebuild on the following idle frame), then drains finished async bakes a
+## bounded handful per frame so physics is never stalled by the region backlog.
+## Does not run while idle (both paths are cheap flag/lock checks).
 func _process(_delta: float) -> void:
 	if terrain == null:
 		return
@@ -274,6 +278,8 @@ func _process(_delta: float) -> void:
 func sync_player_pos(player_pos: Vector3) -> void:
 	if terrain == null:
 		return
+	var _t_start := _ht()
+	_player_pos = player_pos
 	var player_region := Vector2i(floori(player_pos.x / REGION_SIZE), floori(player_pos.z / REGION_SIZE))
 	_player_region = player_region
 	var data: Terrain3DData = terrain.data
@@ -282,48 +288,67 @@ func sync_player_pos(player_pos: Vector3) -> void:
 		_ring_sig = player_region
 		_ring_pass_dirty = true
 		_prefetch_ring(player_region)
+	_hm("sync_total", _t_start)
 
 ## Idle-timeslice of ring changes: removes regions that fell out of the ring and
-## grows the rest of the ring in a bounded slice per frame (at most 2 frontier
-## region writes and 1 removal), then issues the single full Terrain3D rebuild
-## on its own idle frame once the pass work is done. A region map rebuild,
-## collision rebuild and texture regeneration happen once per pass, never inline
-## on the physics tick.
+## grows the rest of the ring in a bounded slice per frame (1 frontier region
+## write and 1 removal), then rebuilds the Terrain3D maps for that slice on the
+## next idle frame, alternating work and rebuild so a full column shift never
+## batches into a single multi-hundred-ms update. A region map rebuild, collision
+## rebuild and texture regeneration never run inline on the physics tick.
 func _apply_ring_pass(data: Terrain3DData) -> void:
 	if not _ring_pass_dirty and not _ring_update_due:
 		return
-	if not _ring_pass_dirty:
+	var _t_start := _ht()
+	if _ring_update_due:
 		data.update_maps()
 		_ring_update_due = false
+		_hm("ring_batched_umap", _t_start)
 		return
 	_ring_pass_dirty = false
 	var changed := _remove_far_regions(data, _player_region, 1)
-	changed = _ensure_ring_regions(data, 2) or changed
+	changed = _ensure_ring_regions(data, MAX_RING_ADD_PER_FRAME) or changed
 	_ring_pass_dirty = _region_work_pending(data)
 	if changed:
 		_ring_update_due = true
+	_hm("apply_ring_pass", _t_start)
 
-## Ensures up to max_regions of the 3x3 ring regions around the player still
-## needing work this frame. The player's own region is ensured on the physics
-## tick, so this safely covers the other eight; cached bakes are written
-## immediately (deferred to the pass's single update) and everything else is
-## queued on the worker. Returns true when any region was added or written so
-## the caller can defer the rebuild.
+## Ensures up to max_regions of the RING_RADIUS ring regions around the player
+## still needing work this frame, nearest shell first. The player's own region is
+## ensured on the physics tick, so this safely covers the other ring regions;
+## cached bakes are written immediately (deferred to the pass's next rebuild) and
+## everything else is queued on the worker. Returns true when any region was
+## added or written so the caller can defer the rebuild.
 func _ensure_ring_regions(data: Terrain3DData, max_regions: int) -> bool:
+	var _t_start := _ht()
 	var changed := false
 	var count := 0
+	var offsets: Array = []
 	for dx in range(-RING_RADIUS, RING_RADIUS + 1):
 		for dz in range(-RING_RADIUS, RING_RADIUS + 1):
-			var loc := _player_region + Vector2i(dx, dz)
-			if loc == _player_region:
+			if dx == 0 and dz == 0:
 				continue
-			var center := _region_center(loc)
-			if data.has_regionp(center) and (_applied.has(loc) or _queued_get(loc) != -1):
-				continue
-			if count >= max_regions:
-				return changed
-			changed = _ensure_region(data, loc, false) or changed
-			count += 1
+			offsets.append(Vector2i(dx, dz))
+	offsets.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		var ra := maxi(absi(a.x), absi(a.y))
+		var rb := maxi(absi(b.x), absi(b.y))
+		if ra != rb:
+			return ra < rb
+		if a.x != b.x:
+			return a.x < b.x
+		return a.y < b.y
+	)
+	for off: Vector2i in offsets:
+		var loc := _player_region + off
+		var center := _region_center(loc)
+		if data.has_regionp(center) and (_applied.has(loc) or _queued_get(loc) != -1):
+			continue
+		if count >= max_regions:
+			_hm("ring_ensure", _t_start)
+			return changed
+		changed = _ensure_region(data, loc, false) or changed
+		count += 1
+	_hm("ring_ensure", _t_start)
 	return changed
 
 ## Removes up to max_removals regions outside the live ring for the player.
@@ -334,6 +359,7 @@ func _ensure_ring_regions(data: Terrain3DData, max_regions: int) -> bool:
 ## region_left(loc) once per evicted region so dressing mirrors the frees at
 ## the same cadence.
 func _remove_far_regions(data: Terrain3DData, player_region: Vector2i, max_removals: int) -> bool:
+	var _t_start := _ht()
 	var active: Array = data.get_region_locations()
 	var removed := false
 	var count := 0
@@ -346,6 +372,7 @@ func _remove_far_regions(data: Terrain3DData, player_region: Vector2i, max_remov
 			count += 1
 			if count >= max_removals:
 				break
+	_hm("ring_remove", _t_start)
 	return removed
 
 ## Returns true while the current ring pass still has removals or unprocessed
@@ -377,35 +404,46 @@ func _region_work_pending(data: Terrain3DData) -> bool:
 ## to the batched ring pass. Returns true when the terrain was mutated (region
 ## added or image written) so the pass can skip a redundant rebuild.
 func _ensure_region(data: Terrain3DData, loc: Vector2i, with_update: bool = true) -> bool:
+	var _t_start := _ht()
 	var center := _region_center(loc)
 	var is_player := loc == _player_region
 	var region: Terrain3DRegion = data.get_regionp(center) if data.has_regionp(center) else null
 	if region != null:
 		if _applied.has(loc):
+			_hm("ensure_applied", _t_start)
 			return false
 		if is_player:
 			_bake_player_region(data, region, loc)
 			region_entered.emit(loc)
+			_hm("ensure_player2", _t_start)
 			return true
 		if _queued_get(loc) == -1:
 			_queue_bake(loc, _map_width(region), PRIORITY_LIVE)
+		_hm("ensure_queued", _t_start)
 		return false
+	var _t_add := _ht()
 	region = data.add_region_blankp(center, false)
+	_hm("ensure_add_blank", _t_add)
 	if region == null:
 		return false
 	if _baked.has(loc):
 		var rec: Variant = _baked[loc]
 		var image: Image = rec["image"]
 		if image != null:
+			var _t_wr := _ht()
 			_write_region(data, region, loc, image, rec["height_min"], rec["height_max"], with_update, rec.get("color"))
+			_hm("ensure_write", _t_wr)
 			_applied[loc] = true
 			region_entered.emit(loc)
+			_hm("ensure_cached", _t_start)
 			return true
 	if is_player:
 		_bake_player_region(data, region, loc)
 		region_entered.emit(loc)
+		_hm("ensure_bake", _t_start)
 		return true
 	_queue_bake(loc, _map_width(region), PRIORITY_LIVE)
+	_hm("ensure_blank", _t_start)
 	return true
 
 ## Player-region entry: prefer the cached image (fast write, no stall). If the
@@ -414,15 +452,18 @@ func _ensure_region(data: Terrain3DData, loc: Vector2i, with_update: bool = true
 ## that job to the front of the worker queue; only a never-baked, never-queued
 ## region falls back to a synchronous bake on the physics tick.
 func _bake_player_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vector2i) -> void:
+	var _t_start := _ht()
 	if _baked.has(loc):
 		var rec: Variant = _baked[loc]
 		var image: Image = rec["image"]
 		if image != null:
 			_write_region(data, region, loc, image, rec["height_min"], rec["height_max"], true, rec.get("color"))
 			_applied[loc] = true
+			_hm("bake_player", _t_start)
 			return
 	if _queued_get(loc) == -1:
 		_bake_sync(data, region, loc)
+		_hm("bake_player", _t_start)
 		return
 	_requeue_front(loc)
 	var near_rec := _nearest_cached_record(loc)
@@ -431,6 +472,7 @@ func _bake_player_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vect
 		if near_image != null:
 			_write_region(data, region, loc, near_image, near_rec["height_min"], near_rec["height_max"], true, near_rec.get("color"))
 	_applied[loc] = true
+	_hm("bake_player", _t_start)
 
 ## Pre-bakes the PREFETCH_RADIUS band around the player (including the live
 ## ring whose cache a set_roads() clear just dropped) on the worker thread.
@@ -439,18 +481,31 @@ func _bake_player_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vect
 ## prefetch-only region. Regions already cached, already applied, or already
 ## queued are left untouched (_queue_bake guards a loc being queued twice).
 func _prefetch_ring(player_region: Vector2i) -> void:
+	var offsets: Array = []
 	for dx in range(-PREFETCH_RADIUS, PREFETCH_RADIUS + 1):
 		for dz in range(-PREFETCH_RADIUS, PREFETCH_RADIUS + 1):
-			var loc := player_region + Vector2i(dx, dz)
-			if _baked.has(loc) or _applied.has(loc):
-				continue
-			if _queued_get(loc) == -1:
-				_queue_bake(loc, int(REGION_SIZE), PRIORITY_PREFETCH)
+			offsets.append(Vector2i(dx, dz))
+	offsets.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		var ra := maxi(absi(a.x), absi(a.y))
+		var rb := maxi(absi(b.x), absi(b.y))
+		if ra != rb:
+			return ra < rb
+		if a.x != b.x:
+			return a.x < b.x
+		return a.y < b.y
+	)
+	for off: Vector2i in offsets:
+		var loc := player_region + off
+		if _baked.has(loc) or _applied.has(loc):
+			continue
+		if _queued_get(loc) == -1:
+			_queue_bake(loc, int(REGION_SIZE), PRIORITY_PREFETCH)
 
 ## Synchronous bake + apply, reserved for the region under the player. Any
 ## async job already in flight for the same region is superseded: its record is
 ## dropped on arrival because _baked is already populated.
 func _bake_sync(data: Terrain3DData, region: Terrain3DRegion, loc: Vector2i) -> void:
+	var _t_start := _ht()
 	var map := region.get_map(Terrain3DRegion.TYPE_HEIGHT)
 	if map == null:
 		return
@@ -461,6 +516,7 @@ func _bake_sync(data: Terrain3DData, region: Terrain3DRegion, loc: Vector2i) -> 
 	sync_bake_count += 1
 	_write_region(data, region, loc, image, range.x, range.y, true, color)
 	_applied[loc] = true
+	_hm("bake_sync", _t_start)
 
 ## Writes the baked height image into the region as its full-resolution map,
 ## plus the optional RGBA8 color map as a TYPE_COLOR sibling, grows the region
@@ -471,9 +527,14 @@ func _bake_sync(data: Terrain3DData, region: Terrain3DRegion, loc: Vector2i) -> 
 ## updates every changed region in a single update_maps() call. A null color is
 ## tolerated and keeps the region height-only, exactly as before the color bake.
 func _write_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vector2i, image: Image, height_min: float = INF, height_max: float = -INF, with_update: bool = true, color: Image = null) -> void:
+	var _t_start := _ht()
+	var _t_sub := _ht()
 	region.set_map(Terrain3DRegion.TYPE_HEIGHT, image)
+	_hm("wr_set_height", _t_sub)
 	if color != null:
+		var _t_col := _ht()
 		region.set_map(Terrain3DRegion.TYPE_COLOR, color)
+		_hm("wr_set_color", _t_col)
 	if height_min == INF:
 		var range := _scan_height_range(image)
 		height_min = range.x
@@ -482,10 +543,13 @@ func _write_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vector2i, 
 	region.update_height(height_max)
 	region.set_edited(true)
 	if with_update:
+		var _t_um := _ht()
 		data.update_maps(Terrain3DRegion.TYPE_HEIGHT, false)
 		if color != null:
 			data.update_maps(Terrain3DRegion.TYPE_COLOR, false)
+		_hm("wr_update_maps", _t_um)
 	region.set_edited(false)
+	_hm("umap_inline", _t_start)
 
 func _scan_height_range(image: Image) -> Vector2:
 	var height_min := INF
@@ -589,12 +653,14 @@ func _worker_bake(worker_baker: TerrainBaker, job: Dictionary) -> Dictionary:
 ## priority), or were invalidated by a roads change are dropped/cached without
 ## touching the terrain. Applied regions are also cached for instant re-entry.
 func _drain_pending(data: Terrain3DData, max_jobs: int) -> void:
+	var _t_start := _ht()
 	if max_jobs <= 0:
 		return
 	_lock.lock()
 	var available := _pending.size()
 	if available == 0:
 		_lock.unlock()
+		_hm("drain_total", _t_start)
 		return
 	var take := mini(available, max_jobs)
 	var ready: Array = _pending.slice(0, take)
@@ -605,12 +671,15 @@ func _drain_pending(data: Terrain3DData, max_jobs: int) -> void:
 	_lock.unlock()
 	for record in ready:
 		_apply_record(record, data)
+	_hm("drain_total", _t_start)
 
 func _apply_record(record: Dictionary, data: Terrain3DData) -> void:
+	var _t_start := _ht()
 	var loc: Vector2i = record["loc"]
 	var gen: int = record["gen"]
 	if gen != _roads_generation:
 		_clear_queued_if_matching(loc, gen)
+		_hm("apply_record", _t_start)
 		return
 	var image: Image = record["image"]
 	var color: Image = record.get("color")
@@ -625,11 +694,13 @@ func _apply_record(record: Dictionary, data: Terrain3DData) -> void:
 	if not already_cached and data != null and _ring_contains(loc):
 		var region: Terrain3DRegion = data.get_regionp(center) if data.has_regionp(center) else null
 		if region != null:
-			_write_region(data, region, loc, image, record["height_min"], record["height_max"], true, color)
+			_write_region(data, region, loc, image, record["height_min"], record["height_max"], false, color)
 			_applied[loc] = true
 			async_apply_count += 1
+			_ring_update_due = true
 			region_entered.emit(loc)
 	_clear_queued_if_matching(loc, gen)
+	_hm("apply_record", _t_start)
 
 func _clear_queued_if_matching(loc: Vector2i, gen: int) -> void:
 	_lock.lock()
@@ -734,3 +805,30 @@ func _map_width(region: Terrain3DRegion) -> int:
 ## World XZ center of a region location (y is irrelevant to region math).
 func _region_center(loc: Vector2i) -> Vector3:
 	return Vector3(loc.x * REGION_SIZE + REGION_SIZE * 0.5, 0.0, loc.y * REGION_SIZE + REGION_SIZE * 0.5)
+
+## Env-gated hitch instrumentation (HITCH_TIMING=1). _ht() starts a stopwatch,
+## _hm(key, start) folds the elapsed usec into _hitch_max; accessors let a probe
+## read and reset the per-section worst-case timings. All keys are strings and
+## the helpers are no-ops when the env flag is unset, so the cost is one branch.
+func _ht() -> float:
+	return Time.get_ticks_usec() if _hitch else 0.0
+
+func _hm(key: String, start: float) -> void:
+	if not _hitch:
+		return
+	var el := Time.get_ticks_usec() - start
+	var cur: Variant = _hitch_max.get(key, 0)
+	if el > cur:
+		_hitch_max[key] = el
+
+func reset_hitch() -> void:
+	_hitch_max.clear()
+
+func hitch_active() -> bool:
+	return _hitch
+
+func hitch_max_ms() -> Dictionary:
+	var out: Dictionary = {}
+	for key in _hitch_max:
+		out[key] = float(_hitch_max[key]) / 1000.0
+	return out

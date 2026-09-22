@@ -11,7 +11,7 @@ extends RefCounted
 ## produces a matching FORMAT_RGBA8 colour map by reusing the same biome/dome
 ## math and painting per-elevation-band colours plus road-surface tints.
 
-const REGION_SIZE := 1024.0
+const REGION_SIZE := 256.0
 
 # -- Elevation band taxonomy (SEA < 0, ALPINE 600..1500+) -------------------
 const BAND_SEA := 0

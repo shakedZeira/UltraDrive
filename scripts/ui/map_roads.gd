@@ -249,7 +249,7 @@ static func shade_color(color: Color, energy: float) -> Color:
 		color.a)
 
 ## XZ world coordinates -> the Terrain3D region grid location containing them.
-static func region_loc(xz: Vector2, region_size: float = 1024.0) -> Vector2i:
+static func region_loc(xz: Vector2, region_size: float = 256.0) -> Vector2i:
 	return Vector2i(floori(xz.x / region_size), floori(xz.y / region_size))
 
 ## Sample a height provider on a uniform grid over a compute_fit() world AABB and

@@ -1,9 +1,9 @@
 # tests/test_terrain_baker.gd
 extends GdUnitTestSuite
 
-const IMAGE_WIDTH := 1024
-const REGION_SIZE := 1024.0
-const LOOP_CENTER := Vector2(3800.0, 3200.0)
+const IMAGE_WIDTH := 256
+const REGION_SIZE := 256.0
+const LOOP_CENTER := Vector2(3712.0, 3200.0)
 
 func _bake(region: Vector2i, roads: Array = []) -> Image:
 	return TerrainBaker.new().bake_region(region, 1.0, IMAGE_WIDTH, roads)
@@ -38,13 +38,13 @@ func test_spawn_plateau_guard_wins_and_natural_heights_survive() -> void:
 	var img := baker.bake_region(Vector2i.ZERO)
 	var spawn_y := _height_at(img, Vector2i.ZERO, 128.0, 128.0)
 	assert_that(spawn_y).is_between(2.18, 2.22)
-	var far_y := _height_at(img, Vector2i.ZERO, 1000.0, 1000.0)
-	assert_that(absf(far_y - baker._natural_height(1000.0, 1000.0))).is_less(0.5)
+	var far_y := _height_at(img, Vector2i.ZERO, 250.0, 250.0)
+	assert_that(absf(far_y - baker._natural_height(250.0, 250.0))).is_less(0.5)
 	assert_that(far_y).is_not_equal(2.2)
 	assert_that(far_y).is_not_equal(1.0)
 
 func test_road_conforming_carves_loop_and_relaxes_to_natural() -> void:
-	var region := Vector2i(3, 3)
+	var region := Vector2i(14, 12)
 	var loop := _build_loop(LOOP_CENTER)
 	var road_list: Array = [loop]
 	var carved := _bake(region, road_list)
@@ -96,7 +96,7 @@ func test_alpine_dome_peak_in_alpine_band() -> void:
 ## P1 colour-map road tint: on a baked region with a road, a texel at the road
 ## centreline is asphalt-tinted (colour differs from a texel 200 m away).
 func test_road_tint_differs_from_natural_color() -> void:
-	var region := Vector2i(3, 3)
+	var region := Vector2i(14, 12)
 	var loop := _build_loop(LOOP_CENTER)
 	var road_list: Array = [loop]
 	var color_img := TerrainBaker.new().bake_region_color(region, 1.0, IMAGE_WIDTH, road_list)

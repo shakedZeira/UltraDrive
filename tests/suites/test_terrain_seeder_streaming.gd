@@ -6,8 +6,8 @@ extends GdUnitTestSuite
 ## be queued twice, and the region under the player must always bake
 ## synchronously before any async result is applied.
 
-const IMAGE_WIDTH := 1024
-const REGION_SIZE := 1024.0
+const IMAGE_WIDTH := 256
+const REGION_SIZE := 256.0
 const SPAWN := Vector3(128.0, 2.2, 128.0)
 const PLAYER_REGION := Vector2i(0, 0)
 const NEIGHBOR_REGION := Vector2i(1, 0)

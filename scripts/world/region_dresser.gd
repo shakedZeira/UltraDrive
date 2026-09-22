@@ -41,7 +41,7 @@ const DEFAULT_MASTER_SEED := 82731408
 const DRESS_NODE_NAME := "Dress"
 const PROPS_CHILD_NAME := "Props"
 const FOLIAGE_CHILD_NAME := "Foliage"
-const REGION_CELL := 1024.0  # region-loc geometry is fixed at REGION_SIZE 1024
+const REGION_CELL := 256.0  # region-loc geometry is fixed at REGION_SIZE 256
 
 ## Prefetch-band culling: drawn = ceil(placed * (clamped prefetch_density *
 ## PREFETCH_VISIBILITY_RATIO)). The 1.25 factor makes the 0.5 prefetch band draw

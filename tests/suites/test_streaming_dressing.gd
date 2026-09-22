@@ -12,7 +12,7 @@ extends GdUnitTestSuite
 ## orphan-free.
 
 const MASTER_TEST := 82731408
-const REGION_CELL := 1024.0
+const REGION_CELL := 256.0
 const SPAWN := Vector3(128.0, 0.0, 128.0)
 ## Foliage counts are zone-independent (exports only), so live density is
 ## exactly grass_count + tree_count and prefetch (0.5) is half of that.

@@ -5,9 +5,9 @@ extends GdUnitTestSuite
 ## ordering across region hashes, colour determinism, sea-level mask consistency
 ## and road-recess check carried over from test_terrain_baker conventions.
 
-const IMAGE_WIDTH := 1024
-const REGION_SIZE := 1024.0
-const LOOP_CENTER := Vector2(3800.0, 3200.0)
+const IMAGE_WIDTH := 256
+const REGION_SIZE := 256.0
+const LOOP_CENTER := Vector2(3712.0, 3200.0)
 
 func _bake(region: Vector2i, roads: Array = []) -> Image:
 	return TerrainBaker.new().bake_region(region, 1.0, IMAGE_WIDTH, roads)
@@ -101,7 +101,7 @@ func test_sea_level_mask() -> void:
 ## (6) Road corridors still recess: carved height at a road point matches the
 ## road centreline y within 0.5 m (carried from test_terrain_baker).
 func test_road_corridors_recess() -> void:
-	var region := Vector2i(3, 3)
+	var region := Vector2i(14, 12)
 	var loop := _build_loop(LOOP_CENTER)
 	var road_list: Array = [loop]
 	var carved := _bake(region, road_list)
