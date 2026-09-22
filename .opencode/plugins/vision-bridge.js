@@ -11,7 +11,7 @@ const VISION_MODEL = "qwen2.5vl:7b";
 const IDLE_MILLIS = 60_000;
 const MAX_DIM = 1280;
 const START_TIMEOUT_MS = 120_000;
-const INFER_TIMEOUT_MS = 300_000;
+const INFER_TIMEOUT_MS = 600_000;
 let child = null;
 let idleTimer = null;
 let serverPromise = null;
@@ -237,7 +237,7 @@ try {
     });
     return stdout.trim();
 }
-async function captureWindow(projectRoot, windowTitle, fullScreen = false) {
+async function captureWindow(projectRoot, windowTitle, fullScreen = false, className = "") {
     ensureDirs(projectRoot);
     const file = path.join(capturesDir(projectRoot), `${Date.now()}.png`);
     const ps = fullScreen ? `
@@ -266,6 +266,8 @@ public static class WinCap {
   public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
   [DllImport("user32.dll")]
   public static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+  public static extern int GetClassName(IntPtr h, StringBuilder s, int nMaxCount);
   [DllImport("user32.dll")]
   public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")]
@@ -276,31 +278,39 @@ public static class WinCap {
 '@
 $ErrorActionPreference = 'Stop'
 $want = '${(windowTitle ?? "UltraDrive").replace(/'/g, "''")}'
-$h = [IntPtr]::Zero
+$wantClass = '${(className ?? "").replace(/'/g, "''")}'
+$script:cands = @()
 $cb = [WinCap+EnumWindowsProc]{ param($w, $l)
   if ([WinCap]::IsWindowVisible($w)) {
     $sb = New-Object System.Text.StringBuilder 256
     $cn = New-Object System.Text.StringBuilder 256
     [WinCap]::GetWindowText($w, $sb, 256) | Out-Null
     [WinCap]::GetClassName($w, $cn, 256) | Out-Null
-    $cls = $cn.ToString()
-    if ($cls -eq 'CabinetWClass' -or $cls -eq 'Progman' -or $cls -eq 'WorkerW' -or $cls -eq 'ApplicationFrameWindow' -or $cls -eq 'Shell_TrayWnd') { return $true }
-    if ($sb.Length -gt 0 -and $sb.ToString().IndexOf($want, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
-      $script:found = $w
-      return $false
+    $title = $sb.ToString(); $cls = $cn.ToString()
+    if ($cls -eq 'CabinetWClass' -or $cls -eq 'Progman' -or $cls -eq 'WorkerW' -or $cls -eq 'ApplicationFrameWindow' -or $cls -eq 'Shell_TrayWnd' -or $cls -eq 'Shell_SecondaryTrayWnd' -or $cls -eq 'TaskManagerWindow' -or $cls -eq 'NarratorHelperWindow' -or $cls -eq 'DummyDWMListenerWindow' -or $cls -eq 'EdgeUiInputTopWndClass' -or $cls -eq 'Windows.UI.Core.CoreWindow') { return $true }
+    if ($wantClass -ne '' -and $cls -ne $wantClass) { return $true }
+    if ($title.Length -gt 0 -and $title.IndexOf($want, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+      $script:cands += ,(New-Object PSObject -Property @{ HWND=$w; Title=$title; Class=$cls })
     }
   }
   return $true
 }
 [WinCap]::EnumWindows($cb, [IntPtr]::Zero) | Out-Null
-$h = $script:found
-if ($h -eq [IntPtr]::Zero) { throw "Window not found: $want" }
+if ($script:cands.Count -eq 0) { throw "Window not found: $want" }
+$h = [IntPtr]::Zero
+foreach ($c in $script:cands) {
+  if ($c.Class -eq 'Engine' -or $c.Class -like 'Godot*') { $h = $c.HWND; break }
+}
+if ($h -eq [IntPtr]::Zero) {
+  foreach ($c in $script:cands) { if ($c.Title -eq $want) { $h = $c.HWND; break } }
+}
+if ($h -eq [IntPtr]::Zero) { $h = $script:cands[0].HWND }
 $r = New-Object 'WinCap+RECT'
 [WinCap]::GetWindowRect($h, [ref]$r) | Out-Null
 [WinCap]::SetForegroundWindow($h) | Out-Null
 Start-Sleep -Milliseconds 250
 $w = $r.Right - $r.Left; $ht = $r.Bottom - $r.Top
-if ($w -le 0 -or $ht -le 0) { throw "Window has zero size: $title" }
+if ($w -le 0 -or $ht -le 0) { throw "Window has zero size: $want" }
 $bmp = New-Object System.Drawing.Bitmap $w, $ht
 try {
   $g = [System.Drawing.Graphics]::FromImage($bmp)
@@ -372,11 +382,12 @@ export const VisionBridge = async ({ worktree, directory }) => {
                 description: "Capture a screenshot of the running game window (default title UltraDrive) or the entire screen, and save it to .vision/captures. Use before analyzing what the game currently looks like.",
                 args: {
                     windowTitle: tool.schema.string().optional().describe("Exact window title to capture (default: UltraDrive)"),
+                    className: tool.schema.string().optional().describe("Window class name to filter by (e.g. Engine for a Godot game window). Preferred over generic title matching."),
                     fullScreen: tool.schema.boolean().optional().describe("Capture the whole screen instead of a specific window"),
                 },
                 async execute(args) {
                     try {
-                        const file = await captureWindow(projectRoot, args.windowTitle, args.fullScreen);
+                        const file = await captureWindow(projectRoot, args.windowTitle, args.fullScreen, args.className);
                         return {
                             output: `Captured image saved to ${file}. Use the analyze_image tool with this exact path to see what it shows.`,
                             title: "Screen capture",
