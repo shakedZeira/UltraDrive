@@ -15,6 +15,7 @@ const EDGE_BAND_MAX := 150.0
 const STREAK_COUNT := 6
 
 var _speed_kmh := 0.0
+var _last_draw_intensity := -1.0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -24,12 +25,12 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	var car := VehicleManager.get_player_car()
 	_speed_kmh = car.get_speed_kmh() if car != null else 0.0
-	queue_redraw()
+	_redraw_if_visible_change()
 
 ## Public seam used by the HUD and the tests.
 func set_speed_kmh(speed_kmh: float) -> void:
 	_speed_kmh = maxf(speed_kmh, 0.0)
-	queue_redraw()
+	_redraw_if_visible_change()
 
 func get_speed_kmh() -> float:
 	return _speed_kmh
@@ -41,6 +42,12 @@ static func vignette_intensity(speed_kmh: float) -> float:
 
 func get_intensity() -> float:
 	return vignette_intensity(_speed_kmh)
+
+func _redraw_if_visible_change() -> void:
+	var intensity := get_intensity()
+	if absf(intensity - _last_draw_intensity) >= 0.01:
+		_last_draw_intensity = intensity
+		queue_redraw()
 
 func _draw() -> void:
 	var intensity := get_intensity()

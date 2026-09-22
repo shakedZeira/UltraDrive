@@ -263,7 +263,15 @@ Source: `optimizing_3d_performance` -> `scaling_3d_mode`.
 
 Gate: probe FPS up; capture check for acceptable softness.
 
-### Phase 4 — Terrain3D clipmap tuning
+### Phase 4 — Terrain3D clipmap tuning — **RESOLVED: LOW VALUE, `collision_mode` MEASURED AND REJECTED**
+
+Measured 2026-09-21: terrain render is only ~187k/618k prims (~30%); hiding it
+changes FPS by nothing (CPU-bound scene). `mesh_lods`/`mesh_size`/`gi_mode`
+tuning could shave maybe ~14 ms of GPU but the scene is **not GPU-bound** — that
+work is currently waste. The `collision_mode` experiment was run: **mode `1`
+DYNAMIC_GAME made `process_ms` WORSE by +13.4 ms with physics unchanged**
+(the per-frame collision re-generation tax beats any broadphase win at 9 shapes)
+and was reverted. Leave collision at FULL_GAME.
 
 Source: `https://terrain3d.readthedocs.io/en/latest/api/class_terrain3d.html`.
 - **Verified defaults** (Terrain3D 1.1.0-dev, from the class reference):
@@ -330,15 +338,33 @@ area (e.g. the mountain-pass corridor) shows up as the outlier in the probe.
 | After phase | FPS avg | frame_ms | prims | draws | notes |
 |---|---|---|---|---|---|
 | (baseline) | 7.7 | 129.3 | 1,085,617 | 724 | pre-fix |
-| quick fixes | 18.7 | 53.5 | 987,625 | 711 | physics 60 + msaa off + traffic 5 |
+| quick fixes | 18.7 | 53.5 | 987,625 | 711 | physics 60 + msaa off + traffic 5 (**traffic 5 was INERT** — scene hard-codes 15) |
 | before Phase 1 | 11.2 | 89.6 | 987,851 | 713 | re-measure, same config (noise: 18.7 -> 11.2) |
 | **Phase 1** | **15.6** | **64.3** | **617,636** | **621** | shadows: 2 splits + atlas 2048 + terrain `cast_shadows=0` |
 | Phase 2 | 10.7 | 93.5 | 615,062 | 619 | **NO-OP — REVERTED** (redundant with `RegionDresser`) |
+| ATTRIBUTION | 25.4 | 39.3 | 618,053 | 623 | CPU-bound verdict (see below); FPS numbers are noise — use process/physics/prims/draws |
+| traffic off | 84.0 | 11.9 | 616,770 | 611 | physics 22.3 -> **12.8** — traffic = 42% of per-tick physics |
+| HUD off | 64.4 | 15.5 | 612,434 | **202** | process 22.8 -> 12.5 — HUD owns 10 ms + 421 draws |
+| dressing off | 25.9 | 38.5 | **246,509** | 568 | prims **-60%**, CPU/process UNCHANGED — GPU had headroom |
+| collision_mode 1 | 27.0 | 37.0 | 607,024 | 589 | **REJECTED** — process +13.4 ms, physics unchanged |
+| **traffic LOD** | ~84 | | 617,216 | ~611 | 15->8 cars + 140 m shelf; physics 22.9 -> **15.3** (under 60 Hz budget) |
+| **HUD cut** | ~92 | | 616,905 | **268** | process 22.8 -> **14.0**; minimap run-merge + 25 m route cache + overlay gating |
 | Phase 0 | | | | | DEFERRED (~2% measured, would rewrite deliberate tests) |
-| Phase 3 | | | | | scaling |
-| Phase 4 | | | | | terrain clipmap |
-| Phase 5 | | | | | mesh LOD |
-| Phase 6 | | | | | CPU |
+| Phase 3 | | | | | scaling (still pending, lower value now) |
+| Phase 5 | | | | | mesh LOD on dressing prims — only matters once CPU is no longer binding |
+
+**CPU reframe (disproves Phase 4's premise):** terrain render is only ~187k of
+618k prims (~30%); dressing is 371k (60%). But hiding dressing (prims -60%) left
+FPS unchanged — the open world is **CPU-bound, not GPU-bound**, and `process_ms`
++ `physics_ms` are the noise-immune signals (FPS swings 6-25 on identical
+config). `collision_mode=1` DYNAMIC_GAME was measured and REJECTED (process
++13.4 ms, physics unchanged — the idle-loop regeneration tax beats any broadphase
+win). Traffic = full `VehiclePhysics` cars (4 raycast wheels + Pacejka at 60 Hz)
+is 42% of physics; the LOD shelves far/parked cars via
+`set_simulation_enabled()` (freeze + disable `_physics_process` + raycasts).
+HUD = 10 ms process + 421/623 draws, dominated by the minimap (per-frame
+`world_to_local` over all chains + per-segment clipping); fixed by distance
+culling, contiguous colour-run merging, and a 25 m-cell route cache.
 
 **Phase 2 analysis — the plan's premise was WRONG.** `visibility_range_end` on
 the tree/prop MultiMeshes changed primitives by **-0.4% (noise)**. Reason:

@@ -57,6 +57,8 @@ func _ready() -> void:
 	class_badge.text = _car_class
 
 func set_engine_range(idle_rpm: float, redline_rpm: float) -> void:
+	if is_equal_approx(idle_rpm, _idle_rpm) and is_equal_approx(redline_rpm, _redline_rpm):
+		return
 	_idle_rpm = idle_rpm
 	_redline_rpm = maxf(redline_rpm, idle_rpm + 1.0)
 	_target_rpm = clampf(_target_rpm, _idle_rpm, _redline_rpm)

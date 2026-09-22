@@ -51,6 +51,9 @@ var _countdown_audio: CountdownAudio = null
 var _last_countdown_phase: String = ""
 var _stats: SessionStats = GameState.session_stats
 var _last_tick_speed_kmh: float = 0.0
+var _hud_rpm := -1.0
+var _hud_gear := -999
+var _hud_speed := -1.0
 var _nav_road_source: Object = null
 var _brake_line: BrakeLine = null
 
@@ -81,9 +84,17 @@ func _process(delta: float) -> void:
 	var info := car.get_drive_info()
 	var speed_kmh := float(info["speed_kmh"])
 	_stats.tick(delta, speed_kmh, _g_from_speed_delta(delta, speed_kmh), _is_drifting(info))
-	cluster.set_rpm(float(info["rpm"]))
-	cluster.set_gear(int(info["gear"]))
-	cluster.set_speed_kmh(float(info["speed_kmh"]))
+	var rpm := float(info["rpm"])
+	var gear := int(info["gear"])
+	if absf(rpm - _hud_rpm) >= 1.0:
+		_hud_rpm = rpm
+		cluster.set_rpm(rpm)
+	if gear != _hud_gear:
+		_hud_gear = gear
+		cluster.set_gear(gear)
+	if absf(speed_kmh - _hud_speed) >= 0.5:
+		_hud_speed = speed_kmh
+		cluster.set_speed_kmh(speed_kmh)
 	var cfg := car.config
 	if cfg != null:
 		cluster.set_engine_range(cfg.idle_rpm, cfg.redline_rpm)
