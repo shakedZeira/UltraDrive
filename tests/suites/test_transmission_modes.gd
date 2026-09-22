@@ -93,9 +93,10 @@ func test_shift_up_action_binds_joypad_button_three() -> void:
 func test_shift_down_action_binds_joypad_button_zero() -> void:
     assert_that(_action_has_joypad_button("shift_down", 0)).is_true()
 
-func test_handbrake_no_longer_binds_joypad_button_three() -> void:
+func test_handbrake_binds_joypad_button_one_circle() -> void:
     assert_that(_action_has_joypad_button("handbrake", 3)).is_false()
-    assert_that(_action_has_joypad_button("handbrake", 10)).is_true()
+    assert_that(_action_has_joypad_button("handbrake", 10)).is_false()
+    assert_that(_action_has_joypad_button("handbrake", 1)).is_true()
 
 func _action_has_joypad_button(action: String, index: int) -> bool:
     for event in InputMap.action_get_events(action):
