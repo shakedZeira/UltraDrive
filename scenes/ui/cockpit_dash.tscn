@@ -1,0 +1,128 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/race/cockpit_dash.gd" id="1_dash"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_dash_panel"]
+content_margin_left = 12.0
+content_margin_top = 8.0
+content_margin_right = 12.0
+content_margin_bottom = 8.0
+bg_color = Color(0.02, 0.03, 0.06, 0.86)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.31, 0.84, 1, 0.35)
+corner_radius_top_left = 14
+corner_radius_top_right = 14
+corner_radius_bottom_right = 14
+corner_radius_bottom_left = 14
+shadow_color = Color(0, 0, 0, 0.35)
+shadow_size = 6
+
+[node name="CockpitDash" type="CanvasLayer"]
+layer = 2
+script = ExtResource("1_dash")
+
+[node name="DashPanel" type="Control" parent="."]
+unique_name_in_owner = true
+visible = false
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -310.0
+offset_top = -140.0
+offset_right = 310.0
+offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+
+[node name="PanelBG" type="Panel" parent="DashPanel"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_dash_panel")
+
+[node name="GearLabel" type="Label" parent="DashPanel"]
+unique_name_in_owner = true
+offset_left = 16.0
+offset_top = 6.0
+offset_right = 156.0
+offset_bottom = 116.0
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0.02, 0.04, 0.09, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.55)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 68
+
+[node name="GearUnit" type="Label" parent="DashPanel"]
+offset_left = 16.0
+offset_top = 100.0
+offset_right = 156.0
+offset_bottom = 126.0
+text = "GEAR"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_colors/font_color = Color(0.31, 0.84, 1, 1)
+theme_override_font_sizes/font_size = 15
+
+[node name="RpmLabel" type="Label" parent="DashPanel"]
+unique_name_in_owner = true
+offset_left = 158.0
+offset_top = 22.0
+offset_right = 318.0
+offset_bottom = 84.0
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_colors/font_color = Color(0.93, 0.96, 1, 1)
+theme_override_colors/font_outline_color = Color(0.02, 0.04, 0.09, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 36
+
+[node name="RpmUnit" type="Label" parent="DashPanel"]
+offset_left = 158.0
+offset_top = 92.0
+offset_right = 318.0
+offset_bottom = 118.0
+text = "RPM"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_colors/font_color = Color(0.31, 0.84, 1, 1)
+theme_override_font_sizes/font_size = 15
+
+[node name="SpeedLabel" type="Label" parent="DashPanel"]
+unique_name_in_owner = true
+offset_left = 320.0
+offset_top = 6.0
+offset_right = 596.0
+offset_bottom = 116.0
+horizontal_alignment = 2
+vertical_alignment = 1
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0.02, 0.04, 0.09, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.5)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 68
+
+[node name="SpeedUnit" type="Label" parent="DashPanel"]
+offset_left = 320.0
+offset_top = 100.0
+offset_right = 596.0
+offset_bottom = 126.0
+text = "km/h"
+horizontal_alignment = 2
+vertical_alignment = 1
+theme_override_colors/font_color = Color(0.31, 0.84, 1, 1)
+theme_override_font_sizes/font_size = 15

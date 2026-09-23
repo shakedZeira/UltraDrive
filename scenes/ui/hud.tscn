@@ -1,10 +1,12 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/minimap.gd" id="2_minimap"]
 [ext_resource type="Script" path="res://scripts/race/race_ui.gd" id="1_race"]
 [ext_resource type="Script" path="res://scripts/race/tachometer.gd" id="3_tach"]
 [ext_resource type="Script" path="res://scripts/race/results_confetti.gd" id="4_confetti"]
 [ext_resource type="Script" path="res://scripts/ui/speed_overlay.gd" id="5_overlay"]
+[ext_resource type="PackedScene" path="res://scenes/ui/cockpit_dash.tscn" id="6_cdash"]
+[ext_resource type="PackedScene" path="res://scenes/ui/rear_view_mirror.tscn" id="7_mirror"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_class_pill"]
 content_margin_left = 12.0
@@ -504,3 +506,7 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("5_overlay")
+
+[node name="CockpitDash" parent="." instance=ExtResource("6_cdash")]
+
+[node name="RearViewMirror" parent="." instance=ExtResource("7_mirror")]
