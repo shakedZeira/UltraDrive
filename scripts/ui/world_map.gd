@@ -9,13 +9,16 @@ extends Control
 ## (grey) segments; without one every road draws in the visited color. Left-click
 ## a revealed road to fast-travel to it.
 ##
-## Terrain composite (graphics-gap item 9): when a height provider is available
-## (the open world's Terrain3D, or TerrainSeeder's baked corridor cache) the map
-## additionally tints a discrete grid of cells under the roads with MapRoads'
-## satellite biome palette + NW hillshade, so the pause map reads like an aerial
-## satellite layer instead of a flat black slab. terrain_cells() reuses the exact
-## world_to_screen fit as the roads, keeping everything pixel-aligned. Without a
-## provider the composite is skipped and the map stays roads-only.
+## Terrain composite (graphics-gap item 9): when a world terrain source exists
+## (TerrainSeeder or a Terrain3D) the map preloads the deterministic TerrainBaker
+## natural field once per open and tints a discrete grid of cells under the roads
+## with MapRoads' satellite biome palette + NW hillshade, so the pause map reads
+## like a satellite layer. Heights come from the preloaded full-world field --
+## NOT the streamed ring -- so mountains are visible across the whole driveable
+## world the moment the map opens and never pop in as the player approaches.
+## terrain_cells() reuses the exact world_to_screen fit as the roads, keeping
+## everything pixel-aligned. Without a source the composite is skipped and the
+## map stays roads-only.
 
 const ROAD_COLOR := Color(0.5, 0.62, 0.85, 0.88)
 const UNVISITED_ROAD_COLOR := Color(0.42, 0.44, 0.48, 0.72)
@@ -55,8 +58,18 @@ var _discovery_source: WorldDiscovery = null
 
 ## Optional height reader override: Callable(Vector2 xz) -> float. Tests inject a
 ## fake here to assert the composite deterministically; when empty, _rebuild()
-## falls back to the open-world Terrain3D / TerrainSeeder under _resolve_height_reader().
+## falls back to the preloaded full-world field under _resolve_height_reader().
 var height_provider: Callable = Callable()
+
+## Preloaded full-world relief (no-pop-in requirement): a deterministic
+## TerrainBaker.bake_full_height_image() frame covering the current fit's world
+## AABB, baked once on the first open and reused for every rebuild that fit
+## covers. The map reads THIS instead of the streamed ring, so distant mountains
+## are visible from the moment the map opens.
+var _preload_image: Image = null
+var _preload_rect := Rect2()
+var _preload_texel := Vector2.ONE
+var _map_baker := TerrainBaker.new()
 
 func refresh() -> void:
 	_dirty = true
@@ -237,23 +250,30 @@ func _rebuild() -> void:
 	_player_screen = MapRoads.world_to_screen(player_pos, _fit) if _has_player else Vector2.ZERO
 
 ## Height reader (Callable(Vector2 xz) -> float) for the pause-map composite.
-## Prefers TerrainSeeder's baked corridor cache so height is known across the
-## whole road network even where the live Terrain3D has not streamed yet, then
-## falls back to the live Terrain3D get_height() sampled directly. Returns an
-## empty Callable when no terrain source is present -> roads-only map.
+## Preloads the deterministic TerrainBaker natural field once per fit (64x64
+## texels over the fit AABB, ~10ms on CPU) and serves the whole map from that
+## cache, so elevations are identical everywhere the moment the map opens -- no
+## seeder/live-ring streaming, no pop-in as the player approaches. Gated on a
+## world terrain source (TerrainSeeder or a Terrain3D) matching the old reader;
+## without one the map stays roads-only.
 func _resolve_height_reader() -> Callable:
 	if get_tree() == null:
 		return Callable()
-	var live = MapRoads.height_from_terrain(self)
-	var seeder = MapRoads.resolve_seeder(self)
-	if seeder == null:
-		return live
-	return func(xz: Vector2) -> float:
-		var loc := MapRoads.region_loc(xz)
-		var h := float(seeder.baked_region_height(loc, Vector3(xz.x, 0.0, xz.y)))
-		if h != 0.0:
-			return h
-		return float(live.call(xz)) if live.is_valid() else 0.0
+	if MapRoads.resolve_seeder(self) == null and not MapRoads.height_from_terrain(self).is_valid():
+		return Callable()
+	if _fit.is_empty():
+		return Callable()
+	var world_min: Vector2 = _fit["world_min"]
+	var world_max: Vector2 = _fit["world_max"]
+	var want := Rect2(world_min, world_max - world_min)
+	if not _preload_rect.encloses(want):
+		_preload_rect = want
+		_preload_texel = Vector2(
+			maxf(want.size.x / float(TERRAIN_CELLS), 0.001),
+			maxf(want.size.y / float(TERRAIN_CELLS), 0.001))
+		_preload_image = _map_baker.bake_full_height_image(
+			world_min, world_max, TERRAIN_CELLS, TERRAIN_CELLS)
+	return MapRoads.height_from_image(_preload_image, _preload_rect.position, _preload_texel)
 
 ## Left-click on the visible pause map fast-travels to the clicked road point
 ## when the WorldDriver accepts it (the point must be on a revealed road).

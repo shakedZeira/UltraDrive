@@ -50,6 +50,12 @@ const COUNTERSTEER_RAMP_END_KMH := 140.0
 const ANALOG_RESPONSE_POWER := 2.0
 const ANALOG_RESPONSE_DEADZONE := 0.02
 
+## Legacy steering falloff curve: full lock at standstill falling to 30% of the
+## config max (the floor) at/above STEER_FALLOFF_SPEED_KMH. Preserved exactly
+## above the low-speed taper so high-speed steer amount is unchanged.
+const STEER_FALLOFF_SPEED_KMH := 200.0
+const STEER_FALLOFF_FLOOR := 0.7
+
 ## Tuneable per scene/tests; defaults mirror the consts above.
 @export var analog_response_power: float = ANALOG_RESPONSE_POWER
 @export var analog_response_deadzone: float = ANALOG_RESPONSE_DEADZONE
@@ -225,8 +231,10 @@ func _physics_process(delta: float) -> void:
         return
 
     # --- Steering ---
-    var speed_factor := 1.0 - clampf(current_speed_kmh / 200.0, 0.0, 0.7)
-    var target_steer := deg_to_rad(config.max_steer_angle) * steer_input * speed_factor
+    # Speed-sensitive lock: the low-speed arcade boost lifts the steer lock at
+    # parking speeds for a tighter turning radius, then blends onto the legacy
+    # falloff so high-speed steer amount (and stability) is unchanged.
+    var target_steer := deg_to_rad(steer_lock_deg(current_speed_kmh, config)) * steer_input
     steer_angle = move_toward(steer_angle, target_steer, config.steer_speed * delta)
 
     wheel_fl.rotation.y = steer_angle
@@ -235,6 +243,11 @@ func _physics_process(delta: float) -> void:
     # --- Drivetrain ---
     var forward_speed := -global_basis.z.dot(linear_velocity)
     _drivetrain.set_wheel_speed(forward_speed)
+    var axle_speed := 0.0
+    if _wheels.size() >= 3:
+        axle_speed = (_wheels[2].wheel_angular_velocity + _wheels[3].wheel_angular_velocity) \
+            * 0.5 * WheelPhysics.WHEEL_RADIUS
+    _drivetrain.set_axle_speed(axle_speed)
     _drivetrain.manual_mode = GameState.transmission_mode == GameState.TransmissionMode.MANUAL
     if controls_locked:
         _drivetrain.rpm_override = RaceManager.rev_override()
@@ -246,8 +259,6 @@ func _physics_process(delta: float) -> void:
         elif InputManager.is_shift_down_just_pressed():
             _drivetrain.shift_down(config)
     var drive_info := _drivetrain.update(delta, throttle, config)
-    # Brake/drive direction runs through the gearbox: reverse flips it.
-    var gear_dir := -1.0 if _drivetrain.current_gear < 0 else 1.0
 
     # --- Surface & grip context (resolved BEFORE the high-speed blocks that
     # need the same grip envelope the tires use later in the frame) ---
@@ -279,12 +290,8 @@ func _physics_process(delta: float) -> void:
     # COUNTERSTEER_RAMP_END_KMH), OFF while handbraking, and clamped to the
     # config torque (Nm) so a committed drift is only guided, never fought.
     var yaw_taper := 0.0
-    if config.countersteer_assist > 0.0 and not handbrake and forward_speed > 0.0:
-        yaw_taper = clampf(
-            (current_speed_kmh - COUNTERSTEER_RAMP_START_KMH)
-            / (COUNTERSTEER_RAMP_END_KMH - COUNTERSTEER_RAMP_START_KMH),
-            0.0, 1.0
-        )
+    if config.countersteer_assist > 0.0 and not handbrake:
+        yaw_taper = yaw_assist_taper(forward_speed, current_speed_kmh)
         if yaw_taper > 0.0:
             var lateral_grip := config.tire_D * grip_mult * float(surface_factors["lateral"]) * weather_factor
             var yaw_target := compute_stability_yaw_target(
@@ -305,13 +312,16 @@ func _physics_process(delta: float) -> void:
 
         # --- Per-wheel axle torque ---
         # Drive torque flows through the existing Drivetrain (gear/ratio math)
-        # unchanged, split across the driven axle. Brake torque keeps the same
-        # gear_dir sign convention as the old drive_force -= brake_force path, so
-        # reverse braking still acts as travel opposing. Fronts get brake only.
+        # unchanged, split across the driven axle. Brake torque opposes the
+        # direction of TRAVEL (sign via brake_torque_for), so braking always
+        # slows the car whether it rolls forward or backward, regardless of the
+        # selected gear. Fronts get brake only.
         var drive_axle_torque := 0.0
         if i >= 2:  # rear wheels get drive (RWD for now)
             drive_axle_torque = drive_info["drive_torque"] / 2.0
-        var brake_torque := gear_dir * brake_input * config.max_brake_torque
+        var brake_torque := brake_torque_for(
+            forward_speed, _drivetrain.current_gear, brake_input, config.max_brake_torque
+        )
 
         # --- Tire forces (only when the wheel bears weight) ---
         var lon_force := 0.0
@@ -530,6 +540,56 @@ static func apply_analog_response(value: float, power: float = ANALOG_RESPONSE_P
     if power == 1.0:
         return x
     return pow(x, power)
+
+## Speed-sensitive steer lock (degrees) for the player steering path. The
+## legacy 200 km/h falloff curve (full lock at standstill -> 30% of max at
+## 140+ km/h) is preserved EXACTLY above `low_speed_steer_taper_kmh`; below it,
+## an arcade boost lifts the lock from `max_steer_angle` at the taper to
+## `low_speed_steer_angle` at standstill, shrinking the low-speed turning radius
+## without touching high-speed steer or stability. Pure and headless-safe.
+static func steer_lock_deg(speed_kmh: float, config: CarConfig) -> float:
+    var legacy := config.max_steer_angle * (1.0 - clampf(speed_kmh / STEER_FALLOFF_SPEED_KMH, 0.0, STEER_FALLOFF_FLOOR))
+    var boost: float = maxf(config.low_speed_steer_angle - config.max_steer_angle, 0.0)
+    var taper := 1.0 - clampf(speed_kmh / maxf(config.low_speed_steer_taper_kmh, 1.0), 0.0, 1.0)
+    return legacy + boost * taper
+
+## Signed brake torque (N*m) feeding step_wheel_spin's `net_torque = drive -
+## brake - tire*R`. The sign opposes the DIRECTION OF TRAVEL so braking always
+## decelerates the car whatever gear is selected and whichever way it rolls: a
+## positive sign slows forward travel, a negative sign slows backward travel.
+## Inside the ABS parked-hold band (|travel| <= PARKED_HOLD_SPEED) the hold
+## pins the wheel regardless of sign, so the legacy gear-keyed sign (behind
+## the band's) is kept there. Pure and headless-safe.
+static func brake_torque_for(travel_speed: float, gear: int, brake_input: float, max_brake_torque: float) -> float:
+    if brake_input <= 0.0:
+        return 0.0
+    var magnitude := brake_input * max_brake_torque
+    var sign: float
+    if travel_speed > WheelPhysics.PARKED_HOLD_SPEED:
+        sign = 1.0
+    elif travel_speed < -WheelPhysics.PARKED_HOLD_SPEED:
+        sign = -1.0
+    else:
+        sign = -1.0 if gear < 0 else 1.0
+    return sign * magnitude
+
+## Yaw-assist envelope (0..1) for stability_yaw_torque. Forward travel keeps
+## the existing 70->140 km/h ramp EXACTLY (arcade low-speed drift feel is
+## byte-for-byte untouched); backward travel - which the legacy gate excluded
+## entirely - gets full assist so a reverse-roll spin is damped and steerable.
+## Reverse speeds are arcade-capped at 25 km/h, so this branch can never
+## overlap the high-speed envelope. Zero at exact standstill. Pure and
+## headless-safe.
+static func yaw_assist_taper(forward_speed: float, speed_kmh: float) -> float:
+    if forward_speed > 0.0:
+        return clampf(
+            (speed_kmh - COUNTERSTEER_RAMP_START_KMH)
+            / (COUNTERSTEER_RAMP_END_KMH - COUNTERSTEER_RAMP_START_KMH),
+            0.0, 1.0
+        )
+    if forward_speed < 0.0:
+        return 1.0
+    return 0.0
 
 ## Aero downforce load (N) at the given HORIZONTAL speed (m/s): the textbook
 ## 0.5 * rho * Cl * A * v^2. Zero at rest/creep so the low-speed arcade feel is

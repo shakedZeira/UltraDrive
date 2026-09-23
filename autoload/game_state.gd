@@ -12,8 +12,13 @@ const SettingsMenuScript: GDScript = preload("res://scripts/ui/settings_menu.gd"
 enum GameMode { MAIN_MENU, FREE_ROAM, RACE, LICENSE_TEST, GARAGE }
 enum TransmissionMode { AUTO, MANUAL }
 
+## Save key for the transmission preference (AUTO=0 / MANUAL=1) inside the
+## slot-0 save. Missing key == fresh install (or a pre-feature save that never
+## persisted the mode) -> MANUAL, the new default.
+const TRANSMISSION_SAVE_KEY := "transmission_mode"
+
 var current_mode: GameMode = GameMode.MAIN_MENU
-var transmission_mode: TransmissionMode = TransmissionMode.AUTO
+var transmission_mode: TransmissionMode = TransmissionMode.MANUAL
 var quality_preset: int = 1
 var probe_enabled: bool = true
 ## F5 camera-and-feel settings surface (XAG-117). The persisted knob dict,
@@ -46,8 +51,18 @@ func _ready() -> void:
         season = clamp(int(data["season"]), 0, RegionalClimate.SEASON_COUNT - 1)
     else:
         season = _default_season()
+    transmission_mode = transmission_mode_from_save(data)
     WeatherManager.set_season(season)
     call_deferred("_apply_quality_to_current_scene")
+
+## Fresh-install default is MANUAL; a saved explicit choice in the slot save
+## overrides it. New saves lack the key and so land on the new default; old
+## saves never persisted the mode, so they do too (existing data is never
+## interpreted as an AUTO preference it never recorded).
+static func transmission_mode_from_save(data: Dictionary) -> TransmissionMode:
+    if data.has(TRANSMISSION_SAVE_KEY):
+        return TransmissionMode.MANUAL if int(data[TRANSMISSION_SAVE_KEY]) == 1 else TransmissionMode.AUTO
+    return TransmissionMode.MANUAL
 
 ## Season from the system's real-world week number (P4): the 52-week year
 ## rotates through WINTER/SPRING/SUMMER/FALL.
@@ -115,6 +130,9 @@ func set_mode(mode: GameMode) -> void:
 
 func set_transmission_mode(mode: TransmissionMode) -> void:
     transmission_mode = mode
+    var data := SaveManager.load_game(0)
+    data[TRANSMISSION_SAVE_KEY] = int(mode)
+    SaveManager.save_game(0, data)
 
 func set_quality_preset(preset: int) -> void:
     quality_preset = preset

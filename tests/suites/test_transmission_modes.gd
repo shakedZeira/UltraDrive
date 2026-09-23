@@ -56,12 +56,15 @@ func test_manual_shift_up_at_top_gear_is_noop() -> void:
     assert_that(dt.current_gear).is_equal(RALLY_CONFIG.gear_ratios.size())
     assert_that(dt.is_shifting).is_false()
 
-func test_manual_shift_down_at_first_gear_is_noop() -> void:
+## Old behavior (pre-reverse-gating): a manual downshift from 1st was a no-op.
+## New contract (manual-only): downshifting from 1st is the SINGLE path into
+## reverse (-1); nothing else auto-selects R while manual.
+func test_manual_shift_down_from_first_enters_reverse() -> void:
     var dt := _new_drivetrain()
     dt.manual_mode = true
     dt.shift_down(RALLY_CONFIG)
-    assert_that(dt.current_gear).is_equal(1)
-    assert_that(dt.is_shifting).is_false()
+    assert_that(dt.current_gear).is_equal(-1)
+    assert_that(dt.is_shifting).is_true()
 
 func test_manual_shift_down_rejected_when_over_rev() -> void:
     # In 5th (ratio 1.1 * 4.1) at 70 m/s, 4th (1.4 * 4.1) would spin to ~11627

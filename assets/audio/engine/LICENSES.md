@@ -59,6 +59,47 @@ warmup     = 3 s (resonance settle)   samplerate 48000   monophonic
 these derivative WAVs inherit that permissive license (use, copy, modify,
 merge, publish, distribute, sublicense).
 
+## Muscle V8 bed set (`muscle/`, `muscle_v8.esc`)
+
+Same enginesound v1.5.0 CLI as the V10, but with a big-bore V8 recipe
+(`muscle_v8.esc`, saved next to this file). Derived from the repository's
+`example1.esc` structure, re-parameterized for an even-firing 8-cylinder
+geometry: exhaust/intake pipe delays lengthened (exhaust ~0.0009–0.00115 s —
+the long-pipe rumble), `exhaust_volume 0.70`, and a heavier
+`crankshaft_fluctuation 0.11`. Bed RPMs mirror the V8's ~6200 redline:
+
+| File | Line (RPM) | Loop |
+| --- | --- | --- |
+| `muscle/engine_idle.wav` | 800 | seamless |
+| `muscle/engine_low.wav` | 1700 | seamless |
+| `muscle/engine_mid.wav` | 3000 | seamless |
+| `muscle/engine_high.wav` | 4500 | seamless |
+| `muscle/engine_max.wav` | 6000 | seamless |
+
+## Rally turbo-4 bed set (`rally/`, `rally_i4.esc`)
+
+High-rev 4-cylinder recipe (`rally_i4.esc`, saved next to this file), again a
+derivative of `example1.esc`: 4 cylinders, short exhaust delays
+(~0.00015–0.0002 s — the raspy bark), `intake_volume 0.48`,
+`intake_noise_factor 0.42` so turbo suck-through reads, and a light
+`crankshaft_fluctuation 0.05`. Bed RPMs climb to the 4-pot's ~8200 redline:
+
+| File | Line (RPM) | Loop |
+| --- | --- | --- |
+| `rally/engine_idle.wav` | 800 | seamless |
+| `rally/engine_low.wav` | 2200 | seamless |
+| `rally/engine_mid.wav` | 4000 | seamless |
+| `rally/engine_high.wav` | 6000 | seamless |
+| `rally/engine_max.wav` | 7900 | seamless |
+
+Both families use the same seamless-loop recipe as the V10 (wavelength =
+120/rpm, crossfade = 2×wavelength, resealed to the same RMS loudness and
+48 kHz mono 16-bit PCM). Both `muscle_v8.esc` and `rally_i4.esc` are MIT
+derivatives of the enginesound repository, so the WAVs inherit that permissive
+license. The car's bed set is picked per-car via `CarConfig.engine_bed_set`
+(else `engine_timbre`, else the V10 `sport` family) — see `EngineAudio`,
+`scripts/audio/engine_audio.gd`.
+
 ## Usage in game (`EngineAudio`, `scripts/audio/engine_audio.gd`)
 
 - Five crossfaded bands; each is an independent looping `AudioStreamPlayer3D`

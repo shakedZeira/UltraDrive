@@ -60,6 +60,20 @@ order above (plain --headless probe FIRST, then the -s run with the flag AFTER
 the tool-script path) is what keeps it green. When in doubt, just run step 2
 once, then step 3.
 
+### Full-suite runs ALWAYS go to a background sub-agent (never block the main session)
+
+The full suite takes ~10-15 min on the GTX 970. NEVER run it in the main
+session's foreground and never wait on it: dispatch the gate (import probe then
+one GDUnit `-s` run) as ONE background sub-agent, and dispatch the actual
+feature work as OTHER sub-agents in PARALLEL in the same message — the main
+session never blocks. One Godot process at a time: the import probe
+(`--headless --import .` filter for `SCRIPT ERROR`/`Parse Error`) MUST run
+before and inside the same background batch as the GDUnit `-s` run, and feature
+sub-agents must NOT run Godot while the gate sub-agent is mid-suite. Both gate
+commands run ONCE each — never loop or re-run "to confirm". Editing other files
+while it runs is safe (the suite runs off the same tree but writes only
+`_gdunit.txt`); read the gated result when the gate sub-agent reports back.
+
 ## BLENDER MCP (D4)
 
 - Blender MCP bridges this session to a live Blender 4.5 (addon version [1,6],

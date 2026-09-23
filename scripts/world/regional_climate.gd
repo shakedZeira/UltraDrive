@@ -27,31 +27,31 @@ const ALPINE_GRIP: Array[float] = [0.30, 0.38, 0.45, 0.34]
 ## WeatherManager.Weather values so the sampler only ever hands back a valid
 ## transport id.
 const PROFILE_PLAINS: Dictionary = {
-	Season.WINTER: {WeatherManager.Weather.CLEAR: 0.45, WeatherManager.Weather.CLOUDY: 0.35, WeatherManager.Weather.STORM: 0.20},
-	Season.SPRING: {WeatherManager.Weather.CLEAR: 0.45, WeatherManager.Weather.CLOUDY: 0.35, WeatherManager.Weather.STORM: 0.20},
-	Season.SUMMER: {WeatherManager.Weather.CLEAR: 0.45, WeatherManager.Weather.CLOUDY: 0.35, WeatherManager.Weather.STORM: 0.20},
-	Season.FALL: {WeatherManager.Weather.CLEAR: 0.45, WeatherManager.Weather.CLOUDY: 0.35, WeatherManager.Weather.STORM: 0.20},
+	Season.WINTER: {WeatherManager.Weather.CLEAR: 0.50, WeatherManager.Weather.CLOUDY: 0.40, WeatherManager.Weather.STORM: 0.10},
+	Season.SPRING: {WeatherManager.Weather.CLEAR: 0.50, WeatherManager.Weather.CLOUDY: 0.40, WeatherManager.Weather.STORM: 0.10},
+	Season.SUMMER: {WeatherManager.Weather.CLEAR: 0.50, WeatherManager.Weather.CLOUDY: 0.40, WeatherManager.Weather.STORM: 0.10},
+	Season.FALL: {WeatherManager.Weather.CLEAR: 0.50, WeatherManager.Weather.CLOUDY: 0.40, WeatherManager.Weather.STORM: 0.10},
 }
 
 const PROFILE_COASTAL: Dictionary = {
-	Season.WINTER: {WeatherManager.Weather.RAIN: 0.45, WeatherManager.Weather.STORM: 0.25, WeatherManager.Weather.CLOUDY: 0.20, WeatherManager.Weather.CLEAR: 0.10},
-	Season.SPRING: {WeatherManager.Weather.RAIN: 0.40, WeatherManager.Weather.STORM: 0.25, WeatherManager.Weather.CLOUDY: 0.20, WeatherManager.Weather.CLEAR: 0.15},
-	Season.SUMMER: {WeatherManager.Weather.RAIN: 0.30, WeatherManager.Weather.STORM: 0.20, WeatherManager.Weather.CLOUDY: 0.25, WeatherManager.Weather.CLEAR: 0.25},
-	Season.FALL: {WeatherManager.Weather.RAIN: 0.45, WeatherManager.Weather.STORM: 0.25, WeatherManager.Weather.CLOUDY: 0.20, WeatherManager.Weather.CLEAR: 0.10},
+	Season.WINTER: {WeatherManager.Weather.RAIN: 0.20, WeatherManager.Weather.STORM: 0.15, WeatherManager.Weather.CLOUDY: 0.35, WeatherManager.Weather.CLEAR: 0.30},
+	Season.SPRING: {WeatherManager.Weather.RAIN: 0.20, WeatherManager.Weather.STORM: 0.12, WeatherManager.Weather.CLOUDY: 0.38, WeatherManager.Weather.CLEAR: 0.30},
+	Season.SUMMER: {WeatherManager.Weather.RAIN: 0.15, WeatherManager.Weather.STORM: 0.10, WeatherManager.Weather.CLOUDY: 0.40, WeatherManager.Weather.CLEAR: 0.35},
+	Season.FALL: {WeatherManager.Weather.RAIN: 0.20, WeatherManager.Weather.STORM: 0.15, WeatherManager.Weather.CLOUDY: 0.35, WeatherManager.Weather.CLEAR: 0.30},
 }
 
 const PROFILE_LOWLAND: Dictionary = {
-	Season.WINTER: {WeatherManager.Weather.FOG: 0.30, WeatherManager.Weather.CLOUDY: 0.30, WeatherManager.Weather.RAIN: 0.25, WeatherManager.Weather.CLEAR: 0.15},
-	Season.SPRING: {WeatherManager.Weather.FOG: 0.20, WeatherManager.Weather.CLOUDY: 0.30, WeatherManager.Weather.RAIN: 0.30, WeatherManager.Weather.CLEAR: 0.20},
-	Season.SUMMER: {WeatherManager.Weather.CLEAR: 0.30, WeatherManager.Weather.CLOUDY: 0.30, WeatherManager.Weather.RAIN: 0.25, WeatherManager.Weather.FOG: 0.15},
-	Season.FALL: {WeatherManager.Weather.FOG: 0.25, WeatherManager.Weather.CLOUDY: 0.30, WeatherManager.Weather.RAIN: 0.25, WeatherManager.Weather.CLEAR: 0.20},
+	Season.WINTER: {WeatherManager.Weather.FOG: 0.30, WeatherManager.Weather.CLOUDY: 0.38, WeatherManager.Weather.RAIN: 0.12, WeatherManager.Weather.CLEAR: 0.20},
+	Season.SPRING: {WeatherManager.Weather.FOG: 0.20, WeatherManager.Weather.CLOUDY: 0.40, WeatherManager.Weather.RAIN: 0.15, WeatherManager.Weather.CLEAR: 0.25},
+	Season.SUMMER: {WeatherManager.Weather.CLEAR: 0.35, WeatherManager.Weather.CLOUDY: 0.38, WeatherManager.Weather.RAIN: 0.12, WeatherManager.Weather.FOG: 0.15},
+	Season.FALL: {WeatherManager.Weather.FOG: 0.25, WeatherManager.Weather.CLOUDY: 0.38, WeatherManager.Weather.RAIN: 0.12, WeatherManager.Weather.CLEAR: 0.25},
 }
 
 const PROFILE_HIGHLAND: Dictionary = {
-	Season.WINTER: {WeatherManager.Weather.SNOW: 0.40, WeatherManager.Weather.STORM: 0.30, WeatherManager.Weather.CLOUDY: 0.30},
-	Season.SPRING: {WeatherManager.Weather.SNOW: 0.25, WeatherManager.Weather.RAIN: 0.25, WeatherManager.Weather.CLOUDY: 0.25, WeatherManager.Weather.CLEAR: 0.25},
-	Season.SUMMER: {WeatherManager.Weather.CLEAR: 0.30, WeatherManager.Weather.CLOUDY: 0.30, WeatherManager.Weather.RAIN: 0.25, WeatherManager.Weather.STORM: 0.15},
-	Season.FALL: {WeatherManager.Weather.SNOW: 0.30, WeatherManager.Weather.STORM: 0.25, WeatherManager.Weather.RAIN: 0.25, WeatherManager.Weather.CLOUDY: 0.20},
+	Season.WINTER: {WeatherManager.Weather.SNOW: 0.50, WeatherManager.Weather.STORM: 0.15, WeatherManager.Weather.CLOUDY: 0.35},
+	Season.SPRING: {WeatherManager.Weather.SNOW: 0.28, WeatherManager.Weather.RAIN: 0.12, WeatherManager.Weather.CLOUDY: 0.30, WeatherManager.Weather.CLEAR: 0.30},
+	Season.SUMMER: {WeatherManager.Weather.CLEAR: 0.40, WeatherManager.Weather.CLOUDY: 0.40, WeatherManager.Weather.RAIN: 0.12, WeatherManager.Weather.STORM: 0.08},
+	Season.FALL: {WeatherManager.Weather.SNOW: 0.36, WeatherManager.Weather.STORM: 0.12, WeatherManager.Weather.RAIN: 0.12, WeatherManager.Weather.CLOUDY: 0.40},
 }
 
 const PROFILE_ALPINE: Dictionary = {

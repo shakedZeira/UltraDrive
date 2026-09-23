@@ -17,10 +17,10 @@ const MIN_WEATHER_INTERVAL_SECONDS := 30.0
 const MAX_WEATHER_INTERVAL_SECONDS := 60.0
 
 const WEATHER_WEIGHTS: Dictionary = {
-    WeatherManager.Weather.CLEAR: 0.40,
-    WeatherManager.Weather.CLOUDY: 0.25,
-    WeatherManager.Weather.RAIN: 0.15,
-    WeatherManager.Weather.STORM: 0.10,
+    WeatherManager.Weather.CLEAR: 0.48,
+    WeatherManager.Weather.CLOUDY: 0.29,
+    WeatherManager.Weather.RAIN: 0.08,
+    WeatherManager.Weather.STORM: 0.05,
     WeatherManager.Weather.FOG: 0.06,
     WeatherManager.Weather.SNOW: 0.04,
 }

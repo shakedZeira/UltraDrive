@@ -9,6 +9,7 @@ car_class = "C"
 price = 18000
 visual_path = "res://assets/cars/cc0_sedan_sports.glb"
 engine_timbre = "sport"
+engine_bed_set = "sport"
 mass_kg = 1200.0
 max_torque = 305.0
 peak_rpm = 6200.0

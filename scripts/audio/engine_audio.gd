@@ -34,6 +34,42 @@ const BAND_FILES: Dictionary = {
 ## Bed centre RPMs, in BAND_ORDER order. These are the exact synth RPMs.
 const BAND_RPMS: Array[float] = [800.0, 2000.0, 3500.0, 5500.0, 6900.0]
 
+## Per-timbre real-bed families (same enginesound pipeline, different synth
+## recipes): muscle = big-bore V8, rally = high-rev turbo-4. Each family owns
+## its own five loop beds under assets/audio/engine/<family>/, its own band
+## ladder (authored relative to its redline), pitch clamp window and master
+## trim. "sport" stays exactly today's V10 files / math.
+const TIMBRE_SPORT: String = "sport"
+const TIMBRE_MUSCLE: String = "muscle"
+const TIMBRE_RALLY: String = "rally"
+
+const BAND_FILES_MUSCLE: Dictionary = {
+	"idle": "res://assets/audio/engine/muscle/engine_idle.wav",
+	"low": "res://assets/audio/engine/muscle/engine_low.wav",
+	"mid": "res://assets/audio/engine/muscle/engine_mid.wav",
+	"high": "res://assets/audio/engine/muscle/engine_high.wav",
+	"max": "res://assets/audio/engine/muscle/engine_max.wav",
+}
+const BAND_FILES_RALLY: Dictionary = {
+	"idle": "res://assets/audio/engine/rally/engine_idle.wav",
+	"low": "res://assets/audio/engine/rally/engine_low.wav",
+	"mid": "res://assets/audio/engine/rally/engine_mid.wav",
+	"high": "res://assets/audio/engine/rally/engine_high.wav",
+	"max": "res://assets/audio/engine/rally/engine_max.wav",
+}
+const BAND_RPMS_MUSCLE: Array[float] = [800.0, 1700.0, 3000.0, 4500.0, 6000.0]
+const BAND_RPMS_RALLY: Array[float] = [800.0, 2200.0, 4000.0, 6000.0, 7900.0]
+## Family nominal idle/redline used to place each band ladder on the 0..1 RPM
+## axis (build_curves_for): muscle V8 peaks at 6200, the rally 4-pot at 8200.
+const RPM_SPAN_MUSCLE: Vector2 = Vector2(800.0, 6200.0)
+const RPM_SPAN_RALLY: Vector2 = Vector2(800.0, 8200.0)
+const PITCH_MIN_MUSCLE: float = 0.55
+const PITCH_MAX_MUSCLE: float = 1.6
+const PITCH_MIN_RALLY: float = 0.45
+const PITCH_MAX_RALLY: float = 1.9
+const MASTER_TRIM_DB_MUSCLE: float = 1.0
+const MASTER_TRIM_DB_RALLY: float = -1.0
+
 const TRAFFIC_AUDIO_RANGE: float = 300.0
 const MASTER_TRIM_DB: float = -3.0
 const MUTE_FLOOR_DB: float = -80.0
@@ -88,18 +124,21 @@ var _gear_primed: bool = false
 var _shift_elapsed: float = SHIFT_DURATION
 var _prev_throttle: float = 0.0
 var _lift_env: float = 0.0
+var _bed_set: String = ""
+var _band_rpms: Array[float] = []
+var _pitch_min: float = PITCH_MIN
+var _pitch_max: float = PITCH_MAX
+var _trim_db: float = 0.0
+var _auto_curves: bool = true
 
 
 func _ready() -> void:
 	unit_size = 2.0
 	max_distance = 80.0
 	_car = get_parent() as VehiclePhysics
-	_beds = load_beds()
-	_curves.resize(BAND_ORDER.size())
-	if volume_curves.is_empty():
-		volume_curves = build_default_curves()
-	for i in range(volume_curves.size()):
-		_curves[i] = volume_curves[i]
+	_auto_curves = volume_curves.is_empty()
+	_apply_profile(_get_config())
+	_sync_curves()
 	_create_band_players()
 	for player in _band_players:
 		player.play()
@@ -107,6 +146,39 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	_remove_lpf()
+
+
+## Resolves the car's bed family (engine_bed_set, else engine_timbre, else
+## sport) and, when it changed since last call, reloads the five loop beds, the
+## per-band RPM ladder, pitch clamp window and master trim, and rebuilds the
+## auto crossfade curves. Called from _ready and re-checked every physics frame
+## so a config assigned after this node's _ready (controller or spawner) takes
+## effect without a scene reload.
+func _apply_profile(cfg: CarConfig) -> void:
+	var bed_set := TIMBRE_SPORT
+	if cfg != null:
+		bed_set = normalize_timbre(cfg.get_engine_bed_set())
+	if bed_set == _bed_set:
+		return
+	_bed_set = bed_set
+	_band_rpms = band_rpms_for_timbre(bed_set)
+	var pitch_window := pitch_window_for_timbre(bed_set)
+	_pitch_min = pitch_window.x
+	_pitch_max = pitch_window.y
+	_trim_db = master_trim_db_for_timbre(bed_set)
+	_beds = load_beds_for(bed_files_for_timbre(bed_set))
+	if _auto_curves:
+		var span := rpm_span_for_timbre(bed_set)
+		volume_curves = build_curves_for(_band_rpms, span.x, span.y)
+	for i in range(_band_players.size()):
+		if i < _beds.size():
+			_band_players[i].stream = _beds[i]["stream"]
+
+
+func _sync_curves() -> void:
+	_curves.resize(BAND_ORDER.size())
+	for i in range(volume_curves.size()):
+		_curves[i] = volume_curves[i]
 
 
 func _create_band_players() -> void:
@@ -138,6 +210,7 @@ func _physics_process(delta: float) -> void:
 			return
 
 	var cfg := _get_config()
+	_apply_profile(cfg)
 	var idle: float = IDLE_RPM
 	var redline: float = REDLINE_RPM
 	if cfg != null:
@@ -183,8 +256,8 @@ func _physics_process(delta: float) -> void:
 
 	for i in range(_band_players.size()):
 		var player := _band_players[i]
-		player.pitch_scale = band_pitch_scale(live_rpm, BAND_RPMS[i]) * shift_pitch
-		var target_db := band_gain_db(weights[i], load_gain, trans_db)
+		player.pitch_scale = band_pitch_scale_window(live_rpm, _band_rpms[i], _pitch_min, _pitch_max) * shift_pitch
+		var target_db := clampf(band_gain_db(weights[i], load_gain, trans_db) + _trim_db, MUTE_FLOOR_DB, 6.0)
 		var vol: float = move_toward(_vol_ema[i], target_db, VOL_SLEW_DB)
 		_vol_ema[i] = vol
 		player.volume_db = vol
@@ -227,9 +300,15 @@ func cull_by_distance(camera_pos: Vector3, range_m: float) -> void:
 ## loop_end is the -1 "whole sample" sentinel. The loop end is therefore snapped
 ## to the stream's actual sample count so playback actually begins and loops.
 static func load_beds() -> Array[Dictionary]:
+	return load_beds_for(BAND_FILES)
+
+
+## Same ladder load as load_beds() but from an explicit per-band file table
+## (eg a per-timbre family). Pure static for testability.
+static func load_beds_for(files: Dictionary) -> Array[Dictionary]:
 	var beds: Array[Dictionary] = []
 	for name: String in BAND_ORDER:
-		var path: String = BAND_FILES[name]
+		var path: String = files[name]
 		var stream: AudioStream = null
 		if ResourceLoader.exists(path):
 			var res := load(path) as AudioStream
@@ -247,6 +326,82 @@ static func load_beds() -> Array[Dictionary]:
 			"stream": stream,
 		})
 	return beds
+
+
+## Unknown or empty timbres fall back to the shipped V10 sport family.
+static func normalize_timbre(timbre: String) -> String:
+	if timbre == TIMBRE_MUSCLE or timbre == TIMBRE_RALLY:
+		return timbre
+	return TIMBRE_SPORT
+
+
+## Per-band file table for a timbre. "sport" is exactly BAND_FILES (the
+## shipped V10 beds); muscle/rally point into their own synthesized sub-dirs.
+static func bed_files_for_timbre(timbre: String) -> Dictionary:
+	match normalize_timbre(timbre):
+		TIMBRE_MUSCLE:
+			return BAND_FILES_MUSCLE
+		TIMBRE_RALLY:
+			return BAND_FILES_RALLY
+	return BAND_FILES
+
+
+## Bed ladder for a timbre (a fresh copy so callers can't mutate the const).
+static func band_rpms_for_timbre(timbre: String) -> Array[float]:
+	match normalize_timbre(timbre):
+		TIMBRE_MUSCLE:
+			return BAND_RPMS_MUSCLE.duplicate()
+		TIMBRE_RALLY:
+			return BAND_RPMS_RALLY.duplicate()
+	return BAND_RPMS.duplicate()
+
+
+## Pitch clamp window {min, max} for the ladder's continuous tracking.
+static func pitch_window_for_timbre(timbre: String) -> Vector2:
+	match normalize_timbre(timbre):
+		TIMBRE_MUSCLE:
+			return Vector2(PITCH_MIN_MUSCLE, PITCH_MAX_MUSCLE)
+		TIMBRE_RALLY:
+			return Vector2(PITCH_MIN_RALLY, PITCH_MAX_RALLY)
+	return Vector2(PITCH_MIN, PITCH_MAX)
+
+
+## Master trim DELTA (dB) added on top of MASTER_TRIM_DB. sport = 0 keeps the
+## shipped V10 mix untouched.
+static func master_trim_db_for_timbre(timbre: String) -> float:
+	match normalize_timbre(timbre):
+		TIMBRE_MUSCLE:
+			return MASTER_TRIM_DB_MUSCLE
+		TIMBRE_RALLY:
+			return MASTER_TRIM_DB_RALLY
+	return 0.0
+
+
+## Family nominal {idle, redline} used to place its band ladder on the 0..1 axis.
+static func rpm_span_for_timbre(timbre: String) -> Vector2:
+	match normalize_timbre(timbre):
+		TIMBRE_MUSCLE:
+			return RPM_SPAN_MUSCLE
+		TIMBRE_RALLY:
+			return RPM_SPAN_RALLY
+	return Vector2(IDLE_RPM, REDLINE_RPM)
+
+
+## Everything EngineAudio needs about one timbre in one deterministic dict.
+static func profile_for_timbre(timbre: String) -> Dictionary:
+	var family := normalize_timbre(timbre)
+	var pitch_window := pitch_window_for_timbre(family)
+	var span := rpm_span_for_timbre(family)
+	return {
+		"timbre": family,
+		"band_files": bed_files_for_timbre(family),
+		"band_rpms": band_rpms_for_timbre(family),
+		"pitch_min": pitch_window.x,
+		"pitch_max": pitch_window.y,
+		"trim_db": master_trim_db_for_timbre(family),
+		"idle_rpm": span.x,
+		"redline_rpm": span.y,
+	}
 
 
 ## Equal-power crossfade over the ordered band centres: at any RPM only the two
@@ -275,20 +430,27 @@ static func band_weights(rpm_norm: float, centers: Array[float]) -> Array[float]
 ## raised-cosine lobe per band. Each curve is sampled across its support so the
 ## runtime Curve.sample() path and the analytic function agree.
 static func build_default_curves() -> Array[Curve]:
-	var centers := normalized_centers()
+	return build_curves_for(BAND_RPMS, IDLE_RPM, REDLINE_RPM)
+
+
+## Builds the same raised-cosine ladder curves as build_default_curves() but
+## from an explicit band-RPM ladder and idle/redline anchors, so each bed
+## family can own its crossfade shape.
+static func build_curves_for(band_rpms: Array[float], idle_rpm: float, redline_rpm: float) -> Array[Curve]:
+	var centers := normalized_centers_for(band_rpms, idle_rpm, redline_rpm)
 	var curves: Array[Curve] = []
-	for b in range(BAND_ORDER.size()):
+	for b in range(band_rpms.size()):
 		var c := Curve.new()
 		var pts := PackedVector2Array()
 		if b == 0:
 			pts.push_back(Vector2(0.0, 1.0))
-		elif b == BAND_ORDER.size() - 1:
+		elif b == band_rpms.size() - 1:
 			pts.push_back(Vector2(1.0, 1.0))
 		var seg_start: float = 0.0
 		var seg_end: float = 1.0
 		if b > 0:
 			seg_start = centers[b - 1]
-		if b < BAND_ORDER.size() - 1:
+		if b < band_rpms.size() - 1:
 			seg_end = centers[b + 1]
 		# Points on both adjacent segments around this band.
 		for k in range(0, 9):
@@ -327,6 +489,14 @@ static func normalized_centers() -> Array[float]:
 	return centers
 
 
+## Band centre positions from an explicit ladder + idle/redline anchors.
+static func normalized_centers_for(band_rpms: Array[float], idle_rpm: float, redline_rpm: float) -> Array[float]:
+	var centers: Array[float] = []
+	for rpm: float in band_rpms:
+		centers.append(clampf((rpm - idle_rpm) / maxf(redline_rpm - idle_rpm, 1.0), 0.0, 1.0))
+	return centers
+
+
 ## rpm on the 0..1 ladder between idle and redline.
 static func rpm_normalized(rpm: float, idle: float, redline: float) -> float:
 	return clampf((rpm - idle) / maxf(redline - idle, 1.0), 0.0, 1.0)
@@ -343,9 +513,14 @@ static func load_value(rpm_norm: float, throttle: float, rpm_deriv: float = 0.0)
 ## Clamped to PITCH_MIN..PITCH_MAX so no band warps beyond recognition; the
 ## crossfade hands the mix to a neighbour whose clamp window holds the live RPM.
 static func band_pitch_scale(live_rpm: float, band_rpm: float) -> float:
+	return band_pitch_scale_window(live_rpm, band_rpm, PITCH_MIN, PITCH_MAX)
+
+
+## band_pitch_scale() with an explicit clamp window (per-timbre pitch character).
+static func band_pitch_scale_window(live_rpm: float, band_rpm: float, pitch_min: float, pitch_max: float) -> float:
 	if band_rpm <= 0.0:
 		return 1.0
-	return clampf(live_rpm / band_rpm, PITCH_MIN, PITCH_MAX)
+	return clampf(live_rpm / band_rpm, pitch_min, pitch_max)
 
 
 ## Effective (post-pitch-shift) engine speed a given bed sounds like.

@@ -7,12 +7,12 @@ extends Node3D
 ## "camera_mode" (C / view button) cycles onward.
 ##
 ## F1: the C-toggle is now a deterministic 4-mode cycle CHASE -> ORBIT -> HOOD
-## -> COCKPIT -> CHASE. Each mode activates exactly one camera; right-stick
-## still grabs orbit directly from any mode (today's behaviour). The hood and
-## cockpit cameras are sibling nodes wired via hood_camera_path /
-## cockpit_camera_path. On switch the newly-current camera gets a
-## reset_physics_interpolation() so physics interpolation never leaves a
-## 1-frame ghost.
+## -> COCKPIT -> CHASE. Each mode activates exactly one camera; the right stick
+## grabs ORBIT only from CHASE (the HOOD/COCKPIT first-person cameras consume
+## the stick for look-around instead of being ejected). The hood and cockpit
+## cameras are sibling nodes wired via hood_camera_path / cockpit_camera_path.
+## On switch the newly-current camera gets a reset_physics_interpolation() so
+## physics interpolation never leaves a 1-frame ghost.
 
 enum CameraMode { CHASE = 0, ORBIT = 1, HOOD = 2, COCKPIT = 3 }
 
@@ -75,7 +75,7 @@ func _physics_process(delta: float) -> void:
 
 	if Input.is_action_just_pressed("camera_mode") and not stick_active:
 		cycle_mode_for_test()
-	elif stick_active and _mode != CameraMode.ORBIT:
+	elif stick_active and _stick_should_grab_orbit():
 		_mode = CameraMode.ORBIT
 		_apply_mode()
 		_preserve_orbit_angles()
@@ -97,6 +97,13 @@ func _physics_process(delta: float) -> void:
 func cycle_mode_for_test() -> void:
 	_mode = (_mode + 1) % 4
 	_apply_mode()
+
+## Right-stick grab decision: the stick grabs ORBIT only from CHASE (the classic
+## nudge-into-orbit feel). In HOOD/COCKPIT the stick is the first-person
+## look-around input and must never eject those views, so this is a predicate
+## tests can drive without faking the Input singleton.
+func _stick_should_grab_orbit() -> bool:
+	return _mode == CameraMode.CHASE
 
 ## Activates exactly one camera for the current mode and retires the others.
 ## The newly-current camera also gets reset_physics_interpolation() so a mode

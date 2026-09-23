@@ -9,6 +9,7 @@ car_class = "A"
 price = 45000
 visual_path = "res://assets/cars/cc0_race.glb"
 engine_timbre = "sport"
+engine_bed_set = "sport"
 mass_kg = 1250.0
 max_torque = 395.0
 peak_rpm = 6800.0

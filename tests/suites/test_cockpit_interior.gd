@@ -217,3 +217,102 @@ func test_windshield_forward_view_gate_unchanged_by_rig() -> void:
 
 	orbit.call("cycle_mode_for_test")  # chase again
 	assert_that(driver.call("_is_forward_view")).is_true()
+
+## Gate 5: the cabin SteeringWheel sits at a sane eye-relative height — its rim
+## (torus outer radius 0.16 above the wheel origin) stays just below the drive
+## eye at the authored rig-local transform in cockpit_rig.tscn, NOT below the
+## seat base.
+func test_steering_wheel_sits_just_below_drive_eye() -> void:
+	var root := _new_root()
+	var rig := CockpitRigScene.instantiate() as CockpitRig
+	_managed.append(rig)
+	root.add_child(rig)
+	var wheel := rig.get_node_or_null("SteeringWheel") as Node3D
+	assert_that(wheel).is_not_null()
+	if wheel == null:
+		return
+	assert_that(wheel.position.y).is_less_equal(-0.18)
+	assert_that(wheel.position.y).is_greater_equal(-0.22)
+	assert_that(wheel.position.y + float(wheel.mesh.get("outer_radius"))).is_less_equal(0.0)
+	assert_float(wheel.position.x).is_equal_approx(0.0, 0.0001)
+	assert_float(wheel.position.z).is_equal_approx(-0.4, 0.0001)
+
+## Gate 6: the steering-wheel animation reads the parent VehiclePhysics'
+## get_drive_info()["steer"] each frame and spins the wheel around its LOCAL Y
+## (the torus axle) by steer * CabinSteerLock, right-multiplied so the physical
+## tilt is preserved. Steer is driven through the real seams: set input steer,
+## read get_drive_info(), tick _process exactly like the game does.
+func test_steering_wheel_spins_from_car_drive_info() -> void:
+	var root := _new_root()
+	var car := _new_player_car(root)
+	var rig := car.get_node_or_null("CockpitRig") as CockpitRig
+	assert_that(rig).is_not_null()
+	var wheel := rig.get_node_or_null("SteeringWheel") as Node3D
+	assert_that(wheel).is_not_null()
+	if wheel == null:
+		return
+	var base := wheel.basis
+
+	car._steer_input = 0.5
+	var info: Dictionary = car.get_drive_info()
+	assert_that(float(info.get("steer"))).is_equal(0.5)
+	rig.call("_process", 1.0 / 60.0)
+
+	var spin := _recover_steer_spin(base, wheel.basis)
+	assert_float(spin).is_equal_approx(0.5 * CockpitRig.STEER_VISUAL_MAX_RAD_CABIN, 0.0001)
+	assert_that(wheel.basis.y).is_equal_approx(base.y, Vector3(0.0001, 0.0001, 0.0001))
+
+## Gate 6 / bounds: steer is clamped to -1..1 and the wheel returns exactly to
+## its authored physical tilt at zero steer.
+func test_steering_wheel_clamps_and_returns_to_base_basis() -> void:
+	var root := _new_root()
+	var rig := CockpitRigScene.instantiate() as CockpitRig
+	_managed.append(rig)
+	root.add_child(rig)
+	var wheel := rig.get_node_or_null("SteeringWheel") as Node3D
+	assert_that(wheel).is_not_null()
+	if wheel == null:
+		return
+	var base := wheel.basis
+
+	rig.call("apply_drive_info", {"steer": 2.0})
+	assert_float(_recover_steer_spin(base, wheel.basis)).is_equal_approx(
+		CockpitRig.STEER_VISUAL_MAX_RAD_CABIN, 0.0001
+	)
+
+	rig.call("apply_drive_info", {"steer": -2.0})
+	assert_float(_recover_steer_spin(base, wheel.basis)).is_equal_approx(
+		-CockpitRig.STEER_VISUAL_MAX_RAD_CABIN, 0.0001
+	)
+
+	rig.call("apply_drive_info", {"steer": 0.0})
+	assert_that(_recover_steer_spin(base, wheel.basis)).is_equal_approx(0.0, 0.0001)
+	assert_that(wheel.basis.x).is_equal_approx(base.x, Vector3(0.0001, 0.0001, 0.0001))
+	assert_that(wheel.basis.y).is_equal_approx(base.y, Vector3(0.0001, 0.0001, 0.0001))
+	assert_that(wheel.basis.z).is_equal_approx(base.z, Vector3(0.0001, 0.0001, 0.0001))
+
+## Gate 6 / degradation: a rig with no VehiclePhysics parent and an empty
+## drive_info dictionary both leave the wheel untouched (no crash, no spin).
+func test_steering_wheel_degrades_gracefully_without_car_or_steer() -> void:
+	var root := _new_root()
+	var rig := CockpitRigScene.instantiate() as CockpitRig
+	_managed.append(rig)
+	root.add_child(rig)
+	var wheel := rig.get_node_or_null("SteeringWheel") as Node3D
+	assert_that(wheel).is_not_null()
+	if wheel == null:
+		return
+	var base := wheel.basis
+
+	rig.call("_process", 1.0 / 60.0)  # parent is the plain test root
+	assert_that(_recover_steer_spin(base, wheel.basis)).is_equal_approx(0.0, 0.0001)
+
+	rig.call("apply_drive_info", {})  # no steer key
+	assert_that(_recover_steer_spin(base, wheel.basis)).is_equal_approx(0.0, 0.0001)
+
+## Recovers the cabin spin angle (rad) applied on top of `base` by a
+## right-multiplied Y-rotation: base^-1 * current must equal that rotation, and
+## its atan2(sin, cos) of the rotation's x column is the wheel's turn.
+func _recover_steer_spin(base: Basis, current: Basis) -> float:
+	var rel := base.transposed() * current
+	return atan2(rel.z.x, rel.x.x)

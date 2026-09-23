@@ -30,7 +30,7 @@ material = SubResource("mat_interior")
 
 [node name="CockpitRig" type="Node3D"]
 visible = false
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.42, -0.55)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.55, -0.55)
 script = ExtResource("1_rig")
 
 [node name="Dashboard" type="MeshInstance3D" parent="."]
@@ -54,6 +54,6 @@ mesh = SubResource("mesh_header")
 shadow_casting = 0
 
 [node name="SteeringWheel" type="MeshInstance3D" parent="."]
-transform = Transform3D(-1, 0, 0, 0, 0.87758, 0.47943, 0, -0.47943, -0.87758, 0, -0.06, -0.4)
+transform = Transform3D(-1, 0, 0, 0, 0.87758, 0.47943, 0, -0.47943, -0.87758, 0, -0.20, -0.4)
 mesh = SubResource("mesh_wheel")
 shadow_casting = 0

@@ -408,6 +408,138 @@ static func _trim_clone(source: StandardMaterial3D) -> StandardMaterial3D:
 	cloned.roughness = 0.45
 	return cloned
 
+# --- Cockpit see-through (D6): a mode-driven transparency pass so first-person
+# --- driving can actually SEE OUT. The paint pipeline ships glass OPAQUE on
+# --- purpose (mirror-clean from the chase cam), and the CC0/Kenney cars are
+# --- doubleSided-bodied shells whose backfaces fill the windshield cavity from
+# --- inside — the Comet (cc0_sedan_sports) has NO glass mesh at all, so its
+# --- red 'body' shell IS the windshield. While the cockpit camera owns the
+# --- viewport, Shell meshes are hidden and Glass surfaces flip to
+# --- TRANSPARENCY_ALPHA at COCKPIT_GLASS_ALPHA; leaving cockpit restores every
+# --- original flag, so chase / hood / orbit render exactly as authored.
+
+## Windshield alpha while the cockpit camera owns the viewport. Low and clean
+## (no fake tint): the world reads straight through the glass.
+const COCKPIT_GLASS_ALPHA := 0.18
+
+enum CockpitRole { GLASS = 0, SHELL = 1, OTHER = 2 }
+
+const META_GLASS_TRANSPARENCY_ORIG := "cockpit_glass_transparency_orig"
+const META_GLASS_ALPHA_ORIG := "cockpit_glass_alpha_orig"
+const META_SHELL_VISIBLE_ORIG := "cockpit_shell_visible_orig"
+
+## Classifies a visual root's surfaces for the cockpit pass. Returns
+## {"glass": Array[MeshInstance3D], "shell": Array[MeshInstance3D]} where glass
+## = surfaces that read as a windshield/window (transparency targets) and shell
+## = the paint/body surfaces that block a driver's forward view (hiding
+## targets). Wheels / rims / tires / lights / trim are neither and stay visible.
+static func cockpit_roles(root: Node3D) -> Dictionary:
+	var roles := {"glass": [], "shell": []}
+	if root == null:
+		return roles
+	_collect_cockpit_roles(root, roles)
+	return roles
+
+## Mode-driven cockpit see-through: enabled=true while the cockpit camera owns
+## the viewport — shell meshes hide (their doubleSided interior backfaces are
+## the "red wall" seen from inside the Comet) and glass surfaces become
+## transparent so the world shows through the windshield. enabled=false restores
+## every original flag. Idempotent: repeated calls with the same state are
+## no-ops. Only per-surface OVERRIDE clones (the paint pipeline's runtime
+## duplicates) are touched; embedded/shared materials are never mutated.
+static func set_cockpit_view(root: Node3D, enabled: bool) -> void:
+	if root == null:
+		return
+	var roles := cockpit_roles(root)
+	for glass_node: Variant in roles["glass"]:
+		_set_glass_cockpit(glass_node as MeshInstance3D, enabled)
+	for shell_node: Variant in roles["shell"]:
+		_set_shell_cockpit(shell_node as MeshInstance3D, enabled)
+
+static func _collect_cockpit_roles(node: Node, roles: Dictionary) -> void:
+	if node is MeshInstance3D:
+		var role := _mesh_cockpit_role(node as MeshInstance3D)
+		if role == CockpitRole.GLASS:
+			(roles["glass"] as Array).append(node)
+		elif role == CockpitRole.SHELL:
+			(roles["shell"] as Array).append(node)
+	for child: Node in node.get_children():
+		_collect_cockpit_roles(child, roles)
+
+static func _mesh_cockpit_role(mesh_instance: MeshInstance3D) -> int:
+	var mesh: Mesh = mesh_instance.mesh
+	if mesh == null:
+		return CockpitRole.OTHER
+	var shell: bool = false
+	for surface_index in range(mesh.get_surface_count()):
+		var material := _resolved_surface_material(mesh_instance, mesh, surface_index) as StandardMaterial3D
+		if material == null:
+			continue
+		var role := _material_cockpit_role(mesh_instance, material)
+		if role == CockpitRole.GLASS:
+			return CockpitRole.GLASS
+		if role == CockpitRole.SHELL:
+			shell = true
+	return CockpitRole.SHELL if shell else CockpitRole.OTHER
+
+## Mirrors the _make_override / _cc0_override classification: glass names win,
+## CC0 'colormap' wheels stay OTHER, and everything else paint-like is SHELL.
+static func _material_cockpit_role(mesh_instance: MeshInstance3D, material: StandardMaterial3D) -> int:
+	var material_name := material.resource_name.to_lower() if not material.resource_name.is_empty() else ""
+	var node_name := String(mesh_instance.name).to_lower()
+	if _is_cockpit_glass_name(material_name, node_name):
+		return CockpitRole.GLASS
+	if material_name == "colormap":
+		if node_name.contains("tire") or node_name.contains("rim") or node_name.contains("wheel"):
+			return CockpitRole.OTHER
+		return CockpitRole.SHELL
+	if material_name.contains("headlight") or material_name.contains("taillight") \
+		or material_name.contains("tire") or material_name.contains("rim") \
+		or material_name.contains("trim") or material_name.contains("graphite"):
+		return CockpitRole.OTHER
+	return CockpitRole.SHELL
+
+static func _is_cockpit_glass_name(material_name: String, node_name: String) -> bool:
+	return material_name.contains("glass") or material_name.contains("window") \
+		or material_name.contains("windshield") or node_name.contains("glass")
+
+static func _set_glass_cockpit(mesh_instance: MeshInstance3D, enabled: bool) -> void:
+	if mesh_instance == null:
+		return
+	var mesh: Mesh = mesh_instance.mesh
+	if mesh == null:
+		return
+	for surface_index in range(mesh.get_surface_count()):
+		var material := mesh_instance.get_surface_override_material(surface_index) as StandardMaterial3D
+		if material == null:
+			continue
+		if enabled:
+			if not material.has_meta(META_GLASS_TRANSPARENCY_ORIG):
+				material.set_meta(META_GLASS_TRANSPARENCY_ORIG, int(material.transparency))
+				material.set_meta(META_GLASS_ALPHA_ORIG, float(material.albedo_color.a))
+			material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			var color := material.albedo_color
+			color.a = COCKPIT_GLASS_ALPHA
+			material.albedo_color = color
+		elif material.has_meta(META_GLASS_TRANSPARENCY_ORIG):
+			material.transparency = int(material.get_meta(META_GLASS_TRANSPARENCY_ORIG))
+			var color := material.albedo_color
+			color.a = float(material.get_meta(META_GLASS_ALPHA_ORIG))
+			material.albedo_color = color
+			material.remove_meta(META_GLASS_TRANSPARENCY_ORIG)
+			material.remove_meta(META_GLASS_ALPHA_ORIG)
+
+static func _set_shell_cockpit(mesh_instance: MeshInstance3D, enabled: bool) -> void:
+	if mesh_instance == null:
+		return
+	if enabled:
+		if not mesh_instance.has_meta(META_SHELL_VISIBLE_ORIG):
+			mesh_instance.set_meta(META_SHELL_VISIBLE_ORIG, bool(mesh_instance.visible))
+		mesh_instance.visible = false
+	elif mesh_instance.has_meta(META_SHELL_VISIBLE_ORIG):
+		mesh_instance.visible = bool(mesh_instance.get_meta(META_SHELL_VISIBLE_ORIG))
+		mesh_instance.remove_meta(META_SHELL_VISIBLE_ORIG)
+
 static func paint_surface_count(root: Node3D) -> int:
 	if root == null:
 		return 0

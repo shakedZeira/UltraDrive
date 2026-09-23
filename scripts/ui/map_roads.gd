@@ -212,6 +212,45 @@ static func height_from_terrain(node: Node) -> Callable:
 		var h := float(data.get_height(Vector3(xz.x, 0.0, xz.y)))
 		return h if is_finite(h) else 0.0
 
+## Bilinear height sample from a preloaded full-world FORMAT_RF Image produced
+## by TerrainBaker.bake_full_height_image(). world_min is the frame's bottom-
+## left world anchor and texel its world-metres-per-texel; texel centres sit at
+## world_min + (i + 0.5) * texel. Out-of-range samples clamp to the nearest edge
+## texel; non-finite texels read as 0.0 (same convention as height_from_terrain).
+## Pure/deterministic so the map test can assert numbers without a scene.
+static func sample_height_image(img: Image, world_min: Vector2, texel: Vector2, xz: Vector2) -> float:
+	if img == null or img.get_width() <= 0 or img.get_height() <= 0:
+		return 0.0
+	if texel.x <= 0.0 or texel.y <= 0.0:
+		return 0.0
+	var fx := (xz.x - world_min.x) / texel.x - 0.5
+	var fy := (xz.y - world_min.y) / texel.y - 0.5
+	var w := img.get_width()
+	var h := img.get_height()
+	var x0 := clampi(int(floorf(fx)), 0, w - 1)
+	var y0 := clampi(int(floorf(fy)), 0, h - 1)
+	var x1 := mini(x0 + 1, w - 1)
+	var y1 := mini(y0 + 1, h - 1)
+	var tx := clampf(fx - floorf(fx), 0.0, 1.0)
+	var ty := clampf(fy - floorf(fy), 0.0, 1.0)
+	var a := img.get_pixel(x0, y0).r
+	var b := img.get_pixel(x1, y0).r
+	var c := img.get_pixel(x0, y1).r
+	var d := img.get_pixel(x1, y1).r
+	var value := lerpf(lerpf(a, b, tx), lerpf(c, d, tx), ty)
+	return value if is_finite(value) else 0.0
+
+## Height provider (Callable(Vector2 xz) -> float) backed by a preloaded
+## full-world height Image, for the generic terrain_cells() grid. Mirrors
+## height_from_terrain()'s contract so the pause map can swap the streamed-ring
+## reader for the once-per-open preload; returns an empty Callable for a null or
+## empty Image.
+static func height_from_image(img: Image, world_min: Vector2, texel: Vector2) -> Callable:
+	if img == null or img.get_width() <= 0 or img.get_height() <= 0:
+		return Callable()
+	return func(xz: Vector2) -> float:
+		return sample_height_image(img, world_min, texel, xz)
+
 ## Satellite-biome color for a height, sampled from a deterministic palette:
 ## deep water -> shore -> vegetated lowlands -> highland browns -> rock -> snow.
 ## Channel orderings: blue in water, green dominant in the vegetated band, red

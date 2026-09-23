@@ -18,7 +18,7 @@ extends Node3D
 ## C-cycle in orbit_camera.gd flips it on via set_view_active().
 
 @export var target: Node3D
-@export var seat_height: float = 0.42
+@export var seat_height: float = 0.55
 @export var seat_forward: float = 0.55
 @export var fov_min: float = 60.0
 @export var fov_max: float = 68.0
@@ -35,6 +35,15 @@ extends Node3D
 @export var shake_strength: float = 0.5
 @export var look_turn_strength: float = 0.3
 @export var fov_strength: float = 1.0
+## Player look-around (right stick, same camera_orbit_* actions as orbit):
+## yaw is free 360, pitch is clamped so the view can't cut through the floor
+## or roof. The look rides ON TOP of the feel basis and never moves the rigid
+## seat anchor / lateral shift / shake.
+@export var look_speed_yaw: float = 2.6
+@export var look_speed_pitch: float = 1.6
+@export var input_deadzone: float = 0.15
+@export var pitch_min: float = -0.5
+@export var pitch_max: float = 1.35
 
 # --- Caps from the plan research digest (radians / metres). ---
 const STEER_ROLL_CAP: float = 0.052        # ~3 deg lean
@@ -61,6 +70,10 @@ var _camera: Camera3D
 var _steer_filtered: float = 0.0
 var _shake_phase: float = 0.0
 
+# Persistent player look state (radians); resets to forward on activation.
+var _look_yaw: float = 0.0
+var _look_pitch: float = 0.0
+
 # Last-frame feel readouts (test hooks; derived fresh, never fed back).
 var _last_pos_offset: Vector3 = Vector3.ZERO
 var _last_roll: float = 0.0
@@ -85,6 +98,15 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if target == null:
 		return
+	if is_current_view():
+		# First-person look-around on the same right-stick actions as ORBIT:
+		# while the cockpit cam owns the viewport the stick sweeps the view
+		# around INSIDE the cockpit instead of grabbing the orbit camera.
+		var axis_x := Input.get_axis("camera_orbit_left", "camera_orbit_right")
+		var axis_y := Input.get_axis("camera_orbit_up", "camera_orbit_down")
+		# camera_orbit_* use swapped joypad bindings (right/up push fires the
+		# *_left/*_up action), so negate to make stick direction == view direction.
+		apply_look(-axis_x, -axis_y, delta)
 	_update_camera(delta)
 
 # --- Forward-view gate (F1). Mirrors chase/hood: the cockpit owns the viewport
@@ -94,9 +116,14 @@ func is_current_view() -> bool:
 
 # --- Mode ownership (F1). The C-cycle in orbit_camera.gd calls this to hand
 # --- the viewport to the cockpit camera and to release it when cycling away.
+# --- Entering the view resets the look to forward so first-person never
+# --- resumes facing backwards.
 func set_view_active(active: bool) -> void:
 	if _camera == null:
 		return
+	if active:
+		_look_yaw = 0.0
+		_look_pitch = 0.0
 	_camera.current = active
 
 ## F5 camera-and-feel apply: syncs the persisted feel knobs onto this camera's
@@ -121,8 +148,16 @@ func get_cockpit_fov() -> float:
 func get_seat_anchor() -> Vector3:
 	if target == null:
 		return global_position
-	return target.global_position + Vector3.UP * seat_height \
-		- target.global_basis.z * seat_forward
+	var s_h := seat_height
+	var s_f := seat_forward
+	var cfg := _car_config()
+	if cfg != null:
+		if cfg.cockpit_seat_height > 0.0:
+			s_h = cfg.cockpit_seat_height
+		if cfg.cockpit_seat_forward > 0.0:
+			s_f = cfg.cockpit_seat_forward
+	return target.global_position + Vector3.UP * s_h \
+		- target.global_basis.z * s_f
 
 func get_last_pos_offset() -> Vector3:
 	return _last_pos_offset
@@ -135,6 +170,25 @@ func get_last_pitch() -> float:
 
 func get_last_yaw() -> float:
 	return _last_yaw
+
+## Player look-around seam, driven by the camera_orbit_* right-stick actions
+## (in _physics_process, only while this camera owns the viewport) and called
+## directly by tests. Each axis below input_deadzone is ignored; pitch clamps
+## to pitch_min/pitch_max so the view can't cut through the floor or roof.
+func apply_look(axis_x: float, axis_y: float, delta: float) -> void:
+	var dx := axis_x if absf(axis_x) > input_deadzone else 0.0
+	var dy := axis_y if absf(axis_y) > input_deadzone else 0.0
+	_look_yaw -= dx * look_speed_yaw * delta
+	_look_pitch += dy * look_speed_pitch * delta
+	_look_pitch = clampf(_look_pitch, pitch_min, pitch_max)
+
+# --- Readable look test hooks ---
+
+func get_look_yaw() -> float:
+	return _look_yaw
+
+func get_look_pitch() -> float:
+	return _look_pitch
 
 # --- Per-frame update. Extracted so tests can drive frames deterministically
 # --- without the physics loop; null-target guard still applies. Rigid eye
@@ -191,7 +245,15 @@ func _update_camera(delta: float) -> void:
 	_last_pos_offset = position_offset + shake_global
 
 	global_position = get_seat_anchor() + _last_pos_offset
-	global_basis = _compose_feel_basis(body_basis, roll, pitch, yaw)
+
+	# Compose order: body -> feel layers (lean/dive/yaw hint) -> player look.
+	# The feel keeps riding the body axes exactly as before; the player look is
+	# the OUTERMOST rotation so pitch stays perpendicular to the lean roll and
+	# the look-into-turn hint (++ body yaw) composes underneath it cleanly.
+	var view_basis := _compose_feel_basis(body_basis, roll, pitch, yaw)
+	view_basis = view_basis.rotated(Vector3.UP, _look_yaw)
+	view_basis = view_basis.rotated(Vector3.RIGHT, -_look_pitch)
+	global_basis = view_basis
 
 	_last_roll = roll
 	_last_pitch = pitch
@@ -234,3 +296,11 @@ func _read_brake() -> float:
 	var car := target as VehiclePhysics
 	var info: Dictionary = car.get_drive_info() if car else {}
 	return float(info.get("brake", 0.0))
+
+## Resolves the target's CarConfig (per-car seat-anchor overrides); null for
+## plain Node3D test targets = fall back to the actor's exports.
+func _car_config() -> CarConfig:
+	var car := target as VehiclePhysics
+	if car == null:
+		return null
+	return car.config

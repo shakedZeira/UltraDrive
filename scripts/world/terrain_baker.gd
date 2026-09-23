@@ -133,12 +133,7 @@ var _noise := FastNoiseLite.new()
 func bake_region(region: Vector2i, bake_scale: float = 1.0, image_width: int = 1024, roads: Array = []) -> Image:
 	_bake_scale = bake_scale
 	_bake_region = region
-	_noise.seed = NOISE_SEED + _bake_region.x * 131 + _bake_region.y * 977
-	_noise.frequency = NOISE_FREQUENCY
-	_noise.fractal_octaves = NOISE_OCTAVES
-	_noise.fractal_lacunarity = NOISE_LACUNARITY
-	_noise.fractal_gain = NOISE_GAIN
-	_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	_configure_noise(_bake_region)
 	var step := REGION_SIZE / float(image_width)
 	var origin := Vector2(region.x * REGION_SIZE, region.y * REGION_SIZE)
 	var stride := image_width
@@ -173,6 +168,51 @@ func _natural_height(wx: float, wz: float) -> float:
 	var height := base + detail + _dome_weight(wx, wz)
 	height *= _bake_scale
 	return clampf(height, HEIGHT_MIN, HEIGHT_MAX)
+
+## Seeds the region-cell noise frame the natural field is evaluated in. Shared
+## by bake_region() / bake_region_color() / natural_height_at() so the ring
+## bake and any full-world preload sample the identical per-256m-cell field.
+func _configure_noise(loc: Vector2i) -> void:
+	_noise.seed = NOISE_SEED + loc.x * 131 + loc.y * 977
+	_noise.frequency = NOISE_FREQUENCY
+	_noise.fractal_octaves = NOISE_OCTAVES
+	_noise.fractal_lacunarity = NOISE_LACUNARITY
+	_noise.fractal_gain = NOISE_GAIN
+	_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+
+## Deterministic natural height at any world XZ: reseeds the noise to the
+## containing 256m cell and evaluates the same field bake_region() bakes (biome
+## table + domes + fBm detail + clamp), so an off-ring world point reads the
+## relief it WILL stream instead of 0.0. Side-effect free: _bake_scale and the
+## noise state are saved/restored, leaving bake_region() outputs untouched.
+func natural_height_at(wx: float, wz: float, bake_scale: float = 1.0) -> float:
+	var prev_scale := _bake_scale
+	_bake_scale = bake_scale
+	_configure_noise(Vector2i(floori(wx / REGION_SIZE), floori(wz / REGION_SIZE)))
+	var h := _natural_height(wx, wz)
+	_bake_scale = prev_scale
+	return h
+
+## Full-world height Image (FORMAT_RF) over [world_min, world_max), each texel
+## a natural_height_at() sample at its cell centre. Pure and deterministic;
+## preloads the pause-map relief across the whole driveable world ahead of any
+## region streaming. Does not conform roads or apply the spawn guard (the map
+## only renders the natural relief), and never touches bake_region() outputs.
+func bake_full_height_image(world_min: Vector2, world_max: Vector2, width: int = 256, height: int = 256, bake_scale: float = 1.0) -> Image:
+	var w := maxi(width, 1)
+	var h := maxi(height, 1)
+	var span := Vector2(maxf(world_max.x - world_min.x, 0.001), maxf(world_max.y - world_min.y, 0.001))
+	var step_x := span.x / float(w)
+	var step_y := span.y / float(h)
+	var buf := PackedFloat32Array()
+	buf.resize(w * h)
+	for iy in h:
+		var wz := world_min.y + (float(iy) + 0.5) * step_y
+		var row := iy * w
+		for ix in w:
+			var wx := world_min.x + (float(ix) + 0.5) * step_x
+			buf[row + ix] = natural_height_at(wx, wz, bake_scale)
+	return Image.create_from_data(w, h, false, Image.FORMAT_RF, buf.to_byte_array())
 
 func _fill_coarse_natural(out: PackedFloat32Array, origin: Vector2, step: float, K: int, cs: int) -> void:
 	var cell := step * float(K)
@@ -396,12 +436,7 @@ func _band_color(band: int) -> Color:
 func bake_region_color(region: Vector2i, bake_scale: float = 1.0, image_width: int = 1024, roads: Array = []) -> Image:
 	_bake_scale = bake_scale
 	_bake_region = region
-	_noise.seed = NOISE_SEED + _bake_region.x * 131 + _bake_region.y * 977
-	_noise.frequency = NOISE_FREQUENCY
-	_noise.fractal_octaves = NOISE_OCTAVES
-	_noise.fractal_lacunarity = NOISE_LACUNARITY
-	_noise.fractal_gain = NOISE_GAIN
-	_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	_configure_noise(_bake_region)
 	var step := REGION_SIZE / float(image_width)
 	var origin := Vector2(region.x * REGION_SIZE, region.y * REGION_SIZE)
 	var stride := image_width

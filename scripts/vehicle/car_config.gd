@@ -14,6 +14,16 @@ extends Resource
 # --- Procedural Engine Sound (timbre used by CarAudio PROFILES table) ---
 @export_enum("sport", "muscle", "rally") var engine_timbre: String = "sport"
 
+# --- Real-bed Engine Sound (bed family selected by EngineAudio) ---
+# engine_bed_set picks the synthesized steady-state bed family
+# ("sport"/"muscle"/"rally"); empty = fall back to engine_timbre.
+@export var engine_bed_set: String = ""
+
+func get_engine_bed_set() -> String:
+    if engine_bed_set != "":
+        return engine_bed_set
+    return engine_timbre
+
 # --- Mass & Dimensions ---
 @export var mass_kg: float = 1200.0
 @export var wheelbase: float = 2.5     # distance between front and rear axles (m)
@@ -70,6 +80,21 @@ extends Resource
 # --- Steering ---
 @export var max_steer_angle: float = 35.0  # degrees at low speed
 @export var steer_speed: float = 3.0       # how fast steering responds (1-5)
+## Arcade low-speed turning-radius boost: extra steer lock (degrees) available
+## at standstill, tapering out by low_speed_steer_taper_kmh so high-speed steer
+## (and stability) is untouched - above the taper the steering path runs the
+## legacy 200 km/h falloff curve exactly. 48 deg at rest vs the legacy 35.
+@export var low_speed_steer_angle: float = 48.0
+@export var low_speed_steer_taper_kmh: float = 40.0
+
+# --- Camera view anchors (per-car overrides) ---
+# <=0 = fall back to the chase/hood/cockpit camera defaults. Long-bodied cars
+# (e.g. Thunderhead muscle) raise the hood cam so the bonnet doesn't fill the
+# view; low-seat cars raise the cockpit eye.
+@export var hood_cam_height: float = 0.0
+@export var hood_cam_forward: float = 0.0
+@export var cockpit_seat_height: float = 0.0
+@export var cockpit_seat_forward: float = 0.0
 
 # --- Aerodynamics ---
 @export var drag_coefficient: float = 0.35
@@ -147,6 +172,12 @@ func get_downshift_speed_kmh(gear: int) -> float:
     ## (1-based; from `gear` to `gear - 1`).
     var idx := clampi(gear - 2, 0, downshift_speeds_kmh.size() - 1)
     return downshift_speeds_kmh[idx]
+
+## Minimum kinematic turning radius (m) for a given steer lock in degrees: the
+## single-track Ackermann circle wheelbase / tan(steer). Used as the low-speed
+## turning-radius tuning readout / acceptance-gate value.
+func get_min_turning_radius_deg(steer_deg: float) -> float:
+    return wheelbase / maxf(tan(deg_to_rad(absf(steer_deg))), 0.001)
 
 func get_max_speed() -> float:
     ## Approximate top speed in m/s based on highest gear ratio.

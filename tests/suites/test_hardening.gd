@@ -195,14 +195,16 @@ func test_steer_at_zero_speed_stays_finite_and_bounded() -> void:
 	car.angular_velocity = Vector3.ZERO
 	car.current_speed_kmh = 0.0
 	car.set_input_override(Vector2(1.0, 0.0))
-	var max_angle_rad := deg_to_rad(car.config.max_steer_angle)
+	var low_angle_rad := deg_to_rad(car.config.low_speed_steer_angle)
 	for _frame in range(60):
 		car._physics_process(1.0 / 60.0)
 	assert_that(_finite_float(car.steer_angle)).is_true()
 	assert_that(_finite_float(car.current_speed_kmh)).is_true()
 	assert_that(car.current_speed_kmh).is_equal_approx(0.0, 0.001)
-	assert_that(car.steer_angle).is_greater(max_angle_rad * 0.9)
-	assert_that(car.steer_angle).is_less_equal(max_angle_rad + 0.01)
+	# At zero speed the steer lock is the low-speed arcade boost, bounded by its
+	# configured value (low-speed turning radius improvement).
+	assert_that(car.steer_angle).is_greater(low_angle_rad * 0.9)
+	assert_that(car.steer_angle).is_less_equal(low_angle_rad + 0.01)
 	assert_that(car.wheel_fl.rotation.y).is_equal_approx(car.steer_angle, 0.0001)
 	assert_that(float(car.get_drive_info()["steer"])).is_equal(1.0)
 

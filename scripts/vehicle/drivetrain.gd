@@ -18,6 +18,7 @@ var manual_mode: bool = false  # true = driver shifts via shift_up/shift_down
 
 # --- Internal ---
 var _wheel_speed: float = 0.0  # m/s (set by VehiclePhysics)
+var _axle_speed: float = 0.0  # m/s - driven-axle spin (set by VehiclePhysics)
 
 ## Start-gate rev override: when >= 0.0, update() forces engine_rpm toward the
 ## override fraction of the rev range (0 = idle, 1 = redline) and cuts drive
@@ -47,11 +48,15 @@ func update(delta: float, throttle: float, config: CarConfig) -> Dictionary:
             is_shifting = false
 
     # --- Reverse detection ---
-    # _wheel_speed is signed: positive = forward, negative = backward. Engage
-    # reverse whenever the car actually rolls backward and drop back to 1st the
-    # moment it moves forward again (deadband prevents flicker at standstill).
+    # _wheel_speed is signed: positive = forward, negative = backward. In AUTO
+    # the box engages reverse whenever the car actually rolls backward and drops
+    # back to 1st the moment it moves forward again (deadband prevents flicker
+    # at standstill). In MANUAL reverse is PLAYER-selected only: the downshift
+    # from 1st (shift_down) is the single entry path, so rolling backward never
+    # auto-selects R. Leaving R (rolling forward, or a manual upshift) works in
+    # both modes and never re-enters R.
     if current_gear >= 1:
-        if _wheel_speed < -0.5:
+        if _wheel_speed < -0.5 and not manual_mode:
             current_gear = -1
     elif _wheel_speed > 0.5:
         current_gear = 1
@@ -78,8 +83,31 @@ func update(delta: float, throttle: float, config: CarConfig) -> Dictionary:
     var engine_torque := config.get_engine_torque(engine_rpm) * throttle
 
     # --- Engine braking (when off throttle) ---
-    if throttle < 0.05:
-        engine_torque = -config.engine_brake_torque * (engine_rpm / config.peak_rpm)
+    # Direction opposes TRAVEL, not the selected gear: a car rolling backward in
+    # a forward gear (MANUAL never auto-flips to R) must have its "engine brake"
+    # resist the reverse roll, not amplify it into a runaway. At exact rest the
+    # legacy gear-opposing sign is kept (parked) so a parked car never nudges.
+    var engine_braking := throttle < 0.05
+    if engine_braking:
+        # Scale braking off the HIGHER of the engine/body speed and the actual
+        # driven-axle spin. During a launch/standing wheelspin the body stays
+        # slow (engine_rpm ~ idle) while the wheels scream, so ECU-style body
+        # speed gave ~7% of max engine brake and the residual spin bled out
+        # slowly - the car kept pulling long after lift-off. The axle is what
+        # the engine is really driving, so a burned wheel now snaps back to
+        # rolling instead of coasting the pull. In normal driving axle == body
+        # speed, so feel is identical; only the wheelspin case changes.
+        var axle_rpm := absf(_axle_speed) / maxf(wheel_radius, 0.01) \
+                        * gear_ratio * 60.0 / TAU
+        var brake_rpm := clampf(maxf(engine_rpm, axle_rpm), config.idle_rpm, config.redline_rpm)
+        var mag := config.engine_brake_torque * (brake_rpm / config.peak_rpm)
+        var gear_sign := -1.0 if current_gear < 0 else 1.0
+        if _wheel_speed > 0.0:
+            engine_torque = -mag
+        elif _wheel_speed < 0.0:
+            engine_torque = mag
+        else:
+            engine_torque = -gear_sign * mag
 
     # --- Apply gear ratio and final drive ---
     # gear_ratio already includes the final drive, so NO extra multiplication.
@@ -88,9 +116,10 @@ func update(delta: float, throttle: float, config: CarConfig) -> Dictionary:
     else:
         drive_torque = 0.0  # no torque during shift
 
-    # Reverse routes engine torque backward through the gearbox, so throttle
-    # accelerates the car rearward and engine braking resists rearward roll.
-    if current_gear < 0:
+    # Reverse routes THROTTLE torque backward through the gearbox, so throttle
+    # accelerates the car rearward. Engine-brake torque is already travel-keyed
+    # above (absolute axle direction), so it must NOT be flipped again.
+    if current_gear < 0 and not engine_braking:
         drive_torque = -drive_torque
 
     # --- Reverse speed limiter ---
@@ -125,14 +154,24 @@ func update(delta: float, throttle: float, config: CarConfig) -> Dictionary:
     }
 
 func shift_up(config: CarConfig) -> void:
+    # A manual upshift out of reverse (-1) returns to 1st - the inverse of the
+    # 1st->R downshift. Automatic mode never reaches this branch: its auto-shift
+    # block guards current_gear > 0 and the player input path is manual-only.
+    if current_gear == -1 and manual_mode:
+        current_gear = 1
+        _start_shift(config)
+        return
     if current_gear >= 1 and current_gear < config.gear_ratios.size():
         current_gear += 1
         _start_shift(config)
 
 func shift_down(config: CarConfig) -> void:
     # Over-rev guard: reject the drop if the lower gear would push the engine
-    # past 105% of redline at the current wheel speed (protects manual shifts).
-    if current_gear > 1:  # never drop below 1st; reverse (-1) is a separate state
+    # past 105% of redline at the current wheel speed. In MANUAL mode, dropping
+    # from 1st selects reverse (-1): that is the ONLY way reverse engages while
+    # manual (rolling backward never auto-selects it), and the same over-rev
+    # guard applies so a fast forward roll cannot drop into R.
+    if current_gear > 1:
         var gear_ratio := config.get_gear_ratio(current_gear - 1)
         var wheel_radius := 0.33
         var rpm_after := absf(_wheel_speed) / maxf(wheel_radius, 0.01) \
@@ -140,6 +179,15 @@ func shift_down(config: CarConfig) -> void:
         if rpm_after > config.redline_rpm * 1.05:
             return
         current_gear -= 1
+        _start_shift(config)
+    elif current_gear == 1 and manual_mode:
+        var reverse_ratio := config.get_gear_ratio(-1)
+        var wheel_radius := 0.33
+        var rpm_after := absf(_wheel_speed) / maxf(wheel_radius, 0.01) \
+                        * reverse_ratio * 60.0 / TAU
+        if rpm_after > config.redline_rpm * 1.05:
+            return
+        current_gear = -1
         _start_shift(config)
 
 func _start_shift(config: CarConfig) -> void:
@@ -150,6 +198,12 @@ func set_wheel_speed(speed: float) -> void:
     ## Called by VehiclePhysics to update wheel speed for RPM calculation.
     _wheel_speed = speed
 
+func set_axle_speed(speed: float) -> void:
+    ## Called by VehiclePhysics with the driven axle's effective speed (mean of
+    ## the driven wheels' spin x radius). Used to scale engine braking during
+    ## wheelspin; 0.0 (default) keeps legacy behavior for direct-api users.
+    _axle_speed = speed
+
 func reset() -> void:
     engine_rpm = 800.0
     current_gear = 1
@@ -157,3 +211,4 @@ func reset() -> void:
     is_shifting = false
     reverse_limiter_active = false
     rpm_override = -1.0
+    _axle_speed = 0.0
