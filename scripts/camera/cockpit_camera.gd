@@ -43,6 +43,11 @@ const PITCH_CAP: float = 0.035             # ~2 deg dive / squat
 const SHAKE_AMP_MAX: float = 0.013         # <= ~0.015 m at full speed
 const LOOK_YAW_CAP: float = 0.07           # ~4 deg look-into-turn
 
+# --- F1 composition ratio: look-into-turn yaw rides the steer-lean strength
+# --- at its shipped 0.3/0.7 split, so lowering/raising the lean-cam knob in
+# --- the F5 settings scales both together (look_turn == steer_lean * 3/7). ---
+const LOOK_TURN_LEAN_RATIO: float = 0.3 / 0.7
+
 # --- Test/debug hooks (-1 speed means "use the real VehiclePhysics path"). ---
 @export var debug_speed_kmh: float = -1.0
 @export var debug_steer_deg: float = 0.0
@@ -93,6 +98,20 @@ func set_view_active(active: bool) -> void:
 	if _camera == null:
 		return
 	_camera.current = active
+
+## F5 camera-and-feel apply: syncs the persisted feel knobs onto this camera's
+## strength exports, falling back to current exports when a key is missing.
+## Lean-cam carries the F1 look-into-turn hint at its shipped 0.3/0.7 split (0
+## lean-cam also silences the yaw hint rather than leaving it hot). Snaps back
+## to fov_min so the applied FOV reads back deterministically.
+func sync_camera_settings(settings: Dictionary) -> void:
+	shake_strength = clampf(float(settings.get("cockpit_shake", shake_strength)), 0.0, 1.0)
+	pitch_strength = clampf(float(settings.get("cockpit_head_motion", pitch_strength)), 0.0, 1.0)
+	steer_lean_strength = clampf(float(settings.get("cockpit_lean", steer_lean_strength)), 0.0, 1.0)
+	look_turn_strength = clampf(steer_lean_strength * LOOK_TURN_LEAN_RATIO, 0.0, 1.0)
+	fov_strength = clampf(float(settings.get("camera_fov_cockpit", fov_strength)), 0.0, 1.0)
+	if _camera != null:
+		_camera.fov = fov_min
 
 # --- Readable test hooks ---
 

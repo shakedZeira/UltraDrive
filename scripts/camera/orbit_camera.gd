@@ -31,6 +31,10 @@ enum CameraMode { CHASE = 0, ORBIT = 1, HOOD = 2, COCKPIT = 3 }
 @export var fov_min: float = 70.0
 @export var fov_max: float = 90.0
 @export var fov_speed_factor: float = 0.05
+## F5 speed-FOV knob (0..1): 0 pins the orbit camera to fov_min, 1.0 is the
+## full shipped widening. Defaulting to 1.0 keeps today's feel until a player
+## opts for less.
+@export var fov_strength: float = 1.0
 @export var chase_camera_path: NodePath
 @export var hood_camera_path: NodePath
 @export var cockpit_camera_path: NodePath
@@ -149,8 +153,18 @@ func _apply_orbit(delta: float) -> void:
 	if car:
 		speed_kmh = car.get_speed_kmh()
 
-	var target_fov := lerpf(fov_min, fov_max, clampf(speed_kmh / 200.0, 0.0, 1.0))
+	var target_fov := lerpf(fov_min, fov_max, clampf(speed_kmh / 200.0, 0.0, 1.0) * fov_strength)
 	_camera.fov = lerpf(_camera.fov, target_fov, fov_speed_factor)
+
+
+## F5 camera-and-feel apply: syncs the speed-FOV knob from the persisted
+## settings onto this camera, falling back to the current export when the key
+## is missing. Snaps back to fov_min so the applied value reads back
+## deterministically.
+func sync_camera_settings(settings: Dictionary) -> void:
+	fov_strength = clampf(float(settings.get("camera_fov_orbit", fov_strength)), 0.0, 1.0)
+	if _camera != null:
+		_camera.fov = fov_min
 
 
 ## Hand the viewport back to the chase camera (CHASE mode / hood missing).

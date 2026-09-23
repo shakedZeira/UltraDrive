@@ -7,6 +7,18 @@ extends Control
 @onready var volume_slider: HSlider = %VolumeSlider
 @onready var transmission_option: OptionButton = %TransmissionOption
 
+# --- Camera and Feel controls (F5). ---
+@onready var camera_feel_header: Label = %CameraFeelHeader
+@onready var fov_chase_slider: HSlider = %FOV_ChaseSlider
+@onready var fov_orbit_slider: HSlider = %FOV_OrbitSlider
+@onready var fov_hood_slider: HSlider = %FOV_HoodSlider
+@onready var fov_cockpit_slider: HSlider = %FOV_CockpitSlider
+@onready var shake_slider: HSlider = %ShakeSlider
+@onready var head_motion_slider: HSlider = %HeadMotionSlider
+@onready var hood_bob_slider: HSlider = %HoodBobSlider
+@onready var lean_slider: HSlider = %LeanSlider
+@onready var motion_blur_option: OptionButton = %MotionBlurOption
+
 ## Quality ladder shared by the settings menu and the test suite. Each preset
 ## is applied to the current scene Environment + root Viewport.
 ##
@@ -197,6 +209,98 @@ static func _scaling_mode_for(mode: int) -> Viewport.Scaling3DMode:
 		return Viewport.SCALING_3D_MODE_FSR2
 	return Viewport.SCALING_3D_MODE_BILINEAR
 
+# --- Camera and Feel settings surface (F5, XAG-117). ---
+#
+# Every "nausea knob" is a settings control: per-camera speed-FOV strength,
+# cockpit shake / head-motion / lean strength, hood bob strength, motion blur
+# off/short/long, and the mirror budget slot (F4 reads mirror_enabled; F5 owns
+# the default + persistence, NOT a settings row). Persisted exactly like
+# quality_preset (one camera_settings sub-dict inside the slot-0 save) and
+# auto-applied onto the active scene like apply_to_scene_tree.
+const CAMERA_SETTINGS_KEY := "camera_settings"
+
+## Canonical defaults. XAG-117: shake/bob/head-motion ship below 0.5 and never
+## at 1.0 unless the player opts in; the feels built in F1/F2 keep their exact
+## shipped feel at these defaults (0.4/0.4/0.4 vs the 0.5/0.6/0.7 script
+## baselines — the ladder re-pins the cockpit to the calmer XAG-117 line).
+## FOV-wide knobs default to 1.0 == shipped speed widening. Lean-cam defaults
+## to 0.7 (F1's steer_lean_strength) and 0.0 is the off floor. Mirror ships
+## false; F4 decides when to spend the budget.
+const CAMERA_SETTINGS_DEFAULTS: Dictionary = {
+	"camera_fov_chase": 1.0,
+	"camera_fov_orbit": 1.0,
+	"camera_fov_hood": 1.0,
+	"camera_fov_cockpit": 1.0,
+	"cockpit_shake": 0.4,
+	"cockpit_head_motion": 0.4,
+	"hood_bob": 0.4,
+	"cockpit_lean": 0.7,
+	"motion_blur": 0,        # 0=off 1=short 2=long
+	"mirror_enabled": false,
+}
+
+static func camera_settings_defaults() -> Dictionary:
+	return CAMERA_SETTINGS_DEFAULTS.duplicate()
+
+## Merges a slot-0 save's camera_settings sub-dict over the canonical defaults
+## (additive, like the discovery/career sub-dicts). Values are re-clamped so a
+## hand-edited save can never push a knob past its bounds.
+static func camera_settings_from_save(slot_data: Dictionary) -> Dictionary:
+	var merged := camera_settings_defaults()
+	var saved: Variant = slot_data.get(CAMERA_SETTINGS_KEY, {})
+	if saved is Dictionary:
+		for key: String in CAMERA_SETTINGS_DEFAULTS:
+			if saved.has(key):
+				merged[key] = _coerce_camera_setting(key, saved[key])
+	return merged
+
+## First-boot defaults ride the quality ladder: Low/Medium keep shake small
+## (iGPU safety), High is allowed a touch more but never crosses 0.5.
+static func camera_settings_for_quality_preset(preset_index: int) -> Dictionary:
+	var d := camera_settings_defaults()
+	if preset_index >= 2:
+		d["cockpit_shake"] = 0.45
+		d["cockpit_head_motion"] = 0.45
+	return d
+
+static func _coerce_camera_setting(key: String, value: Variant) -> Variant:
+	if key == "motion_blur":
+		return clampi(int(value), 0, 2)
+	if key == "mirror_enabled":
+		if value is String:
+			return value.to_lower() == "true"
+		return bool(value)
+	return clampf(float(value), 0.0, 1.0)
+
+## Auto-apply (F5): pushes the Camera-and-Feel settings onto every camera node
+## in the loaded scene that exposes sync_camera_settings (the chase / orbit /
+## hood / cockpit scripts), plus the scene's environment for motion blur.
+## Mirrors apply_to_scene_tree — called by GameState on every scene transition
+## and by the live settings menu on value change.
+static func apply_camera_settings(camera_settings: Dictionary, scene_root: Node) -> void:
+	if scene_root == null:
+		return
+	for camera in scene_root.find_children("*", "Node3D", true, false):
+		if camera.has_method("sync_camera_settings"):
+			camera.call("sync_camera_settings", camera_settings)
+	_apply_motion_blur(camera_settings, find_scene_environment(scene_root))
+
+## Motion blur off/short/long. 4.7.2 removed the Environment-level motion-blur
+## post step (the 4.x chain exposes no motion_blur_* property), so the knob is
+## persisted + UI-exposed but application is a guarded no-op: it only writes
+## shutter speed if the running engine lists the property, keeping this
+## forward-compatible with an engine that re-introduces it.
+static func _apply_motion_blur(camera_settings: Dictionary, env: Environment) -> void:
+	if env == null:
+		return
+	var mode: int = int(camera_settings.get("motion_blur", 0))
+	if mode == 0:
+		return
+	for property: Dictionary in env.get_property_list():
+		if String(property["name"]) == "motion_blur_shutter_speed":
+			env.set("motion_blur_shutter_speed", 0.4 if mode == 1 else 0.8)
+			break
+
 func _ready() -> void:
 	quality_option.add_item("Low", 0)
 	quality_option.add_item("Medium", 1)
@@ -208,6 +312,44 @@ func _ready() -> void:
 	transmission_option.add_item("Manual")
 	transmission_option.select(GameState.transmission_mode)
 	transmission_option.item_selected.connect(_on_transmission_selected)
+	_populate_camera_and_feel()
+	_apply_camera_and_feel_live()
+
+func _populate_camera_and_feel() -> void:
+	var settings: Dictionary = GameState.camera_settings
+	_bind_float_slider(fov_chase_slider, "camera_fov_chase", settings)
+	_bind_float_slider(fov_orbit_slider, "camera_fov_orbit", settings)
+	_bind_float_slider(fov_hood_slider, "camera_fov_hood", settings)
+	_bind_float_slider(fov_cockpit_slider, "camera_fov_cockpit", settings)
+	_bind_float_slider(shake_slider, "cockpit_shake", settings)
+	_bind_float_slider(head_motion_slider, "cockpit_head_motion", settings)
+	_bind_float_slider(hood_bob_slider, "hood_bob", settings)
+	_bind_float_slider(lean_slider, "cockpit_lean", settings)
+	motion_blur_option.add_item("Off", 0)
+	motion_blur_option.add_item("Short", 1)
+	motion_blur_option.add_item("Long", 2)
+	motion_blur_option.select(int(settings.get("motion_blur", 0)))
+	motion_blur_option.item_selected.connect(_on_motion_blur_selected)
+
+func _bind_float_slider(slider: HSlider, key: String, settings: Dictionary) -> void:
+	slider.min_value = 0.0
+	slider.max_value = 1.0
+	slider.step = 0.05
+	slider.value = clampf(float(settings.get(key, 1.0)), 0.0, 1.0)
+	slider.value_changed.connect(_on_camera_float_changed.bind(key))
+
+func _on_camera_float_changed(value: float, key: String) -> void:
+	GameState.set_camera_setting(key, value)
+	_apply_camera_and_feel_live()
+
+func _on_motion_blur_selected(index: int) -> void:
+	GameState.set_camera_setting("motion_blur", index)
+	_apply_camera_and_feel_live()
+
+## Live camera-and-feel apply while inside the settings menu (the menu sits on
+## the current_game scene, so scene_root == get_tree().current_scene works).
+func _apply_camera_and_feel_live() -> void:
+	apply_camera_settings(GameState.camera_settings, get_tree().current_scene)
 
 func _on_quality_selected(index: int) -> void:
 	var preset: Dictionary = preset_for(index)

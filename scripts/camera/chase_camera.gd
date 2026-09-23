@@ -14,6 +14,10 @@ extends Node3D
 @export var fov_min: float = 74.0
 @export var fov_max: float = 90.0
 @export var fov_speed_factor: float = 0.05
+## F5 speed-FOV knob (0..1): 0 pins the camera to fov_min, 1.0 is the full
+## shipped widening. 1.0 is the default/baseline — lowering it is a
+## motion-comfort option, so shipped feels are unchanged until a player opts.
+@export var fov_strength: float = 1.0
 
 # --- Presentation pass (Task 8: M3). Off by default (backwards compatible). ---
 @export var transients_enabled: bool = false
@@ -68,6 +72,15 @@ func _physics_process(delta: float) -> void:
 func is_current_view() -> bool:
 	return _camera != null and _camera.is_current()
 
+## F5 camera-and-feel apply: syncs the speed-FOV knob from the persisted
+## settings onto this camera, falling back to the current export when the key
+## is missing (re-syncing a scene is safe). Snaps back to fov_min so the
+## applied value reads back deterministically.
+func sync_camera_settings(settings: Dictionary) -> void:
+	fov_strength = clampf(float(settings.get("camera_fov_chase", fov_strength)), 0.0, 1.0)
+	if _camera != null:
+		_camera.fov = fov_min
+
 # --- Per-frame update. Extracted so tests can drive frames deterministically
 # --- without the physics loop; null-target guard still applies.
 func _update_camera(delta: float) -> void:
@@ -106,7 +119,7 @@ func _update_camera(delta: float) -> void:
 		_camera.look_at(look_target)
 
 	# --- FOV scaling with speed (+ transient gear-kick setpoint when on) ---
-	var target_fov := lerpf(fov_min, fov_max, clampf(speed_kmh / 200.0, 0.0, 1.0))
+	var target_fov := lerpf(fov_min, fov_max, clampf(speed_kmh / 200.0, 0.0, 1.0) * fov_strength)
 	var fov_setpoint := target_fov
 	if transients_enabled:
 		fov_setpoint = target_fov + _fov_kick

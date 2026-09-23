@@ -16,6 +16,10 @@ var current_mode: GameMode = GameMode.MAIN_MENU
 var transmission_mode: TransmissionMode = TransmissionMode.AUTO
 var quality_preset: int = 1
 var probe_enabled: bool = true
+## F5 camera-and-feel settings surface (XAG-117). The persisted knob dict,
+## restored from the slot-0 save (or first-boot quality-ladder defaults) and
+## re-applied onto every scene transition like quality_preset.
+var camera_settings: Dictionary = {}
 var season: int = RegionalClimate.Season.SUMMER
 var is_paused: bool = false
 var session_stats: SessionStats = SessionStats.new()
@@ -34,6 +38,10 @@ func _ready() -> void:
         quality_preset = SettingsMenuScript.default_quality_preset()
     if data.has("probe_enabled"):
         probe_enabled = bool(data["probe_enabled"])
+    if data.has(SettingsMenuScript.CAMERA_SETTINGS_KEY):
+        camera_settings = SettingsMenuScript.camera_settings_from_save(data)
+    else:
+        camera_settings = SettingsMenuScript.camera_settings_for_quality_preset(quality_preset)
     if data.has("season"):
         season = clamp(int(data["season"]), 0, RegionalClimate.SEASON_COUNT - 1)
     else:
@@ -80,6 +88,7 @@ func _apply_quality_to_current_scene() -> void:
     if scene == null:
         return
     SettingsMenuScript.apply_to_scene_tree(quality_preset, scene, get_tree().root)
+    SettingsMenuScript.apply_camera_settings(camera_settings, scene)
 
 func pause_game() -> void:
     if is_paused:
@@ -117,6 +126,21 @@ func set_probe_enabled(enabled: bool) -> void:
     probe_enabled = enabled
     var data := SaveManager.load_game(0)
     data["probe_enabled"] = probe_enabled
+    SaveManager.save_game(0, data)
+
+## F5 camera-and-feel accessors: read a single knob (falling back to the
+## canonical default) and persist a change to the slot-0 save the same additive
+## way quality_preset is saved — the settings menu (and F4's mirror) write
+## through here, and image-depth bookkeeping never touches the rest of the slot.
+func get_camera_setting(key: String) -> Variant:
+    if camera_settings.has(key):
+        return camera_settings[key]
+    return SettingsMenuScript.CAMERA_SETTINGS_DEFAULTS.get(key, null)
+
+func set_camera_setting(key: String, value: Variant) -> void:
+    camera_settings[key] = value
+    var data := SaveManager.load_game(0)
+    data[SettingsMenuScript.CAMERA_SETTINGS_KEY] = camera_settings
     SaveManager.save_game(0, data)
 
 func _physics_process(_delta: float) -> void:
