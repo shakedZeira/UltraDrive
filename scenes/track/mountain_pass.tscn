@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://scripts/track/mountain_pass.gd" id="1_mountain"]
 [ext_resource type="PackedScene" path="res://scenes/vehicle/player_car.tscn" id="2_car"]
@@ -8,6 +8,7 @@
 [ext_resource type="Script" path="res://scripts/camera/orbit_camera.gd" id="6_orbit"]
 [ext_resource type="Script" path="res://scripts/world/sun_driver.gd" id="7_sun"]
 [ext_resource type="Script" path="res://scripts/camera/hood_camera.gd" id="8_hood"]
+[ext_resource type="Script" path="res://scripts/camera/cockpit_camera.gd" id="9_cockpit"]
 
 [sub_resource type="ProceduralSkyMaterial" id="sky_mat"]
 sky_top_color = Color(0.25, 0.46, 0.8, 1)
@@ -78,10 +79,15 @@ script = ExtResource("6_orbit")
 target = NodePath("%PlayerCar")
 chase_camera_path = NodePath("../ChaseCamera")
 hood_camera_path = NodePath("../HoodCamera")
+cockpit_camera_path = NodePath("../CockpitCamera")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 60, 4.7, 6)
 
 [node name="HoodCamera" type="Node3D" parent="."]
 script = ExtResource("8_hood")
+target = NodePath("%PlayerCar")
+
+[node name="CockpitCamera" type="Node3D" parent="."]
+script = ExtResource("9_cockpit")
 target = NodePath("%PlayerCar")
 
 [node name="Sun" type="DirectionalLight3D" parent="."]

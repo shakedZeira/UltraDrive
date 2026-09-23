@@ -334,12 +334,15 @@ func _sync_night_lights(night: bool) -> void:
 	if traffic != null:
 		traffic.sync_headlights(night)
 
-## Forward-view gate for windshield droplets: true while the chase camera OR
-## the hood camera owns the viewport (orbit camera takes over when it becomes
+## Forward-view gate for windshield droplets: true while the chase camera, the
+## hood camera OR the cockpit camera owns the viewport (the first-person views
+## carry windshield droplets; the orbit camera takes over when it becomes
 ## current). Falls back to true when a candidate camera exists but cannot be
 ## inspected; falls back to false when no candidate camera is present.
 func _is_forward_view() -> bool:
-	return _is_view_owner("ChaseCamera") or _is_view_owner("HoodCamera")
+	return _is_view_owner("ChaseCamera") \
+		or _is_view_owner("HoodCamera") \
+		or _is_view_owner("CockpitCamera")
 
 func _is_view_owner(node_name: String) -> bool:
 	var cam := get_node_or_null(node_name)

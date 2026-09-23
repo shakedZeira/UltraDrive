@@ -6,12 +6,15 @@ extends Node3D
 ## current; pushing the right stick grabs the view and it stays grabbed until
 ## "camera_mode" (C / view button) cycles onward.
 ##
-## S14: the C-toggle is now a deterministic 3-mode cycle CHASE -> ORBIT -> HOOD
-## -> CHASE. Each mode activates exactly one camera; right-stick still grabs
-## orbit directly from any mode (today's behaviour). The hood camera is a
-## sibling node wired via hood_camera_path.
+## F1: the C-toggle is now a deterministic 4-mode cycle CHASE -> ORBIT -> HOOD
+## -> COCKPIT -> CHASE. Each mode activates exactly one camera; right-stick
+## still grabs orbit directly from any mode (today's behaviour). The hood and
+## cockpit cameras are sibling nodes wired via hood_camera_path /
+## cockpit_camera_path. On switch the newly-current camera gets a
+## reset_physics_interpolation() so physics interpolation never leaves a
+## 1-frame ghost.
 
-enum CameraMode { CHASE = 0, ORBIT = 1, HOOD = 2 }
+enum CameraMode { CHASE = 0, ORBIT = 1, HOOD = 2, COCKPIT = 3 }
 
 @export var target: Node3D
 @export var orbit_distance: float = 6.0
@@ -30,6 +33,7 @@ enum CameraMode { CHASE = 0, ORBIT = 1, HOOD = 2 }
 @export var fov_speed_factor: float = 0.05
 @export var chase_camera_path: NodePath
 @export var hood_camera_path: NodePath
+@export var cockpit_camera_path: NodePath
 
 var _camera: Camera3D
 var _mode: int = CameraMode.CHASE
@@ -83,31 +87,49 @@ func _physics_process(delta: float) -> void:
 	_apply_orbit(delta)
 
 
-# --- S14 3-mode cycle. Drives from the camera_mode input press above AND
-# --- directly from tests: CHASE -> ORBIT -> HOOD -> CHASE. No real Input
-# --- needed, so headless tests can drive it deterministically.
+# --- F1 4-mode cycle. Drives from the camera_mode input press above AND
+# --- directly from tests: CHASE -> ORBIT -> HOOD -> COCKPIT -> CHASE. No real
+# --- Input needed, so headless tests can drive it deterministically.
 func cycle_mode_for_test() -> void:
-	_mode = (_mode + 1) % 3
+	_mode = (_mode + 1) % 4
 	_apply_mode()
 
 ## Activates exactly one camera for the current mode and retires the others.
+## The newly-current camera also gets reset_physics_interpolation() so a mode
+## swap never renders a 1-frame physics-interpolation ghost.
 func _apply_mode() -> void:
 	_camera.current = false
 	var hood := get_node_or_null(hood_camera_path) as Node3D
 	if hood != null and hood.has_method("set_view_active"):
 		hood.call("set_view_active", false)
+	var cockpit := get_node_or_null(cockpit_camera_path) as Node3D
+	if cockpit != null and cockpit.has_method("set_view_active"):
+		cockpit.call("set_view_active", false)
 	var chase_cam := _chase_camera()
 	if chase_cam != null:
 		chase_cam.current = false
 
 	if _mode == CameraMode.ORBIT:
 		_camera.current = true
+		_reset_physics_interpolation(_camera)
 		return
 	if _mode == CameraMode.HOOD and hood != null and hood.has_method("set_view_active"):
 		hood.call("set_view_active", true)
+		_reset_physics_interpolation(hood.get("_camera") as Node3D)
+		return
+	if _mode == CameraMode.COCKPIT and cockpit != null and cockpit.has_method("set_view_active"):
+		cockpit.call("set_view_active", true)
+		_reset_physics_interpolation(cockpit.get("_camera") as Node3D)
 		return
 	if chase_cam != null:
 		chase_cam.current = true
+		_reset_physics_interpolation(chase_cam)
+
+## No-op-safe physics-interpolation reset: calls only when the camera actually
+## exposes it, so the cycle still works on stripped test rigs.
+func _reset_physics_interpolation(cam: Node3D) -> void:
+	if cam != null and cam.has_method("reset_physics_interpolation"):
+		cam.call("reset_physics_interpolation")
 
 
 func _apply_orbit(delta: float) -> void:
