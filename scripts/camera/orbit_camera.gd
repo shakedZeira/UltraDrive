@@ -4,7 +4,14 @@ extends Node3D
 ## in camera-local yaw/pitch (full circle, clamped pitch), FOV widens with speed
 ## exactly like chase_camera.gd. Inactive by default so the chase camera stays
 ## current; pushing the right stick grabs the view and it stays grabbed until
-## "camera_mode" (C / view button) toggles back to chase.
+## "camera_mode" (C / view button) cycles onward.
+##
+## S14: the C-toggle is now a deterministic 3-mode cycle CHASE -> ORBIT -> HOOD
+## -> CHASE. Each mode activates exactly one camera; right-stick still grabs
+## orbit directly from any mode (today's behaviour). The hood camera is a
+## sibling node wired via hood_camera_path.
+
+enum CameraMode { CHASE = 0, ORBIT = 1, HOOD = 2 }
 
 @export var target: Node3D
 @export var orbit_distance: float = 6.0
@@ -22,9 +29,10 @@ extends Node3D
 @export var fov_max: float = 90.0
 @export var fov_speed_factor: float = 0.05
 @export var chase_camera_path: NodePath
+@export var hood_camera_path: NodePath
 
 var _camera: Camera3D
-var _active := false
+var _mode: int = CameraMode.CHASE
 
 
 func _ready() -> void:
@@ -45,7 +53,7 @@ func _ready() -> void:
 		_preserve_orbit_angles()
 
 	if not is_instance_valid(get_node_or_null(chase_camera_path)):
-		_active = true
+		_mode = CameraMode.ORBIT
 		_camera.current = true  # standalone orbit (no chase sibling)
 
 
@@ -58,13 +66,13 @@ func _physics_process(delta: float) -> void:
 	var stick_active := absf(axis_x) > input_deadzone or absf(axis_y) > input_deadzone
 
 	if Input.is_action_just_pressed("camera_mode") and not stick_active:
-		_active = not _active
-	elif stick_active and not _active:
-		_active = true
+		cycle_mode_for_test()
+	elif stick_active and _mode != CameraMode.ORBIT:
+		_mode = CameraMode.ORBIT
+		_apply_mode()
 		_preserve_orbit_angles()
 
-	if not _active:
-		_deactivate_camera()
+	if _mode != CameraMode.ORBIT:
 		return
 
 	if stick_active:
@@ -73,6 +81,33 @@ func _physics_process(delta: float) -> void:
 		pitch = clampf(pitch, pitch_min, pitch_max)
 
 	_apply_orbit(delta)
+
+
+# --- S14 3-mode cycle. Drives from the camera_mode input press above AND
+# --- directly from tests: CHASE -> ORBIT -> HOOD -> CHASE. No real Input
+# --- needed, so headless tests can drive it deterministically.
+func cycle_mode_for_test() -> void:
+	_mode = (_mode + 1) % 3
+	_apply_mode()
+
+## Activates exactly one camera for the current mode and retires the others.
+func _apply_mode() -> void:
+	_camera.current = false
+	var hood := get_node_or_null(hood_camera_path) as Node3D
+	if hood != null and hood.has_method("set_view_active"):
+		hood.call("set_view_active", false)
+	var chase_cam := _chase_camera()
+	if chase_cam != null:
+		chase_cam.current = false
+
+	if _mode == CameraMode.ORBIT:
+		_camera.current = true
+		return
+	if _mode == CameraMode.HOOD and hood != null and hood.has_method("set_view_active"):
+		hood.call("set_view_active", true)
+		return
+	if chase_cam != null:
+		chase_cam.current = true
 
 
 func _apply_orbit(delta: float) -> void:
@@ -96,6 +131,23 @@ func _apply_orbit(delta: float) -> void:
 	_camera.fov = lerpf(_camera.fov, target_fov, fov_speed_factor)
 
 
+## Hand the viewport back to the chase camera (CHASE mode / hood missing).
+func _deactivate_camera() -> void:
+	var chase_cam := _chase_camera()
+	if chase_cam != null:
+		chase_cam.current = true
+
+
+func _chase_camera() -> Camera3D:
+	var chase := get_node_or_null(chase_camera_path) as Node3D
+	if chase == null:
+		return null
+	for cam in chase.find_children("*", "Camera3D", false, false):
+		if cam is Camera3D:
+			return cam as Camera3D
+	return null
+
+
 func _preserve_orbit_angles() -> void:
 	var center := _get_orbit_center()
 	var d := center - global_position
@@ -108,16 +160,3 @@ func _preserve_orbit_angles() -> void:
 
 func _get_orbit_center() -> Vector3:
 	return target.global_position + Vector3.UP * center_height
-
-
-func _deactivate_camera() -> void:
-	if not _camera.current:
-		return
-	_camera.current = false
-	var chase := get_node_or_null(chase_camera_path) as Node3D
-	if chase == null:
-		return
-	for cam in chase.find_children("*", "Camera3D", false, false):
-		if cam is Camera3D:
-			cam.current = true
-			break

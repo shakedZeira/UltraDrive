@@ -324,7 +324,7 @@ func _sync_weather_state() -> void:
 	var storm := WeatherManager.current_weather == WeatherManager.Weather.STORM
 	WetSurface.apply_intensity(_wet_overlay, intensity, night, storm)
 	var raining := _rain_system != null and _rain_system.is_raining()
-	WindshieldFX.apply(_windshield_overlay, raining, _is_chase_mode())
+	WindshieldFX.apply(_windshield_overlay, raining, _is_forward_view())
 
 func _sync_night_lights(night: bool) -> void:
 	for light in get_tree().get_nodes_in_group(STREET_LIGHT_GROUP):
@@ -334,13 +334,17 @@ func _sync_night_lights(night: bool) -> void:
 	if traffic != null:
 		traffic.sync_headlights(night)
 
-## Chase-cam gate for windshield droplets: true while the chase camera owns the
-## viewport (orbit camera takes over when it becomes current). Falls back to
-## true when no candidate camera (or no viewport) can be inspected.
-func _is_chase_mode() -> bool:
-	var chase := get_node_or_null("ChaseCamera")
-	if chase == null:
+## Forward-view gate for windshield droplets: true while the chase camera OR
+## the hood camera owns the viewport (orbit camera takes over when it becomes
+## current). Falls back to true when a candidate camera exists but cannot be
+## inspected; falls back to false when no candidate camera is present.
+func _is_forward_view() -> bool:
+	return _is_view_owner("ChaseCamera") or _is_view_owner("HoodCamera")
+
+func _is_view_owner(node_name: String) -> bool:
+	var cam := get_node_or_null(node_name)
+	if cam == null:
 		return false
-	if chase.has_method("is_current_view"):
-		return bool(chase.call("is_current_view"))
+	if cam.has_method("is_current_view"):
+		return bool(cam.call("is_current_view"))
 	return true

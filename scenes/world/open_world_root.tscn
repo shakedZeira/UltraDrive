@@ -1,4 +1,4 @@
-[gd_scene load_steps=21 format=3]
+[gd_scene load_steps=22 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/world_driver.gd" id="1_driver"]
 [ext_resource type="Script" path="res://scripts/world/chunk_streamer.gd" id="2_cs"]
@@ -17,6 +17,7 @@
 [ext_resource type="Script" path="res://scripts/events/event_session.gd" id="15_session"]
 [ext_resource type="Script" path="res://scripts/weather/rain_system.gd" id="16_rain"]
 [ext_resource type="Script" path="res://scripts/weather/weather_audio.gd" id="17_audio"]
+[ext_resource type="Script" path="res://scripts/camera/hood_camera.gd" id="18_hood"]
 
 [sub_resource type="ProceduralSkyMaterial" id="sky_mat"]
 sky_top_color = Color(0.25, 0.46, 0.8, 1)
@@ -109,7 +110,12 @@ transients_enabled = true
 script = ExtResource("7_orbit")
 target = NodePath("%PlayerCar")
 chase_camera_path = NodePath("../ChaseCamera")
+hood_camera_path = NodePath("../HoodCamera")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 128, 4.7, 134)
+
+[node name="HoodCamera" type="Node3D" parent="."]
+script = ExtResource("18_hood")
+target = NodePath("%PlayerCar")
 
 [node name="Sun" type="DirectionalLight3D" parent="." groups=["sun"]]
 transform = Transform3D(0.707107, -0.40558, 0.579228, 0, 0.819152, 0.573576, -0.707107, -0.40558, 0.579228, 0, 10, 0)
