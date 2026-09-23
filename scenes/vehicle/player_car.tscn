@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://scripts/vehicle/vehicle_physics.gd" id="1_vp"]
 [ext_resource type="Script" path="res://scripts/vehicle/wheel_physics.gd" id="2_wp"]
@@ -9,6 +9,7 @@
 [ext_resource type="Script" path="res://scripts/vehicle/body_rig.gd" id="7_rig"]
 [ext_resource type="Script" path="res://scripts/vehicle/tire_marks.gd" id="8_marks"]
 [ext_resource type="Script" path="res://scripts/car/headlights.gd" id="9_hl"]
+[ext_resource type="PackedScene" path="res://scenes/vehicle/cockpit_rig.tscn" id="10_rig"]
 
 [sub_resource type="BoxShape3D" id="box_shape"]
 size = Vector3(1.8, 0.5, 4.0)
@@ -23,6 +24,8 @@ can_sleep = false
 
 [node name="BodyRig" type="Node3D" parent="CarBody"]
 script = ExtResource("7_rig")
+
+[node name="CockpitRig" parent="." instance=ExtResource("10_rig")]
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 shape = SubResource("box_shape")
