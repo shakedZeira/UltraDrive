@@ -21,3 +21,16 @@ spring_rate = 30000.0
 max_brake_torque = 2000.0
 downforce_coefficient = 0.5
 countersteer_assist = 800.0
+default_setup = {
+"anti_roll_bar": 10000.0,
+"brake_bias": 0.65,
+"damper_compression": 4000.0,
+"damper_rebound": 5000.0,
+"design_intent": "D-class street starter: soft 30kN/m springs for ride over lap time, forgiving light nose; mild preload diff keeps the first car easy; front-safe brake bias for learner stops.",
+"diff_type": 1,
+"lsd_preload": 50.0,
+"lsd_ramp_angle": 45.0,
+"ride_height": 0.15,
+"spring_rate": 30000.0,
+"suspension_travel": 0.1
+}

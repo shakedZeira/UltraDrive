@@ -199,6 +199,14 @@ Why now: every Phase A item is a *reader* or *closer* over state the 641-test bu
 - **Effort:** S (1 sprint) • **Depends-on:** drivetrain + configs (shipped). • **Source:** GT7 ranked #12/§5 ("steal the process, not the fidelity").
 - **Sub-agent:** one `general` sub agent, this item's text verbatim + playbook guardrails.
 
+CADENCE: every future car ships with a `default_setup` block in its
+`resources/cars/*.tres` — baseline springs/dampers/diff/balance keys that mirror
+real `CarConfig` export names plus a `design_intent` note. The block documents
+the SHIPPED feel, so a re-tune pass always moves the physics `.tres` values AND
+the setup block together (the `test_car_default_setup` baseline-consistency
+assert enforces that tie). One feel pass per cycle (GT7's evergreen lesson); a
+car whose block went stale or is missing fails the acceptance gate.
+
 ---
 
 ### Phase B — Career depth & content systems (why now: Phase A closed the *feel*; the loop's ends are still open)

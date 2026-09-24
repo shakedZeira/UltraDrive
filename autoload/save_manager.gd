@@ -24,6 +24,7 @@ const PROFILE_KEY := "profile"
 const DISCOVERY_KEY := "discovery"
 const CAREER_MONEY_KEY := "career_money"
 const CAREER_PROFILE_KEY := "career_profile"
+const RIVAL_PERSONAS_KEY := "rival_personas"
 
 ## Slot readiness: MISSING (no file), VALID (parses to a Dictionary) or CORRUPT
 ## (present but unreadable). has_save() stays file-based so a corrupt slot reads
@@ -200,6 +201,19 @@ func load_career_profile(slot: int) -> Dictionary:
 func save_career_profile(slot: int, profile: Dictionary) -> bool:
 	var data := load_game(slot)
 	data[CAREER_PROFILE_KEY] = profile
+	return save_game(slot, data)
+
+## Read-only accessor for the "rival_personas" sub-dict inside a save slot.
+## Used by RivalPersona.contract_for_slot() (additive to the slot schema).
+func load_rival_personas(slot: int) -> Dictionary:
+	var data := load_game(slot)
+	var p: Variant = data.get(RIVAL_PERSONAS_KEY, {})
+	return p if p is Dictionary else {}
+
+## Merge-write the rival persona roster sub-dict into an existing save slot.
+func save_rival_personas(slot: int, personas: Dictionary) -> bool:
+	var data := load_game(slot)
+	data[RIVAL_PERSONAS_KEY] = personas
 	return save_game(slot, data)
 
 static func _valid_slot(slot: int) -> bool:

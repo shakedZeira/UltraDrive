@@ -23,6 +23,9 @@ const NEUTRAL_TITLE := Color(0.96, 0.98, 1.0)
 @onready var countdown_overlay: Control = %CountdownOverlay
 @onready var banner: Label = %Banner
 @onready var flare: Panel = %Flare
+@onready var grid_card: VBoxContainer = %GridCard
+@onready var standings_panel: Control = %StandingsPanel
+@onready var standings_list: VBoxContainer = %StandingsList
 @onready var results_overlay: Control = %ResultsOverlay
 @onready var results_title: Label = %ResultsTitle
 @onready var results_position: Label = %ResultsPosition
@@ -45,6 +48,13 @@ var launch_callback: Callable = _default_launch
 var _pending_laps: int = 0
 var _race_over: bool = false
 var _rewards_banked: bool = false
+## AAA-5 replay capture: a live ReplayRecorder runs from race start to finish
+## (finish-line event stamped on RaceManager.race_finished) and, in free-roam,
+## from the player's capture toggle. _last_recording keeps the finished buffer
+## for a future replay UI; both are RefCounted, so they die with this HUD.
+var _recorder: ReplayRecorder = null
+var _last_recording: ReplayRecorder = null
+var _capture_enabled: bool = false
 var _best_lap: float = 0.0
 var _tracked_counter: LapCounter = null
 var _countdown_audio: CountdownAudio = null
@@ -57,6 +67,8 @@ var _hud_gear := -999
 var _hud_speed := -1.0
 var _nav_road_source: Object = null
 var _brake_line: BrakeLine = null
+var _grid_card_built: bool = false
+var _standings_signature: String = ""
 
 func _ready() -> void:
 	_pending_laps = RaceManager.consume_pending_race()
@@ -78,14 +90,17 @@ func _process(delta: float) -> void:
 		var laps := _pending_laps
 		_pending_laps = 0
 		RaceManager.start_race(VehicleManager.get_all_cars(), laps)
+		_start_capture()
 	_drive_countdown(delta)
 	_resolve_nav_source()
 	var car := VehicleManager.get_player_car()
 	if car == null:
 		return
 	_refresh_lap_tracking(car)
+	_refresh_standings()
 
 	var info := car.get_drive_info()
+	_capture_drive(car, info, delta)
 	var speed_kmh := float(info["speed_kmh"])
 	_stats.tick(delta, speed_kmh, _g_from_speed_delta(delta, speed_kmh), _is_drifting(info))
 	var rpm := float(info["rpm"])
@@ -117,9 +132,13 @@ func _drive_countdown(delta: float) -> void:
 	var countdown := RaceManager.get_countdown()
 	var active := RaceManager.is_race_active and not _race_over and countdown.controls_locked()
 	if not active:
+		_grid_card_built = false
 		countdown_overlay.visible = false
 		_last_countdown_phase = ""
 		return
+	if not _grid_card_built:
+		_rebuild_grid_card()
+		_grid_card_built = true
 	var phase := countdown.advance(delta)
 	if phase != _last_countdown_phase and _countdown_audio != null:
 		_countdown_audio.play_phase(phase)
@@ -142,7 +161,57 @@ func _pulse_flare(phase: String) -> void:
 		flare.modulate = Color(1.0, 0.85, 0.2, 0.22)
 		flare.scale = Vector2.ONE
 
+## AAA-5 replay capture. The race path arms a recorder when start_race commits
+## (one per race lifecycle) and free-roam arms one the first time the player
+## enables capture. Every frame feeds the car's transform + drive info into the
+## pure ReplayRecorder; on finish the "race_finished" event is stamped and the
+## capture is frozen into _last_recording for a future replay UI.
+func _start_capture() -> void:
+	_recorder = ReplayRecorder.new()
+	_recorder.start()
+
+func _capture_drive(car: VehiclePhysics, info: Dictionary, delta: float) -> void:
+	if _recorder == null or not _recorder.is_capturing():
+		return
+	_recorder.feed(car.global_transform, info, delta)
+
+func _finalize_capture(event_name: String) -> void:
+	if _recorder == null:
+		return
+	if _recorder.is_capturing():
+		_recorder.record_event(event_name)
+	_recorder.stop()
+	_last_recording = _recorder
+	_recorder = null
+
+## Free-roam capture toggle (bound to the replay_capture input action below):
+## while free-roaming with no race live, toggling on starts a fresh rolling
+## capture of the drive and toggling off freezes it (finish timestamps survive
+## in _last_recording). Returns the new toggle state.
+func toggle_free_roam_capture() -> bool:
+	if RaceManager.is_race_active or _race_over:
+		return _capture_enabled
+	if _capture_enabled:
+		_finalize_capture("capture_ended")
+		_capture_enabled = false
+	else:
+		_capture_enabled = true
+		_start_capture()
+	return _capture_enabled
+
+func is_free_roam_capture_on() -> bool:
+	return _capture_enabled
+
+func get_last_recording() -> ReplayRecorder:
+	return _last_recording
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("replay_capture"):
+		toggle_free_roam_capture()
+		get_viewport().set_input_as_handled()
+
 func _on_race_finished(standings: Array) -> void:
+	_finalize_capture("race_finished")
 	_race_over = true
 	if standings.is_empty():
 		return
@@ -169,6 +238,7 @@ func _on_race_finished(standings: Array) -> void:
 		{"label": "TOP SPEED", "value": "%d km/h" % roundi(_stats.get_top_speed_kmh())},
 		{"label": "DRIFT TIME", "value": _format_time(_stats.get_drift_time())},
 	]
+	rows.append_array(_build_persona_finish_rows(standings))
 	show_result(position, total, _best_lap, rows)
 	if not _rewards_banked:
 		_rewards_banked = true
@@ -274,6 +344,112 @@ func _position_text(car: VehiclePhysics) -> String:
 		return "P1"
 	var index := standings.find(car)
 	return "P%d" % (index + 1) if index != -1 else "-"
+
+## A4 grid card: the countdown ceremony names the rival field (handle + trait)
+## in grid order, so the anonymous front row becomes "P1  bowie knife99 — ...
+## Late-braker". Rebuilt once per ceremony; hidden when the roster is persona-free.
+func _rebuild_grid_card() -> void:
+	_clear_rows(grid_card)
+	var personas := RaceManager.get_personas()
+	if personas.is_empty():
+		grid_card.visible = false
+		return
+	grid_card.visible = true
+	for i in range(personas.size()):
+		var persona := personas[i]
+		if persona == null:
+			continue
+		var row := Label.new()
+		row.text = "P%d  %s   ·  %s   (%s)" % [i + 1, persona.handle, persona.signature, persona.tier]
+		row.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		row.add_theme_font_size_override("font_size", 20)
+		row.add_theme_color_override("font_color", Color(0.96, 0.98, 1.0))
+		row.add_theme_color_override("font_outline_color", Color(0.03, 0.05, 0.1, 1.0))
+		row.add_theme_constant_override("outline_size", 3)
+		grid_card.add_child(row)
+
+## A4 live standings: a compact P1..Pn list of racing names (persona handles,
+## "YOU" for the player) that mirrors RaceManager.get_standings() each frame.
+## Only shown when the field actually carries personas, so persona-free races
+## keep their existing HUD untouched. Rebuilt only when the order/names change.
+func _refresh_standings() -> void:
+	if standings_panel == null:
+		return
+	if not RaceManager.is_race_active or _race_over:
+		standings_panel.visible = false
+		return
+	var standings := RaceManager.get_standings()
+	if standings.is_empty():
+		standings_panel.visible = false
+		return
+	var parts := PackedStringArray()
+	var has_persona := false
+	for car in standings:
+		var persona := RaceManager.get_persona_for(car)
+		if persona != null:
+			has_persona = true
+		var rank := standings.find(car) + 1
+		parts.append(str(rank) + "|" + _racer_display_name(car, persona, rank))
+	if not has_persona:
+		standings_panel.visible = false
+		return
+	var signature := "~".join(parts)
+	if signature == _standings_signature:
+		standings_panel.visible = true
+		return
+	_standings_signature = signature
+	_rebuild_standings(standings)
+
+func _rebuild_standings(standings: Array) -> void:
+	_clear_rows(standings_list)
+	for i in range(standings.size()):
+		var car := standings[i] as VehiclePhysics
+		var persona := RaceManager.get_persona_for(car)
+		var row := Label.new()
+		var suffix := ""
+		if persona != null:
+			suffix = "   ·   %s" % persona.tier
+		row.text = "P%d  %s%s" % [i + 1, _racer_display_name(car, persona, i + 1), suffix]
+		row.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		row.add_theme_font_size_override("font_size", 20)
+		if persona != null:
+			row.add_theme_color_override("font_color", Color(0.78, 0.92, 1.0))
+		else:
+			row.add_theme_color_override("font_color", Color(0.96, 0.98, 1.0))
+		row.add_theme_color_override("font_outline_color", Color(0.03, 0.05, 0.1, 1.0))
+		row.add_theme_constant_override("outline_size", 3)
+		standings_list.add_child(row)
+	standings_panel.visible = true
+
+func _racer_display_name(car: VehiclePhysics, persona: RivalPersona, rank: int) -> String:
+	if persona != null:
+		return persona.handle
+	if car != null and car == VehicleManager.get_player_car():
+		return "YOU"
+	return "CAR%d" % rank
+
+func _clear_rows(box: VBoxContainer) -> void:
+	if box == null:
+		return
+	for child in box.get_children():
+		child.queue_free()
+
+## A4 results rows: every persona rival that crossed the line gets a name +
+## rivalry-record row in final order, fed into the existing results card.
+func _build_persona_finish_rows(standings: Array) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for i in range(standings.size()):
+		var car := standings[i] as VehiclePhysics
+		if car == null:
+			continue
+		var persona := RaceManager.get_persona_for(car)
+		if persona == null:
+			continue
+		out.append({
+			"label": "P%d  %s" % [i + 1, persona.handle],
+			"value": "%s   %s" % [persona.tier, persona.get_record_string()],
+		})
+	return out
 
 ## GPS drive-assist HUD wiring (S4 item 4): the widget mirrors RaceUI's road
 ## source lazily (picked up when the open world loads or a test injects one),

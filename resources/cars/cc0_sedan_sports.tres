@@ -34,3 +34,16 @@ frontal_area = 2.15
 downforce_coefficient = 0.45
 countersteer_assist = 850.0
 handbrake_grip_reduction = 0.32
+default_setup = {
+"anti_roll_bar": 10000.0,
+"brake_bias": 0.65,
+"damper_compression": 4200.0,
+"damper_rebound": 5200.0,
+"design_intent": "C-class sport sedan: balanced stance on 36kN/m springs, gentle preload diff; stable mid-corner with an apex-planted nose; stepping stone to A.",
+"diff_type": 1,
+"lsd_preload": 50.0,
+"lsd_ramp_angle": 45.0,
+"ride_height": 0.15,
+"spring_rate": 36000.0,
+"suspension_travel": 0.11
+}

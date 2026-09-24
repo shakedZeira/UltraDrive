@@ -248,6 +248,7 @@ func _physics_process(delta: float) -> void:
         axle_speed = (_wheels[2].wheel_angular_velocity + _wheels[3].wheel_angular_velocity) \
             * 0.5 * WheelPhysics.WHEEL_RADIUS
     _drivetrain.set_axle_speed(axle_speed)
+    _drivetrain.set_lateral_g(lateral_g_for_shift_veto(angular_velocity.y, forward_speed))
     _drivetrain.manual_mode = GameState.transmission_mode == GameState.TransmissionMode.MANUAL
     if controls_locked:
         _drivetrain.rpm_override = RaceManager.rev_override()
@@ -609,6 +610,13 @@ static func compute_aero_load(horizontal_speed: float, config: CarConfig) -> flo
 ## was what over-rotated the car. Floored so a near-stop never divides by zero.
 static func max_achievable_yaw_rate(forward_speed: float, lateral_grip: float) -> float:
     return maxf(lateral_grip, 0.0) * 9.8 / maxf(forward_speed, 1.0)
+
+## Lateral acceleration (G) felt by the body: the centripetal yaw_rate * speed,
+## normalized by g. A committed corner at speed reads > 1.0 G (feeds
+## Drivetrain.lateral_g for the forced-downshift veto); rest and straight-line
+## read 0.0. Pure and headless-safe.
+static func lateral_g_for_shift_veto(yaw_rate: float, forward_speed: float) -> float:
+    return absf(yaw_rate * forward_speed) / 9.8
 
 ## Stability-assist yaw target (rad/s): the kinematic ideal v*tan(steer)/L
 ## clamped into the physically achievable yaw envelope. Below the grip cap it

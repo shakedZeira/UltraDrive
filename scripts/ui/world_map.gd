@@ -56,6 +56,56 @@ var _pulse_time := 0.0
 var _last_pulse_tick := -1
 var _discovery_source: WorldDiscovery = null
 
+## AAA-3 map filters: per-category gates default to full visibility plus an
+## optional region substring and travel-eligibility gate, so the shipped map
+## renders exactly as before until a UI opts in. POI dots failing the active
+## gates are excluded from the fit as well as the draw pass.
+var show_pois: bool = true
+var show_landmarks: bool = true
+var show_events: bool = true
+var show_travel: bool = true
+var region_filter: String = ""
+var _travel_gate: Callable = Callable()
+
+## AAA-3 filter API: flags keys are "pois" / "landmarks" / "events" / "travel"
+## (bools, the shipped all-on defaults) plus "region" (String substring on the
+## POI's stage name, "" = any). Rebuilds on every call so the dot set always
+## matches the active gates.
+func set_category_filters(flags: Dictionary) -> void:
+	if flags.has("pois"):
+		show_pois = bool(flags["pois"])
+	if flags.has("landmarks"):
+		show_landmarks = bool(flags["landmarks"])
+	if flags.has("events"):
+		show_events = bool(flags["events"])
+	if flags.has("travel"):
+		show_travel = bool(flags["travel"])
+	if flags.has("region"):
+		region_filter = str(flags["region"])
+	refresh()
+
+## Travel-eligibility gate for the "travel" filter: a Callable(String poi_id) ->
+## bool (typically "road revealed / reachable"). Empty callable = every POI is
+## travel-eligible (the shipped default).
+func set_travel_gate(gate: Callable) -> void:
+	_travel_gate = gate
+
+## Gate predicate applied to every registered POI during _rebuild. Matching is
+## exact: a dot renders iff every active gate passes it.
+func _poi_passes_filters(poi: Dictionary, poi_id: String) -> bool:
+	if not show_pois:
+		return false
+	var category: String = POIRegistry.category_of(poi)
+	if category == POIRegistry.CATEGORY_LANDMARKS and not show_landmarks:
+		return false
+	if category == POIRegistry.CATEGORY_EVENTS and not show_events:
+		return false
+	if show_travel and not POIRegistry.is_travel_eligible(poi_id, _travel_gate):
+		return false
+	if not region_filter.is_empty() and not POIRegistry.matches_region(poi, region_filter):
+		return false
+	return true
+
 ## Optional height reader override: Callable(Vector2 xz) -> float. Tests inject a
 ## fake here to assert the composite deterministically; when empty, _rebuild()
 ## falls back to the preloaded full-world field under _resolve_height_reader().
@@ -195,6 +245,8 @@ func _rebuild() -> void:
 	if with_world:
 		for poi_id in POIRegistry.get_poi_ids():
 			var poi := POIRegistry.get_poi(poi_id)
+			if not _poi_passes_filters(poi, poi_id):
+				continue
 			var pos: Vector3 = poi.get("position", Vector3.ZERO)
 			content.append(pos)
 			raw_pois.append(pos)

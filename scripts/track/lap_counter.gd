@@ -51,6 +51,11 @@ func update(vehicle: VehiclePhysics, passed_checkpoint: Checkpoint) -> Dictionar
 func get_current_lap() -> int:
 	return _current_lap
 
+## True after the vehicle crossed the final checkpoint of its last lap. Used by
+## RaceManager to record a rival's W/L result exactly once per finished rival.
+func is_finished() -> bool:
+	return _finished
+
 func get_last_checkpoint() -> int:
 	return _last_checkpoint
 

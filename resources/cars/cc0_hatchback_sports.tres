@@ -34,3 +34,16 @@ frontal_area = 2.1
 downforce_coefficient = 0.25
 countersteer_assist = 700.0
 handbrake_grip_reduction = 0.35
+default_setup = {
+"anti_roll_bar": 10000.0,
+"brake_bias": 0.65,
+"damper_compression": 4500.0,
+"damper_rebound": 5500.0,
+"design_intent": "B-class hot hatch: rally-bred 0.14m travel kept for curb cuts on a 40kN/m spring; energetic neutral balance with a playable tail.",
+"diff_type": 1,
+"lsd_preload": 50.0,
+"lsd_ramp_angle": 45.0,
+"ride_height": 0.15,
+"spring_rate": 40000.0,
+"suspension_travel": 0.14
+}

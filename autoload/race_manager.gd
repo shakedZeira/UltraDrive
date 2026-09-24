@@ -32,6 +32,17 @@ var rival_vehicle_scene: PackedScene = preload("res://scenes/vehicle/rival_car.t
 var rival_spawner: Callable = Callable()
 var _spawned_rivals: Array[VehiclePhysics] = []
 
+## A4 rival personalities: ordered personas attached to the roster (by index or
+## via each spec's "persona" key). Pure presentation/persistence over the
+## existing roster — the RivalDriver's pace/tier logic is untouched, so
+## no-rubber-band invariants stay byte-identical. _car_persona maps each spawned
+## rival car to its persona for grid/standings/results name+record lookups, and
+## _recorded_results guards the W/L record to exactly one update per finished
+## rival per race.
+var roster_personas: Array[RivalPersona] = []
+var _car_persona: Dictionary = {}
+var _recorded_results: Dictionary = {}
+
 func _ready() -> void:
 	GameState.scene_changed.connect(func(_scene: String) -> void: _checkpoints_dirty = true)
 
@@ -79,6 +90,8 @@ func start_race(cars: Array, laps: int) -> void:
 		(counter as LapCounter).queue_free()
 	_lap_counters = {}
 	_participants.assign(cars)
+	_car_persona = {}
+	_recorded_results = {}
 	for rival in _spawn_configured_rivals():
 		_participants.append(rival)
 	for car in _participants:
@@ -109,12 +122,32 @@ func set_rival_vehicle_scene(scene: PackedScene) -> void:
 func set_rival_spawner(spawn: Callable) -> void:
 	rival_spawner = spawn
 
+## A4: attaches an ordered persona roster (same order as rival_roster). Each
+## persona is also picked up from spec["persona"] at spawn when set directly.
+func set_personas(personas: Array) -> void:
+	roster_personas.clear()
+	for persona in personas:
+		var p := persona as RivalPersona
+		if p != null:
+			roster_personas.append(p)
+
+func get_personas() -> Array[RivalPersona]:
+	return roster_personas.duplicate()
+
+## Persona for a spawned rival car (null for the player / un-persona'd cars).
+func get_persona_for(car: VehiclePhysics) -> RivalPersona:
+	return _car_persona.get(car) as RivalPersona
+
 func get_spawned_rivals() -> Array[VehiclePhysics]:
 	return _spawned_rivals
 
-## Builds a rival spec for roster configuration: {car_config, tier}.
-static func rival_spec(car_config: CarConfig, tier: String) -> Dictionary:
-	return {"car_config": car_config, "tier": tier}
+## Builds a rival spec for roster configuration: {car_config, tier}. Passing an
+## optional persona embeds it directly so RaceManager picks it up at spawn.
+static func rival_spec(car_config: CarConfig, tier: String, persona: RivalPersona = null) -> Dictionary:
+	var spec := {"car_config": car_config, "tier": tier}
+	if persona != null:
+		spec["persona"] = persona
+	return spec
 
 ## Spawns the configured rival roster into a grid ahead of the player, keeping
 ## roster order. Returns the spawned cars (also cached in _spawned_rivals).
@@ -164,12 +197,49 @@ func _spawn_rival_car(spec: Dictionary, player: VehiclePhysics) -> VehiclePhysic
 	var driver := RivalDriver.new()
 	driver.configure(rival_centerline, tier, car_class_name)
 	car.add_child(driver)
+	# A4: map the persona (spec["persona"] first, else the ordered roster entry
+	# at this spawn index) so grid/standings/results can read name + record.
+	if not _car_persona.has(car):
+		var persona := spec.get("persona") as RivalPersona
+		if persona == null and roster_personas.size() > _spawned_rivals.size():
+			persona = roster_personas[_spawned_rivals.size()]
+		if persona != null:
+			_car_persona[car] = persona
 	return car
 
 func finish_race() -> void:
-	is_race_active = false
 	var standings := get_standings()
+	_record_rivals_results(standings)
+	is_race_active = false
 	race_finished.emit(standings)
+
+## A4: W/L recording, exactly once per finished rival per race. Only rivals who
+## actually crossed the line at the moment the race ends get a record: each is a
+## W when it placed ahead of the player in the final standings, an L otherwise.
+## _recorded_results makes the update idempotent against a re-fired finish_race.
+func _record_rivals_results(standings: Array) -> void:
+	if standings.is_empty():
+		return
+	var player := VehicleManager.get_player_car()
+	if player == null or not _participants.has(player):
+		return
+	var player_rank := standings.find(player)
+	if player_rank < 0:
+		return
+	for car in _spawned_rivals:
+		if _recorded_results.has(car):
+			continue
+		var counter: LapCounter = _lap_counters.get(car)
+		if counter == null or not counter.is_finished():
+			continue
+		var persona := _car_persona.get(car) as RivalPersona
+		if persona == null:
+			continue
+		var rank := standings.find(car)
+		if rank < 0:
+			continue
+		persona.record_result(rank < player_rank)
+		_recorded_results[car] = true
 
 func get_standings() -> Array:
 	## Returns array of cars sorted by progress (lap, then checkpoint, then distance)

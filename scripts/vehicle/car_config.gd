@@ -105,6 +105,14 @@ func get_engine_bed_set() -> String:
 @export var handbrake_grip_reduction: float = 0.3  # 0.0 = no grip, 1.0 = full grip
 @export var countersteer_assist: float = 800.0  # max Nm of stability-yaw damping (damps angular_velocity toward the GRIP-achievable yaw target v*tan(steer)/wheelbase clamped to mu*g/v, ramps in above ~70 km/h, off while handbraking)
 
+# --- Default Setup (AAA-6: per-car setup identity) ---
+# Baseline springs/dampers/diff/balance that stages each car's intended feel,
+# written INTO the per-car .tres files with a `design_intent` note. Keys mirror
+# real CarConfig export names so the block reads as a setup sheet, not fiction:
+# retuning a car must retune its default_setup block at the same time (see docs/
+# plans/aaa_roadmap_plan.md AAA-6 CADENCE). Empty = no identity staged.
+@export var default_setup: Dictionary = {}
+
 # --- Handling Mode Modifiers ---
 @export var arcade_mode: Dictionary = {
     "grip_multiplier": 1.3,

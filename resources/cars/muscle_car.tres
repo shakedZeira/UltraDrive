@@ -32,3 +32,16 @@ downforce_coefficient = 0.42
 countersteer_assist = 900.0
 hood_cam_height = 0.95
 hood_cam_forward = 1.05
+default_setup = {
+"anti_roll_bar": 10000.0,
+"brake_bias": 0.65,
+"damper_compression": 4000.0,
+"damper_rebound": 5000.0,
+"design_intent": "C-class torque monster: 34kN/m springs hold 1420kg through sweepers; mild preload diff puts 420Nm down without spinning the rears; front-biased brake settles the heavy nose.",
+"diff_type": 1,
+"lsd_preload": 50.0,
+"lsd_ramp_angle": 45.0,
+"ride_height": 0.15,
+"spring_rate": 34000.0,
+"suspension_travel": 0.1
+}

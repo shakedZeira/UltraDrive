@@ -16,6 +16,18 @@ var shift_timer: float = 0.0
 var reverse_limiter_active: bool = false
 var manual_mode: bool = false  # true = driver shifts via shift_up/shift_down
 
+# --- Lateral-load downshift veto (AAA-6) ---
+## Lateral acceleration (G) of the body, reported by VehiclePhysics each frame
+## via set_lateral_g(); 0.0 at rest and on a straight line. Pure-drivetrain
+## users never set it, so the veto below is inert by default.
+var lateral_g: float = 0.0
+
+## Forced-downshift veto threshold (lateral acceleration, G). Above this, a
+## drop is rejected because the engine braking + shorter ratio would spike
+## grip mid-corner. Arcade-compatible: 1.0 G sits above what cruise and
+## corner-entry sustain, and 0 G (rest / straight) always allows.
+const LATERAL_DOWNSHIFT_VETO_G := 1.0
+
 # --- Internal ---
 var _wheel_speed: float = 0.0  # m/s (set by VehiclePhysics)
 var _axle_speed: float = 0.0  # m/s - driven-axle spin (set by VehiclePhysics)
@@ -166,6 +178,13 @@ func shift_up(config: CarConfig) -> void:
         _start_shift(config)
 
 func shift_down(config: CarConfig) -> void:
+    # Lateral-load veto (AAA-6, sibling to the over-rev guard): reject a forced
+    # drop under hard lateral G so engine braking + a shorter ratio cannot upset
+    # the car mid-corner. Single decision site - MANUAL requests and the AUTO
+    # speed-table path both route through here. At-rest / straight reads 0 G and
+    # always allows, which is what keeps it arcade-friendly.
+    if lateral_g >= LATERAL_DOWNSHIFT_VETO_G:
+        return
     # Over-rev guard: reject the drop if the lower gear would push the engine
     # past 105% of redline at the current wheel speed. In MANUAL mode, dropping
     # from 1st selects reverse (-1): that is the ONLY way reverse engages while
@@ -204,6 +223,12 @@ func set_axle_speed(speed: float) -> void:
     ## wheelspin; 0.0 (default) keeps legacy behavior for direct-api users.
     _axle_speed = speed
 
+func set_lateral_g(g: float) -> void:
+    ## Feeds the lateral-load downshift veto (G units). Clamped so a bad sensor
+    ## read can never yield a negative. VehiclePhysics calls this once per frame
+    ## alongside set_wheel_speed()/set_axle_speed().
+    lateral_g = maxf(g, 0.0)
+
 func reset() -> void:
     engine_rpm = 800.0
     current_gear = 1
@@ -212,3 +237,4 @@ func reset() -> void:
     reverse_limiter_active = false
     rpm_override = -1.0
     _axle_speed = 0.0
+    lateral_g = 0.0

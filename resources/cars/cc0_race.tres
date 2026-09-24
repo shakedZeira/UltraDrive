@@ -34,3 +34,16 @@ frontal_area = 2.0
 downforce_coefficient = 0.6
 countersteer_assist = 820.0
 handbrake_grip_reduction = 0.3
+default_setup = {
+"anti_roll_bar": 10000.0,
+"brake_bias": 0.65,
+"damper_compression": 4600.0,
+"damper_rebound": 5600.0,
+"design_intent": "A-class aero racer: stiff 42kN/m springs and short 0.1m travel hold apex bites under the 0.6 Cl downforce; firmer dampers trade comfort for lap time.",
+"diff_type": 1,
+"lsd_preload": 50.0,
+"lsd_ramp_angle": 45.0,
+"ride_height": 0.15,
+"spring_rate": 42000.0,
+"suspension_travel": 0.1
+}
