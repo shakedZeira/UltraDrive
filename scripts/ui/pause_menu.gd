@@ -2,6 +2,10 @@
 class_name PauseMenu
 extends Control
 
+const MENU_BLIP_DEBOUNCE_MS: int = 80
+
+var _last_menu_blip_ms: int = -1000
+
 @onready var panel: Panel = $Panel
 @onready var map_overlay: Control = $MapOverlay
 @onready var world_map: WorldMap = %WorldMap
@@ -9,10 +13,32 @@ extends Control
 @onready var top_speed_label: Label = %TopSpeedLabel
 @onready var drift_time_label: Label = %DriftTimeLabel
 @onready var best_lap_label: Label = %BestLapLabel
+@onready var resume_button: Button = $Panel/VBox/ResumeButton
+@onready var map_button: Button = $Panel/VBox/MapButton
+@onready var quit_button: Button = $Panel/VBox/QuitToMenuButton
+@onready var back_button: Button = $MapOverlay/BackButton
+@onready var ui_blip: UiBlip = $UiBlip
 
 func _ready() -> void:
 	GameState.game_paused.connect(_on_game_paused)
 	GameState.game_resumed.connect(hide)
+	_bind_menu_blip(resume_button)
+	_bind_menu_blip(map_button)
+	_bind_menu_blip(quit_button)
+	_bind_menu_blip(back_button)
+
+func _menu_blip() -> void:
+	if ui_blip == null:
+		return
+	var now := Time.get_ticks_msec()
+	if now - _last_menu_blip_ms < MENU_BLIP_DEBOUNCE_MS:
+		return
+	_last_menu_blip_ms = now
+	ui_blip.play_blip("menu")
+
+func _bind_menu_blip(button: Button) -> void:
+	button.pressed.connect(_menu_blip)
+	button.focus_entered.connect(_menu_blip)
 
 func _on_game_paused() -> void:
 	_refresh_stats()

@@ -57,7 +57,9 @@ func test_high_has_full_stack_with_sdfgi_energy_and_fsr() -> void:
 	assert_that(preset["glow_enabled"]).is_true()
 	assert_that(preset["msaa_3d"]).is_equal(0)
 	assert_that(preset["scaling_3d_mode"]).is_equal(1)
-	assert_that(preset["scaling_3d_scale"]).is_equal_approx(0.9, 0.001)
+	# AAA-2 lever (settings_menu.gd): High FSR scale 0.9 -> 0.85 is the
+	# GTX-970 57->60 fps close, without touching the SDFGI/SSR/volumetrics stack.
+	assert_that(preset["scaling_3d_scale"]).is_equal_approx(0.85, 0.001)
 
 ## (d) Default preset decision: the /graphics-gap rig's "GeForce GTX 970"
 ## resolves to Low via _legacy_geforce (expected — documented in
@@ -97,7 +99,9 @@ func test_apply_high_lands_gi_energy_and_fsr() -> void:
 	assert_that(env.glow_enabled).is_true()
 	assert_that(viewport.msaa_3d).is_equal(Viewport.MSAA_DISABLED)
 	assert_that(viewport.scaling_3d_mode).is_equal(Viewport.SCALING_3D_MODE_FSR2)
-	assert_that(viewport.scaling_3d_scale).is_equal_approx(0.9, 0.001)
+	# AAA-2: High FSR scale 0.9 -> 0.85 (settings_menu.gd) — applied mapping
+	# must land the new lever.
+	assert_that(viewport.scaling_3d_scale).is_equal_approx(0.85, 0.001)
 
 ## (e3) Applying the Low preset on a fresh Environment runs the AO/GI path
 ## without error (both branches disabled) and the viewport gets MSAA.

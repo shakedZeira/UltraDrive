@@ -78,7 +78,9 @@ func test_high_preset_spot_check() -> void:
 	assert_that(preset["msaa_3d"]).is_equal(0)
 	assert_that(preset["probe_enabled"]).is_true()
 	assert_that(preset["scaling_3d_mode"]).is_equal(1)
-	assert_that(preset["scaling_3d_scale"]).is_equal_approx(0.9, 0.001)
+	# AAA-2 lever (settings_menu.gd): High FSR scale 0.9 -> 0.85 is the
+	# GTX-970 57->60 fps close, without touching the SDFGI/SSR/volumetrics stack.
+	assert_that(preset["scaling_3d_scale"]).is_equal_approx(0.85, 0.001)
 
 func test_preset_for_one_matches_medium_defaults() -> void:
 	var preset: Dictionary = SettingsMenuScript.preset_for(1)
@@ -107,7 +109,9 @@ func test_apply_high_preset_sets_env_and_viewport() -> void:
 	assert_that(env.tonemap_mode).is_equal(ACES)
 	assert_that(viewport.msaa_3d).is_equal(Viewport.MSAA_DISABLED)
 	assert_that(viewport.scaling_3d_mode).is_equal(Viewport.SCALING_3D_MODE_FSR2)
-	assert_that(viewport.scaling_3d_scale).is_equal_approx(0.9, 0.001)
+	# AAA-2: High FSR scale 0.9 -> 0.85 (settings_menu.gd) — applied mapping
+	# must land the new lever.
+	assert_that(viewport.scaling_3d_scale).is_equal_approx(0.85, 0.001)
 
 func test_fresh_environment_defaults_differ_from_high() -> void:
 	var env := Environment.new()

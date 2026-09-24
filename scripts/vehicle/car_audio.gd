@@ -1,6 +1,12 @@
 class_name CarAudio
 extends AudioStreamPlayer3D
 
+## 3-bed synth engine beds + additive daily-feel layer (AAA-1): tire squeal/skid,
+## wind rush, impact one-shots and shift blurts. The 3-bed crossfade core is
+## untouched; the feel beds are sibling players driven from get_drive_info().
+
+signal impact_fired(strength: float)
+
 const IDLE_RPM: float = 800.0
 const REDLINE_RPM: float = 7000.0
 const SAMPLE_RATE: int = 44100
@@ -21,6 +27,23 @@ const IDLE_WOBBLE_HZ: float = 9.0
 const IDLE_WOBBLE_DEPTH: float = 0.02
 
 const TRAFFIC_AUDIO_RANGE: float = 120.0
+
+# --- Daily-feel layer (AAA-1) ---
+## Lateral slip below this fraction stays silent; above it squeal ramps linear
+## to full at SQUEAL_MAX_SLIP. Slicker surfaces (lower grip) start squealing
+## earlier and louder.
+const SQUEAL_SLIP_THRESHOLD: float = 0.12
+const SQUEAL_MAX_SLIP: float = 0.8
+const SQUEAL_GAIN: float = 0.4
+## Wind noise bed: silent below WIND_SPEED_START_KMH, full at
+## WIND_SPEED_FULL_KMH.
+const WIND_SPEED_START_KMH: float = 50.0
+const WIND_SPEED_FULL_KMH: float = 200.0
+const WIND_GAIN: float = 0.18
+## Impact strength from the shipped VehiclePhysics.impact signal is normalized
+## against this ceiling before the one-shot scales pitch/volume.
+const IMPACT_MAX_STRENGTH: float = 2000.0
+const SHIFT_BLURT_SECONDS: float = 0.08
 
 const TONE_GAIN: float = 0.6
 const PULSE_GAIN: float = 0.3
@@ -74,6 +97,14 @@ var _lpf_effect: AudioEffectLowPassFilter = null
 var _lpf_bus_index: int = -1
 var _lpf_added: bool = false
 
+# --- Daily-feel layer state ---
+var _squeal_player: AudioStreamPlayer3D = null
+var _wind_player: AudioStreamPlayer3D = null
+var _impact_player: AudioStreamPlayer3D = null
+var _shift_player: AudioStreamPlayer3D = null
+var _prev_gear: int = 0
+var _impact_hooked: bool = false
+
 func _ready() -> void:
 	unit_size = 2.0
 	max_distance = 80.0
@@ -85,6 +116,8 @@ func _ready() -> void:
 	_create_bed_players()
 	for player in _bed_players:
 		player.play()
+	_create_feel_players()
+	hook_car_impacts()
 
 func _exit_tree() -> void:
 	_remove_lpf()
@@ -108,6 +141,10 @@ func _physics_process(delta: float) -> void:
 		for player in _bed_players:
 			if player.playing:
 				player.stop()
+		if _squeal_player != null and _squeal_player.playing:
+			_squeal_player.stop()
+		if _wind_player != null and _wind_player.playing:
+			_wind_player.stop()
 		return
 	if _car == null:
 		_car = get_parent() as VehiclePhysics
@@ -169,6 +206,173 @@ func _physics_process(delta: float) -> void:
 		if _lpf_effect != null:
 			var lpf: float = float(shaping["lpf_hz"])
 			_lpf_effect.cutoff_hz = move_toward(_lpf_effect.cutoff_hz, lpf, LPF_SLEW_HZ)
+
+	_update_feel_layers(info)
+	_update_shift_blurt(info)
+
+## True under the headless display server: the additive feel players are never
+## instantiated, so a headless run has nothing that could block on the audio
+## bus (countdown_audio mirrors the same guard).
+func is_player_creation_culled() -> bool:
+	return DisplayServer.get_name() == "headless"
+
+func _create_feel_players() -> void:
+	if is_player_creation_culled():
+		return
+	_squeal_player = AudioStreamPlayer3D.new()
+	_squeal_player.name = "Squeal"
+	_squeal_player.unit_size = unit_size
+	_squeal_player.max_distance = max_distance
+	add_child(_squeal_player)
+	_squeal_player.stream = _build_noise_bed(1200.0, 0.15)
+	_squeal_player.volume_db = MUTE_FLOOR_DB
+	_squeal_player.play()
+
+	_wind_player = AudioStreamPlayer3D.new()
+	_wind_player.name = "Wind"
+	_wind_player.unit_size = unit_size
+	_wind_player.max_distance = max_distance
+	add_child(_wind_player)
+	_wind_player.stream = _build_noise_bed(800.0, 0.08)
+	_wind_player.volume_db = MUTE_FLOOR_DB
+	_wind_player.play()
+
+	_impact_player = AudioStreamPlayer3D.new()
+	_impact_player.name = "Impact"
+	_impact_player.unit_size = unit_size
+	_impact_player.max_distance = max_distance
+	add_child(_impact_player)
+	_impact_player.stream = _build_impact_bed()
+	_impact_player.volume_db = MUTE_FLOOR_DB
+
+	_shift_player = AudioStreamPlayer3D.new()
+	_shift_player.name = "Shift"
+	_shift_player.unit_size = unit_size
+	_shift_player.max_distance = max_distance
+	add_child(_shift_player)
+	_shift_player.stream = _build_shift_bed()
+	_shift_player.volume_db = MUTE_FLOOR_DB
+
+## Wires the shipped VehiclePhysics.impact signal to the exactly-once
+## impact_fired one-shot pipeline. Idempotent so a re-enter keeps a single
+## connection (one emission -> exactly one impact_fired).
+func hook_car_impacts() -> void:
+	if _impact_hooked:
+		return
+	_impact_hooked = true
+	if _car == null:
+		_car = get_parent() as VehiclePhysics
+	if _car != null:
+		_car.impact.connect(_on_car_impact)
+
+func _on_car_impact(strength: float) -> void:
+	impact_fired.emit(strength)
+	play_impact(strength)
+
+func play_impact(strength: float) -> void:
+	if _impact_player == null:
+		return
+	var s := clampf(strength / IMPACT_MAX_STRENGTH, 0.0, 1.0)
+	_impact_player.pitch_scale = lerpf(0.85, 1.3, s)
+	_impact_player.volume_db = _feel_gain_db(maxf(s, 0.1))
+	_impact_player.play()
+
+func _update_feel_layers(info: Dictionary) -> void:
+	if is_player_creation_culled():
+		return
+	var slip := clampf(float(info.get("slip", 0.0)), 0.0, 1.0)
+	var surface_key := String(info.get("surface", SurfaceRegistry.ASPHALT))
+	var squeal := get_squeal_intensity(slip, surface_key)
+	if bool(info.get("handbrake", false)):
+		squeal = maxf(squeal, get_squeal_intensity(SQUEAL_MAX_SLIP * 0.6, surface_key))
+	if _squeal_player != null:
+		_squeal_player.volume_db = _feel_gain_db(squeal)
+	if _wind_player != null:
+		_wind_player.volume_db = _feel_gain_db(get_wind_intensity(float(info.get("speed_kmh", 0.0))))
+
+func _update_shift_blurt(info: Dictionary) -> void:
+	if is_player_creation_culled():
+		return
+	var gear := int(info.get("gear", 0))
+	if _prev_gear != 0 and gear != _prev_gear and _shift_player != null:
+		_shift_player.pitch_scale = 1.25 if gear > _prev_gear else 0.9
+		_shift_player.volume_db = _feel_gain_db(0.5)
+		_shift_player.play()
+	_prev_gear = gear
+
+func _feel_gain_db(intensity: float) -> float:
+	if intensity <= 0.001:
+		return MUTE_FLOOR_DB
+	return clampf(linear_to_db(sqrt(intensity)) + MASTER_TRIM_DB, MUTE_FLOOR_DB, 6.0)
+
+func _build_noise_bed(freq_hz: float, noise_gain: float) -> AudioStreamWAV:
+	var period := int(SAMPLE_RATE / maxf(freq_hz, 1.0))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(freq_hz * 1000.0 + noise_gain * 5000.0)
+	var data := PackedByteArray()
+	data.resize(period * 2)
+	for i in period:
+		var sample := (rng.randf() * 2.0 - 1.0) * noise_gain
+		data.encode_s16(i * 2, int(clampf(sample, -1.0, 1.0) * 32767.0))
+	return _make_wav(data, true)
+
+func _build_impact_bed() -> AudioStreamWAV:
+	var period := int(SAMPLE_RATE * 0.12)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 731
+	var data := PackedByteArray()
+	data.resize(period * 2)
+	for i in period:
+		var t := float(i) / float(SAMPLE_RATE)
+		var env := clampf((0.12 - t) * 12.0, 0.0, 1.0)
+		var sample := sin(TAU * 400.0 * t) * env * 0.6 + (rng.randf() * 2.0 - 1.0) * env * 0.4
+		data.encode_s16(i * 2, int(clampf(sample, -1.0, 1.0) * 32767.0))
+	return _make_wav(data, false)
+
+func _build_shift_bed() -> AudioStreamWAV:
+	var period := int(SAMPLE_RATE * SHIFT_BLURT_SECONDS)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 733
+	var data := PackedByteArray()
+	data.resize(period * 2)
+	for i in period:
+		var t := float(i) / float(SAMPLE_RATE)
+		var env := clampf((SHIFT_BLURT_SECONDS - t) * 30.0, 0.0, 1.0)
+		var sample := sin(TAU * (280.0 + 180.0 * t) * t) * env * 0.7 + (rng.randf() * 2.0 - 1.0) * env * 0.3
+		data.encode_s16(i * 2, int(clampf(sample, -1.0, 1.0) * 32767.0))
+	return _make_wav(data, false)
+
+func _make_wav(data: PackedByteArray, loop: bool) -> AudioStreamWAV:
+	var wav := AudioStreamWAV.new()
+	wav.format = AudioStreamWAV.FORMAT_16_BITS
+	wav.mix_rate = SAMPLE_RATE
+	wav.stereo = false
+	wav.loop_mode = AudioStreamWAV.LOOP_FORWARD if loop else AudioStreamWAV.LOOP_DISABLED
+	wav.loop_begin = 0
+	wav.loop_end = (data.size() / 2) if loop else 0
+	wav.data = data
+	return wav
+
+## Squeal key: monotonic in the normalized lateral slip (0..1), with the
+## SurfaceRegistry surface key scaling onset and peak - lower grip squeals
+## earlier and louder.
+static func get_squeal_intensity(slip: float, surface_key: String) -> float:
+	var grip := SurfaceRegistry.get_lateral(surface_key)
+	var onset := lerpf(SQUEAL_SLIP_THRESHOLD, SQUEAL_SLIP_THRESHOLD * 0.5, clampf(1.0 - grip, 0.0, 1.0))
+	var s := clampf(slip, 0.0, SQUEAL_MAX_SLIP)
+	if s < onset or grip <= 0.0:
+		return 0.0
+	var t := (s - onset) / maxf(SQUEAL_MAX_SLIP - onset, 0.001)
+	return clampf(t, 0.0, 1.0) * SQUEAL_GAIN * (0.5 + 0.5 * (1.0 - grip))
+
+## Wind key: silent below WIND_SPEED_START_KMH and monotonic to full at
+## WIND_SPEED_FULL_KMH.
+static func get_wind_intensity(speed_kmh: float) -> float:
+	var s := maxf(0.0, speed_kmh)
+	if s < WIND_SPEED_START_KMH:
+		return 0.0
+	var t := (s - WIND_SPEED_START_KMH) / maxf(WIND_SPEED_FULL_KMH - WIND_SPEED_START_KMH, 1.0)
+	return clampf(t, 0.0, 1.0) * WIND_GAIN
 
 func _ensure_lpf() -> void:
 	if _lpf_added:

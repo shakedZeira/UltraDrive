@@ -10,6 +10,24 @@ const TEXT_MUTED := Color(0.62, 0.66, 0.74)
 @onready var track_name_label: Label = %TrackNameLabel
 @onready var play_button: Button = %PlayButton
 @onready var back_button: Button = %BackButton
+@onready var ui_blip: UiBlip = $UiBlip
+
+const MENU_BLIP_DEBOUNCE_MS: int = 80
+
+var _last_menu_blip_ms: int = -1000
+
+func _menu_blip() -> void:
+	if ui_blip == null:
+		return
+	var now := Time.get_ticks_msec()
+	if now - _last_menu_blip_ms < MENU_BLIP_DEBOUNCE_MS:
+		return
+	_last_menu_blip_ms = now
+	ui_blip.play_blip("menu")
+
+func _bind_menu_blip(button: Button) -> void:
+	button.pressed.connect(_menu_blip)
+	button.focus_entered.connect(_menu_blip)
 
 var _track_ids: Array[String] = []
 var _cards: Array[Button] = []
@@ -19,6 +37,8 @@ var launch_callback: Callable = _default_launch
 func _ready() -> void:
 	play_button.pressed.connect(_on_play_pressed)
 	back_button.pressed.connect(_on_back_pressed)
+	_bind_menu_blip(play_button)
+	_bind_menu_blip(back_button)
 	_build_cards()
 	if _cards.size() > 0:
 		select_track(_track_ids[0])
@@ -38,6 +58,7 @@ func _build_cards() -> void:
 		card.focus_mode = Control.FOCUS_NONE
 		card.custom_minimum_size = Vector2(250, 120)
 		card.connect("pressed", _on_card_pressed.bind(track_id))
+		_bind_menu_blip(card)
 		var box := VBoxContainer.new()
 		box.alignment = BoxContainer.ALIGNMENT_CENTER
 		box.add_theme_constant_override("separation", 4)

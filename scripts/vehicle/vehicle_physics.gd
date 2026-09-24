@@ -479,6 +479,8 @@ func get_drive_info() -> Dictionary:
         "brake": clampf(_brake_input, 0.0, 1.0),
         "steer": clampf(_steer_input, -1.0, 1.0),
         "surface": _last_surface_key,
+        "slip": clampf(_last_lateral_slip_deg / 40.0, 0.0, 1.0),
+        "handbrake": _handbrake_input,
     }
 
 ## Sets the per-frame surface resolver; empty Callable restores the default

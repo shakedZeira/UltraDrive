@@ -20,6 +20,24 @@ const CARD_ACTIVE := Color(0.105, 0.13, 0.21)
 @onready var car_visual: Node3D = %CarVisual
 @onready var tune_panel: VBoxContainer = %TuningTabs.get_node("Tune") as VBoxContainer
 @onready var paint_panel: VBoxContainer = %TuningTabs.get_node("Paint") as VBoxContainer
+@onready var ui_blip: UiBlip = $UiBlip
+
+const MENU_BLIP_DEBOUNCE_MS: int = 80
+
+var _last_menu_blip_ms: int = -1000
+
+func _menu_blip() -> void:
+	if ui_blip == null:
+		return
+	var now := Time.get_ticks_msec()
+	if now - _last_menu_blip_ms < MENU_BLIP_DEBOUNCE_MS:
+		return
+	_last_menu_blip_ms = now
+	ui_blip.play_blip("menu")
+
+func _bind_menu_blip(button: Button) -> void:
+	button.pressed.connect(_menu_blip)
+	button.focus_entered.connect(_menu_blip)
 
 var _garage: Garage
 var _selected_car: String = ""
@@ -41,6 +59,8 @@ func _ready() -> void:
 	_garage = Garage.new_from_save()
 	select_button.pressed.connect(_on_select_pressed)
 	back_button.pressed.connect(_on_back_pressed)
+	_bind_menu_blip(select_button)
+	_bind_menu_blip(back_button)
 	_build_rail()
 	_build_tune_panel()
 	_build_paint_panel()
@@ -67,6 +87,7 @@ func _build_rail() -> void:
 		card.focus_mode = Control.FOCUS_NONE
 		card.custom_minimum_size = Vector2(150, 62)
 		card.connect("pressed", _on_card_pressed.bind(i))
+		_bind_menu_blip(card)
 		var box := VBoxContainer.new()
 		box.add_theme_constant_override("separation", 2)
 		box.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -352,6 +373,7 @@ func _build_paint_panel() -> void:
 		img.fill(swatch["color"])
 		btn.icon = ImageTexture.create_from_image(img)
 		btn.connect("pressed", _on_swatch_pressed.bind(i))
+		_bind_menu_blip(btn)
 		grid.add_child(btn)
 		_swatch_buttons.append(btn)
 	_paint_state_label = Label.new()

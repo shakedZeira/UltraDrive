@@ -18,6 +18,26 @@ extends Control
 @onready var hood_bob_slider: HSlider = %HoodBobSlider
 @onready var lean_slider: HSlider = %LeanSlider
 @onready var motion_blur_option: OptionButton = %MotionBlurOption
+@onready var back_button: Button = $CenterLayout/Scroll/Content/BackButton
+@onready var ui_blip: UiBlip = $UiBlip
+
+const MENU_BLIP_DEBOUNCE_MS: int = 80
+
+var _last_menu_blip_ms: int = -1000
+
+func _menu_blip() -> void:
+	if ui_blip == null:
+		return
+	var now := Time.get_ticks_msec()
+	if now - _last_menu_blip_ms < MENU_BLIP_DEBOUNCE_MS:
+		return
+	_last_menu_blip_ms = now
+	ui_blip.play_blip("menu")
+
+func _bind_menu_blip(control: Control) -> void:
+	control.focus_entered.connect(_menu_blip)
+	if control is BaseButton:
+		(control as BaseButton).pressed.connect(_menu_blip)
 
 ## Quality ladder shared by the settings menu and the test suite. Each preset
 ## is applied to the current scene Environment + root Viewport.
@@ -67,7 +87,11 @@ const QUALITY_PRESETS: Dictionary = {
 		"tonemap_mode": Environment.TONE_MAPPER_ACES,
 		"probe_enabled": true,
 		"scaling_3d_mode": 1,
-		"scaling_3d_scale": 0.9,
+		# AAA-2 lever: FSR 2.2 scale 0.9 -> 0.85 on High. High was 57 fps on the
+		# GTX 970 reference (7ffb524); ~10% more upscaling per axis is the
+		# cheapest GPU cut that clears 60 without touching the env stack
+		# (SDFGI/SSR/volumetrics stay the reference High look).
+		"scaling_3d_scale": 0.85,
 		"ssao_intensity": 2.0,
 		"ssao_radius": 0.05,
 		"ssao_ao_channel_affect": 0.1,
@@ -314,6 +338,21 @@ func _ready() -> void:
 	transmission_option.item_selected.connect(_on_transmission_selected)
 	_populate_camera_and_feel()
 	_apply_camera_and_feel_live()
+	for control: Control in [
+		back_button,
+		quality_option,
+		volume_slider,
+		transmission_option,
+		motion_blur_option,
+		fov_chase_slider,
+		fov_orbit_slider,
+		fov_hood_slider,
+		fov_cockpit_slider,
+		shake_slider,
+		head_motion_slider,
+		hood_bob_slider,
+		lean_slider]:
+		_bind_menu_blip(control)
 
 func _populate_camera_and_feel() -> void:
 	var settings: Dictionary = GameState.camera_settings

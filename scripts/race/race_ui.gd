@@ -48,6 +48,7 @@ var _rewards_banked: bool = false
 var _best_lap: float = 0.0
 var _tracked_counter: LapCounter = null
 var _countdown_audio: CountdownAudio = null
+var _ui_blip: UiBlip = null
 var _last_countdown_phase: String = ""
 var _stats: SessionStats = GameState.session_stats
 var _last_tick_speed_kmh: float = 0.0
@@ -63,6 +64,9 @@ func _ready() -> void:
 	_countdown_audio = CountdownAudio.new()
 	_countdown_audio.name = "CountdownAudio"
 	add_child(_countdown_audio)
+	_ui_blip = UiBlip.new()
+	_ui_blip.name = "UiBlip"
+	add_child(_ui_blip)
 	next_race_button.pressed.connect(_on_next_race)
 	return_free_roam_button.pressed.connect(_on_return_free_roam)
 	_resolve_nav_source()
@@ -237,6 +241,8 @@ func _on_lap_completed(_vehicle: VehiclePhysics, _lap: int, lap_time: float) -> 
 	_stats.start_lap()
 	_best_lap = _stats.get_best_lap()
 	CareerProfile.grant_xp(CareerProfile.RACE_LAP_XP)
+	if _ui_blip != null:
+		_ui_blip.play_blip("hud")
 
 func _g_from_speed_delta(delta: float, speed_kmh: float) -> float:
 	if delta <= 0.0:
