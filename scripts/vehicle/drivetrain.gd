@@ -59,18 +59,17 @@ func update(delta: float, throttle: float, config: CarConfig) -> Dictionary:
         if shift_timer <= 0.0:
             is_shifting = false
 
-    # --- Reverse detection ---
-    # _wheel_speed is signed: positive = forward, negative = backward. In AUTO
-    # the box engages reverse whenever the car actually rolls backward and drops
-    # back to 1st the moment it moves forward again (deadband prevents flicker
-    # at standstill). In MANUAL reverse is PLAYER-selected only: the downshift
-    # from 1st (shift_down) is the single entry path, so rolling backward never
-    # auto-selects R. Leaving R (rolling forward, or a manual upshift) works in
-    # both modes and never re-enters R.
-    if current_gear >= 1:
-        if _wheel_speed < -0.5 and not manual_mode:
-            current_gear = -1
-    elif _wheel_speed > 0.5:
+    # --- Reverse selection ---
+    # _wheel_speed is signed: positive = forward, negative = backward. Reverse
+    # (-1) is PLAYER-SELECTED only, in EVERY mode: the explicit downshift from
+    # 1st (shift_down) is the single entry path, and the AUTO box no longer
+    # auto-selects R on backward roll. That gate caused the brake-to-zero bug:
+    # a hard brake can jounce wheel speed past the old -0.5 m/s threshold for a
+    # frame (tire scrub, spring-back), selecting R and rolling the car backward
+    # out of a clean stop. Leaving R is automatic and works in both modes:
+    # rolling forward returns to 1st (the real-world "shift out of R" roll), and
+    # nothing ever re-enters R on its own.
+    if current_gear < 0 and _wheel_speed > 0.5:
         current_gear = 1
 
     # --- Calculate engine RPM from wheel speed ---
@@ -166,10 +165,11 @@ func update(delta: float, throttle: float, config: CarConfig) -> Dictionary:
     }
 
 func shift_up(config: CarConfig) -> void:
-    # A manual upshift out of reverse (-1) returns to 1st - the inverse of the
-    # 1st->R downshift. Automatic mode never reaches this branch: its auto-shift
-    # block guards current_gear > 0 and the player input path is manual-only.
-    if current_gear == -1 and manual_mode:
+    # An upshift out of reverse (-1) returns to 1st - the inverse of the
+    # 1st->R downshift. Works for player-selected R in MANUAL and AUTO alike
+    # (in AUTO the box never auto-selects R, so any time it is in R the player
+    # chose it and may shift back out).
+    if current_gear == -1:
         current_gear = 1
         _start_shift(config)
         return
@@ -186,10 +186,10 @@ func shift_down(config: CarConfig) -> void:
     if lateral_g >= LATERAL_DOWNSHIFT_VETO_G:
         return
     # Over-rev guard: reject the drop if the lower gear would push the engine
-    # past 105% of redline at the current wheel speed. In MANUAL mode, dropping
-    # from 1st selects reverse (-1): that is the ONLY way reverse engages while
-    # manual (rolling backward never auto-selects it), and the same over-rev
-    # guard applies so a fast forward roll cannot drop into R.
+    # past 105% of redline at the current wheel speed. Dropping from 1st
+    # selects reverse (-1): that is the ONLY way reverse engages, in EVERY mode
+    # (rolling backward never auto-selects it - the brake-to-zero bug fix), and
+    # the same over-rev guard applies so a fast forward roll cannot drop into R.
     if current_gear > 1:
         var gear_ratio := config.get_gear_ratio(current_gear - 1)
         var wheel_radius := 0.33
@@ -199,7 +199,7 @@ func shift_down(config: CarConfig) -> void:
             return
         current_gear -= 1
         _start_shift(config)
-    elif current_gear == 1 and manual_mode:
+    elif current_gear == 1:
         var reverse_ratio := config.get_gear_ratio(-1)
         var wheel_radius := 0.33
         var rpm_after := absf(_wheel_speed) / maxf(wheel_radius, 0.01) \

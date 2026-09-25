@@ -254,7 +254,12 @@ func _physics_process(delta: float) -> void:
         _drivetrain.rpm_override = RaceManager.rev_override()
     else:
         _drivetrain.rpm_override = -1.0
-    if input_override == Vector2.ZERO and _drivetrain.manual_mode and not controls_locked:
+    # Player shift inputs route to the drivetrain in EVERY mode (not just
+    # MANUAL): AUTO's 1st->R needs an explicit shift_down too since reverse is
+    # player-initiated only. AI/traffic cars never reach the branch - they
+    # drive through a non-zero input_override, and controls_locked suppresses
+    # it during start-gate revving.
+    if input_override == Vector2.ZERO and not controls_locked:
         if InputManager.is_shift_up_just_pressed():
             _drivetrain.shift_up(config)
         elif InputManager.is_shift_down_just_pressed():

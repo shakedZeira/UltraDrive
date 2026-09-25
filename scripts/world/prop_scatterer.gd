@@ -29,12 +29,20 @@ const FINISH_GANTRY_PATH := "res://assets/track_props/finish_gantry.glb"
 const PIT_GARAGE_PATH := "res://assets/buildings/building_pit_garage.glb"
 const PIT_OFFICE_PATH := "res://assets/buildings/building_pit_office.glb"
 const ROCK_PATH := "res://assets/rocks/rock_a.glb"
+const RACING_BARRIER_RED_PATH := "res://assets/track_props/racing_barrier_red.glb"
+const RACING_PYLON_PATH := "res://assets/track_props/racing_pylon.glb"
+const RACING_GRANDSTAND_PATH := "res://assets/track_props/racing_grandstand.glb"
+const RACING_RAIL_DOUBLE_PATH := "res://assets/track_props/racing_rail_double.glb"
+const RACING_FLAG_CHECKERS_PATH := "res://assets/track_props/racing_flag_checkers.glb"
+const RACING_TENT_PATH := "res://assets/track_props/racing_tent.glb"
 
 ## Real-mesh prop types ship native surface materials from their GLBs; the
 ## primitive types (guardrail / tent / power_pole) still get a tinted override.
 const NATIVE_MATERIAL_TYPES := [
 	"track_barrier", "track_rail", "track_cone", "grandstand",
 	"light_pole", "finish_gantry", "pit_garage", "pit_office", "rock",
+	"racing_barrier_red", "racing_pylon", "racing_grandstand",
+	"racing_rail_double", "racing_flag_checkers", "racing_tent",
 ]
 
 @export var radius: float = 300.0
@@ -80,6 +88,12 @@ func _init() -> void:
 		"finish_gantry": _build_finish_gantry_mesh,
 		"pit_garage": _build_pit_garage_mesh,
 		"pit_office": _build_pit_office_mesh,
+		"racing_barrier_red": _build_racing_barrier_red_mesh,
+		"racing_pylon": _build_racing_pylon_mesh,
+		"racing_grandstand": _build_racing_grandstand_mesh,
+		"racing_rail_double": _build_racing_rail_double_mesh,
+		"racing_flag_checkers": _build_racing_flag_checkers_mesh,
+		"racing_tent": _build_racing_tent_mesh,
 	}
 
 func _ready() -> void:
@@ -176,6 +190,12 @@ static func default_preset(zone: String) -> Dictionary:
 					"pit_office": {"count": 3, "min_spacing": 34.0, "scale": Vector2(6.0, 6.5)},
 					"track_barrier": {"count": 8, "min_spacing": 16.0, "scale": Vector2(4.0, 4.5)},
 					"track_cone": {"count": 6, "min_spacing": 12.0, "scale": Vector2(4.0, 5.0)},
+					"racing_barrier_red": {"count": 6, "min_spacing": 14.0, "scale": Vector2(3.0, 4.0)},
+					"racing_pylon": {"count": 4, "min_spacing": 10.0, "scale": Vector2(5.0, 6.0)},
+					"racing_grandstand": {"count": 1, "min_spacing": 60.0, "scale": Vector2(6.0, 8.0)},
+					"racing_rail_double": {"count": 6, "min_spacing": 18.0, "scale": Vector2(3.0, 4.5)},
+					"racing_flag_checkers": {"count": 1, "min_spacing": 30.0, "scale": Vector2(2.5, 3.0)},
+					"racing_tent": {"count": 3, "min_spacing": 20.0, "scale": Vector2(4.0, 5.0)},
 				},
 			}
 		"lowlands":
@@ -201,7 +221,13 @@ static func default_preset(zone: String) -> Dictionary:
 			return {
 				"radius": 500.0, "inner_clear_radius": 40.0, "seed": 1004,
 				"road_threshold": 11.0,
-				"props": {"guardrail": {"count": 26, "min_spacing": 16.0, "scale": Vector2(1.0, 1.0)}},
+				"props": {
+					"guardrail": {"count": 26, "min_spacing": 16.0, "scale": Vector2(1.0, 1.0)},
+					"racing_barrier_red": {"count": 6, "min_spacing": 16.0, "scale": Vector2(3.0, 4.0)},
+					"racing_pylon": {"count": 4, "min_spacing": 12.0, "scale": Vector2(5.0, 6.0)},
+					"racing_grandstand": {"count": 1, "min_spacing": 70.0, "scale": Vector2(6.0, 8.0)},
+					"racing_rail_double": {"count": 6, "min_spacing": 20.0, "scale": Vector2(3.0, 4.5)},
+				},
 			}
 		"alpine":
 			return {
@@ -388,6 +414,24 @@ func _build_pit_garage_mesh() -> ArrayMesh:
 
 func _build_pit_office_mesh() -> ArrayMesh:
 	return _load_prop_mesh(PIT_OFFICE_PATH)
+
+func _build_racing_barrier_red_mesh() -> ArrayMesh:
+	return _load_prop_mesh(RACING_BARRIER_RED_PATH)
+
+func _build_racing_pylon_mesh() -> ArrayMesh:
+	return _load_prop_mesh(RACING_PYLON_PATH)
+
+func _build_racing_grandstand_mesh() -> ArrayMesh:
+	return _load_prop_mesh(RACING_GRANDSTAND_PATH)
+
+func _build_racing_rail_double_mesh() -> ArrayMesh:
+	return _load_prop_mesh(RACING_RAIL_DOUBLE_PATH)
+
+func _build_racing_flag_checkers_mesh() -> ArrayMesh:
+	return _load_prop_mesh(RACING_FLAG_CHECKERS_PATH)
+
+func _build_racing_tent_mesh() -> ArrayMesh:
+	return _load_prop_mesh(RACING_TENT_PATH)
 
 ## Loads a GLB PackedScene and resolves it to one MultiMesh-friendly mesh,
 ## cached per path. A single MeshInstance3D (whatever its baked node transform,

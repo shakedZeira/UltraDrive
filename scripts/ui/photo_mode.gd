@@ -33,6 +33,11 @@ const APERTURE_MAX := 16.0
 const FILTER_LAYER := 50
 const DEFAULT_FILTER := "none"
 
+## Emitted when an enter() attempt is refused because the world can't be
+## photographed (no orbit camera in the tree). The controller surfaces this as a
+## transient on-screen flash so a refused Share press is never dead silence.
+signal photo_mode_unavailable(reason: String)
+
 ## Photo filters by name: a translucent full-screen tint (true grading would be
 ## a shader; the ColorRect overlay is full-res and cheap on the GTX 970).
 const FILTERS: Dictionary = {
@@ -54,6 +59,8 @@ var _orbit: Node3D = null
 var _hud: CanvasLayer = null
 var _overlay_layer: CanvasLayer = null
 var _overlay: ColorRect = null
+var _flash_label: Label = null
+var _flash_timer: SceneTreeTimer = null
 
 func _ready() -> void:
 	# Photo mode must keep answering while the game is frozen.
@@ -66,6 +73,7 @@ func enter() -> bool:
 		return false
 	var orbit := _resolve_orbit_camera()
 	if orbit == null:
+		photo_mode_unavailable.emit("no_orbit_camera")
 		return false
 	_orbit = orbit
 	_hud = _find_hud_layer()
@@ -266,9 +274,52 @@ func _ensure_overlay() -> ColorRect:
 	return _overlay
 
 func _free_overlay() -> void:
+	if _flash_timer != null and _flash_timer.is_valid():
+		_flash_timer.timeout.disconnect(_hide_flash)
+		_flash_timer = null
+	if _flash_label != null:
+		_flash_label.free()
+		_flash_label = null
 	if _overlay != null:
 		_overlay.free()
 		_overlay = null
 	if _overlay_layer != null:
 		_overlay_layer.free()
 		_overlay_layer = null
+
+## Transient centered on-screen message on the topmost photo overlay layer.
+## Deliberately rendered even while the tree is paused (the overlay lives on the
+## PROCESS_MODE_ALWAYS controller and the expiry timer is process_always), so a
+## refused Share press can never be confused with dead silence. No-op outside a
+## live tree.
+func flash_message(text: String, duration: float = 1.6) -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	var rect := _ensure_overlay()
+	_overlay_layer.visible = true
+	if _flash_label == null:
+		_flash_label = Label.new()
+		_flash_label.name = "FlashLabel"
+		_flash_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_flash_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		_flash_label.add_theme_font_size_override("font_size", 40)
+		_flash_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.95))
+		_flash_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.85))
+		_flash_label.add_theme_constant_override("outline_size", 6)
+		_flash_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_overlay_layer.add_child(_flash_label)
+	_flash_label.size = rect.size
+	_flash_label.text = text
+	_flash_label.visible = true
+	if _flash_timer != null and _flash_timer.is_valid():
+		_flash_timer.timeout.disconnect(_hide_flash)
+	_flash_timer = tree.create_timer(maxf(duration, 0.1), true, false, true)
+	_flash_timer.timeout.connect(_hide_flash)
+
+func _hide_flash() -> void:
+	if _flash_label != null:
+		_flash_label.visible = false
+	# Only the filter owns the whole layer once the message is gone.
+	if _overlay_layer != null and _filter == DEFAULT_FILTER:
+		_overlay_layer.visible = false

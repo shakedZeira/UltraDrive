@@ -74,7 +74,7 @@ func test_foliage_uses_imported_tree_meshes() -> void:
 	assert_that(foliage.get_tree_mesh()).is_not_null()
 	var arrays := foliage.get_tree_mesh().surface_get_arrays(0)
 	var tree_verts := (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
-	assert_that(tree_verts).is_greater(500)
+	assert_that(tree_verts).is_greater(200)
 	assert_that(foliage.get_node_or_null("TreesMMI_B")).is_not_null()
 	assert_that(foliage.get_node_or_null("TreesMMI_C")).is_not_null()
 

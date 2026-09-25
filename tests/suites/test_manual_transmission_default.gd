@@ -4,11 +4,13 @@ extends GdUnitTestSuite
 ## Acceptance gate for three vehicle-behavior changes:
 ## 1) Fresh installs default to MANUAL transmission (a persisted explicit choice
 ##    still wins on load; the settings option reflects the new default).
-## 2) In MANUAL, reverse (-1) is entered ONLY by downshifting from 1st - no code
-##    path auto-selects R (rolling backward / standstill / slow forward stay in
+## 2) Reverse (-1) is entered ONLY by downshifting from 1st - no code path
+##    auto-selects R (rolling backward / standstill / slow forward stay in
 ##    the forward gear). The 1st->R drop keeps the existing over-rev guard, the
-##    reverse speed cap still holds, shift_up returns R to 1st, and AUTO mode's
-##    reverse behavior is untouched.
+##    reverse speed cap still holds, shift_up returns R to 1st, and AUTO mode
+##    now uses the SAME player-initiated contract: rolling backward never
+##    auto-selects R (the brake-to-zero bug fix) and an explicit shift_down
+##    from 1st enters R there too.
 ## 3) Speed-sensitive steering: the low-speed steer lock exceeds the high-speed
 ##    lock, the low-speed min turning radius shrinks vs the legacy constant, and
 ##    high-speed steer amount is unchanged (stability preserved).
@@ -169,12 +171,18 @@ func test_reverse_speed_cap_still_holds_in_manual() -> void:
 	assert_that(dt.reverse_limiter_active).is_false()
 	assert_that(dt.drive_torque).is_less(0.0)
 
-func test_auto_mode_still_reaches_reverse_per_existing_logic() -> void:
-	# AUTO (manual_mode == false) keeps the legacy roll-backward -> R logic.
+func test_auto_mode_reverse_is_player_initiated_not_roll_back() -> void:
+	# New contract (brake-to-stop bug fix): reverse is player-initiated in EVERY
+	# mode. AUTO no longer auto-selects R on backward roll - a genuine backward
+	# roll in 1st stays in 1st, an explicit shift_down from 1st selects R, and a
+	# forward roll out of that R returns to 1st.
 	var dt := Drivetrain.new()
 	dt.set_wheel_speed(-2.0)
 	dt.update(1.0 / 60.0, 1.0, STARTER_CONFIG)
+	assert_that(dt.current_gear).is_equal(1)
+	dt.shift_down(STARTER_CONFIG)
 	assert_that(dt.current_gear).is_equal(-1)
+	assert_that(dt.is_shifting).is_true()
 	dt.set_wheel_speed(0.6)
 	dt.update(1.0 / 60.0, 1.0, STARTER_CONFIG)
 	assert_that(dt.current_gear).is_equal(1)

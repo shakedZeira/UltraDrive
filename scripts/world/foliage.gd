@@ -9,15 +9,15 @@ extends Node3D
 
 const GRASS_MESH_SIZE := Vector2(1.2, 0.8)
 const GROUND_OFFSET_Y := 0.03
-const TREE_HEIGHT := 4.6
+const TREE_HEIGHT := 10.0
 const TREE_MIN_SPACING := 8.0
 const TREE_PLACEMENT_ATTEMPTS := 32
 const GRASS_ROAD_ATTEMPTS := 4
 const GRASS_SHADER_PATH := "res://shaders/grass_wind.gdshader"
 const TREE_SHADER_PATH := "res://shaders/foliage_wind.gdshader"
 
-## P1 imported tree variants (CC0 Quaternius via Poly Pizza, re-exported at
-## 4.6 m, base at origin). Each variant becomes its own MultiMesh batch so the
+## P1 imported tree variants (CC0 Poly Pizza models, re-exported at
+## 10.0 m, base at origin). Each variant becomes its own MultiMesh batch so the
 ## same scene can draw a mixed forest; all share the wind shader override.
 ## Counts are split across the variants and must sum to tree_count so the
 ## live-ring/prefetch totals (40 / 20) stay exact.

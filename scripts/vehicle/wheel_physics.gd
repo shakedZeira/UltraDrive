@@ -26,6 +26,17 @@ const PARKED_HOLD_SPEED := 0.25
 ## Max angular rate (rad/s^2) at which the parked-hold may unwind an already
 ## spinning wheel down to the rolling match.
 const PARKED_HOLD_SPIN_RATE := 80.0
+## Max angular rate (rad/s^2) at which an ENGINE-BRAKED, over-spinning wheel
+## may shed its excess spin back to the rolling match (3600 => a firm 60 rad/s
+## per 60 Hz physics frame). A feel fudge in the same family as
+## PARKED_HOLD_SPIN_RATE: on throttle release the torque balance alone bleeds a
+## launch/build-up over-spin only at the damped reaction rate, so the Pacejka
+## peak keeps shoving the car forward for several frames while the axle torque
+## is already demanding engine braking ("the throttle still feels on"). This
+## unwinds the excess in 1-2 frames instead. It fires ONLY while the axle is
+## engine-braking (drive_axle_torque < 0) WITHOUT a foot brake, so on-throttle
+## launch, cruise and brake-feel stay byte-for-byte untouched.
+const ENGINE_BRAKE_UNWIND_RATE := 3600.0
 
 # --- State ---
 var suspension_length: float = 0.1
@@ -142,6 +153,24 @@ func step_wheel_spin(
             PARKED_HOLD_SPIN_RATE * delta
         )
         return wheel_angular_velocity
+
+    # Engine-brake over-spin unwind: a wheel still carrying the throttle's spin
+    # after a lift-off keeps the tire near peak thrust until that excess bleeds
+    # off through the damped reaction integration. Snap the spin back toward the
+    # rolling match at a bounded rate so engine braking bites in a frame or two.
+    # Only while the axle engine-brakes (drive < 0) with no foot brake, so
+    # launch/accel wheelspin (drive > 0) and brake-feel are untouched; the
+    # grounded gate mirrors the parked-hold block. move_toward clamps exactly to
+    # the rolling match, so a big step can never overshoot into a reverse-lockup.
+    if drive_axle_torque < 0.0 and grounded and absf(brake_torque) <= 1.0:
+        var rolling_match := forward_speed / WHEEL_RADIUS
+        if wheel_angular_velocity > rolling_match:
+            wheel_angular_velocity = move_toward(
+                wheel_angular_velocity,
+                rolling_match,
+                ENGINE_BRAKE_UNWIND_RATE * delta
+            )
+            return wheel_angular_velocity
 
     var net_torque := drive_axle_torque - brake_torque - tire_force * WHEEL_RADIUS
 

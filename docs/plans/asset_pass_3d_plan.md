@@ -193,13 +193,25 @@ Verify visually with `get_viewport_screenshot` after import.
 
 ---
 
-## STATUS — 2026-09-20
+## STATUS — 2026-09-25
 
-- **UNSTARTED.** Plan written; no assets downloaded, no code touched, no tests
-  created. All P1–P6 phase blocks above are the execution checklist.
+- **DONE (P1–P4), gate GREEN — 810 tests | 0 errors | 0 failures | 18 orphans.**
 - **2026-09-20 — plan authored.** Research closed with the CC0-first low-poly
   decision; this plan encodes the decision, resource list, Blender-MCP flow and
-  dependency-ordered P1–P6 gates. Next action: delegate P1 (trees) after
-  `blender-mcp_get_addon_status`.
+  dependency-ordered P1–P6 gates.
+- **P1 trees (2026-09-25):** three CC0 GLB trees (`tree_a/b/c.glb`) fused into
+  the MultiMesh herd; `foliage.gd` height-UV bake kept.
+  `tests/suites/test_foliage_models.gd` green. Note: `tree_c.glb` re-exported
+  with EMBEDDED textures (remapped the stray external pine texture).
+- **P2 track props (2026-09-25):** six Kenney Racing Kit GLBs
+  (`racing_barrier_red/pylon/grandstand/rail_double/flag_checkers/tent`) added to
+  `PropScatterer._mesh_builders` + `festival`/`highlands` presets.
+  `tests/suites/test_track_props.gd` green (3/3).
+- **P3/P4 buildings + rocks (shipped 2026-09-21 in 6c9b76b):** `assets/buildings/`
+  (pit garage + office), `assets/rocks/rock_a.glb`, base `assets/track_props/`
+  (barrier/cone/rail/grandstand/gantry/light pole) wired into `default_preset`
+  zones. `tests/suites/test_building_placement.gd` green (3/3). This STATUS was
+  previously stale (said UNSTARTED); the 09-21 commit had already shipped these.
+- **P5 hero car: optional, not requested.** P6 polish folded into the green gate.
 
 *Plan ends.*
