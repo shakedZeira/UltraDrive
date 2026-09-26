@@ -89,7 +89,11 @@ func _exit_tree() -> void:
 	if WeatherManager.weather_changed.is_connected(_on_weather_changed):
 		WeatherManager.weather_changed.disconnect(_on_weather_changed)
 
-func _prebake_all_grass() -> void:
+## Forces the Mountain Pass grassland colour on the player region: height+colour
+	## maps are baked as normal, then every texel is recoloured to the track's
+	## shaded grassland palette so the open world reads as the same grass as the
+	## Mountain Pass circuit.
+	func _prebake_all_grass() -> void:
 	if _terrain_seeder == null:
 		return
 	LoadingScreenManager.update_loading("Pre-baking terrain grass...", 100)
@@ -101,7 +105,8 @@ func _prebake_all_grass() -> void:
 	if roads.is_empty():
 		return
 	_terrain_seeder.set_roads(roads, road_defs)
-	# Force immediate grass color bake for player region so grass is visible on spawn
+	# Force immediate grass colour bake for player region so grass is visible on spawn
+	# the same shaded grassland the Mountain Pass renders.
 	_terrain_seeder.force_player_region_color_bake()
 
 func _physics_process(_delta: float) -> void:

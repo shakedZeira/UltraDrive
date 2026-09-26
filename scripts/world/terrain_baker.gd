@@ -102,6 +102,16 @@ const SAMPLE_SPACING := 2.0
 const COLOR_GRASS := Color(0.2, 0.5, 0.15)
 const COLOR_ROAD := Color(0.30, 0.30, 0.32)
 
+## Mountain Pass grassland palette (from `mountain_pass.gd`):
+## the track's static `GRASS_COLOR` (0.30, 0.36, 0.27) tinted toward bracken
+## green, with terrain-shaded variation. `shade()` mirrors the static scene's
+## `(0.82 + 0.36 * clampf((h + 12) / 24, 0, 1))` ramp so the open world reads
+## as the same grassland as the Mountain Pass circuit.
+static func mountain_pass_grass(base_h: float, seed: float = 0.0) -> Color:
+	var shade := 0.82 + 0.36 * clampf((base_h + 12.0) / 24.0, 0.0, 1.0)
+	var noise := (seed + 1.7) % 1.0
+	return Color(0.30, 0.36, 0.27) * clampf(shade * (0.92 + 0.08 * noise), 0.0, 1.0)
+
 ## Band index -> RGBA8 colour, indexed by BAND_* so the colour loop never pays
 ## a per-texel _band_color() match call. Order must match BAND_SEA..BAND_ALPINE.
 ## All non-road regions are grass green.

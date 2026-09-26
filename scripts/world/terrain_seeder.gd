@@ -770,8 +770,6 @@ func _stop_worker() -> void:
 	_work_queue.clear()
 	_lock.unlock()
 
-## Forces an immediate synchronous grass color bake for the player region.
-## Called after set_roads() clears the cache to ensure grass is visible on spawn.
 func force_player_region_color_bake() -> void:
 	if terrain == null:
 		return
@@ -787,10 +785,14 @@ func force_player_region_color_bake() -> void:
 		return
 	var image: Image = _baker.bake_region(_player_region, bake_scale, map.get_width(), _roads)
 	var color: Image = _baker.bake_region_color(_player_region, bake_scale, map.get_width(), _roads)
-	var range := _scan_height_range(image)
-	_baked[_player_region] = {"image": image, "color": color, "height_min": range.x, "height_max": range.y}
-	_write_region(data, region, _player_region, image, range.x, range.y, true, color)
-	_applied[_player_region] = true
+	for iz in image.get_height():
+		for ix in image.get_width():
+			var h := color.get_pixel(ix, iz).r
+			color.set_pixel(ix, iz, _baker.mountain_pass_grass(h))
+		var range := _scan_height_range(image)
+		_baked[_player_region] = {"image": image, "color": color, "height_min": range.x, "height_max": range.y}
+		_write_region(data, region, _player_region, image, range.x, range.y, true, color)
+		_applied[_player_region] = true
 
 ## Internal pipeline state, exposed for the streaming tests.
 func _bake_queued(loc: Vector2i) -> bool:
