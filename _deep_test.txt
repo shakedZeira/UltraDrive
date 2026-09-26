@@ -1,6 +1,0 @@
-Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
-
-SCRIPT ERROR: Parse Error: Expected indented block after function declaration.
-   at: GDScript::reload (res://scripts/world/corridor_planner.gd:284)
-ERROR: Failed to load script "res://scripts/world/corridor_planner.gd" with error "Parse error".
-   at: load (modules/gdscript/gdscript_resource_format.cpp:46)

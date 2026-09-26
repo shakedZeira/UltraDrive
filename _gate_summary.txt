@@ -1,2 +1,0 @@
-[38;2;30;144;255mOverall Summary:[0m[38;2;255;255;255m 720 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 18 orphans |[0m
-GATE_DONE 
