@@ -93,8 +93,12 @@ func test_shift_actions_are_defined() -> void:
 func test_shift_up_action_binds_joypad_button_three() -> void:
     assert_that(_action_has_joypad_button("shift_up", 3)).is_true()
 
-func test_shift_down_action_binds_joypad_button_zero() -> void:
-    assert_that(_action_has_joypad_button("shift_down", 0)).is_true()
+func test_shift_down_action_binds_joypad_button_two_square() -> void:
+    assert_that(_action_has_joypad_button("shift_down", 2)).is_true()
+
+func test_headlight_action_binds_joypad_button_zero_cross() -> void:
+    assert_that(InputMap.has_action("headlight")).is_true()
+    assert_that(_action_has_joypad_button("headlight", 0)).is_true()
 
 func test_handbrake_binds_joypad_button_one_circle() -> void:
     assert_that(_action_has_joypad_button("handbrake", 3)).is_false()

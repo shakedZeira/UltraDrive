@@ -25,6 +25,25 @@ enum Surface {
 
 const TIER_COUNT := 5
 const SURFACE_COUNT := 4
+const LANE_COUNT_BY_MIN_WIDTH := {
+	24.0: 4,
+	15.0: 2,
+}
+const ROADS_WITH_RAILS := {
+	Tier.HIGHWAY: true,
+	Tier.ARTERIAL: true,
+	Tier.TOUGE: true,
+	Tier.COASTAL: false,
+	Tier.DIRT: false,
+}
+
+## Merge-point policy: ramps and connectors that start at or land on other roads
+## intentionally disable rails at the merge so the merge side stays open. Specific
+## merge points (e.g. the hub-access ramp starting at the hub-ring center (128, -0.1, 81.8)
+## and landing on the hub ring at (128, ~2, 128)) are treated the same way; the receiving
+## road only has its rail cleared at the merge zone rather than both sides.
+static func is_merge_point(id: String) -> bool:
+	return id == "hub-access-ramp"
 
 @export var id: String = ""
 @export var tier: int = Tier.ARTERIAL
@@ -54,7 +73,7 @@ static func make(tier: int, points: Array[Vector3], id: String = "", closed: boo
 static func default_width(t: int) -> float:
 	match t:
 		Tier.HIGHWAY:
-			return 16.0
+			return 24.0
 		Tier.ARTERIAL:
 			return 10.0
 		Tier.TOUGE:
@@ -65,6 +84,26 @@ static func default_width(t: int) -> float:
 			return 7.0
 		_:
 			return 10.0
+
+static func lane_count_for(width: float) -> int:
+	var lanes := 1
+	if width >= 24.0:
+		lanes = int(LANE_COUNT_BY_MIN_WIDTH[24.0])
+	elif width >= 15.0:
+		lanes = int(LANE_COUNT_BY_MIN_WIDTH[15.0])
+	return clampi(lanes, 1, 6)
+
+static func lanes_for(width: float) -> int:
+	return lane_count_for(width)
+
+func lane_count() -> int:
+	return lane_count_for(width)
+
+static func has_rails(tier: int) -> bool:
+	return bool(ROADS_WITH_RAILS.get(tier, false))
+
+func rails_enabled() -> bool:
+	return has_rails(tier)
 
 ## Default surface per tier.
 static func default_surface(t: int) -> int:
@@ -89,6 +128,8 @@ static func tier_name(t: int) -> String:
 			return "Dirt"
 		_:
 			return "Arterial"
+
+
 
 ## Surface display name + the TrackBuilder albedo hint lives in TrackBuilder;
 ## this only names the surface for debug/HUD use.

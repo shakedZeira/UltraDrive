@@ -7,9 +7,13 @@ extends GdUnitTestSuite
 ## through get_photo_params(), free orbit reuses the orbit camera's own math and
 ## keeps the photo FOV pinned, and the screenshot exporter is headless-guarded
 ## (no render path, no file writes under the gdUnit gate). Map-side: the POI
-## registry categorizes every entry into exactly {landmarks, events}, the bucket
-## and region/travel pure filters are exact, and world_map's _rebuild gates its
-## POI dot set through set_category_filters + the injected travel gate.
+## registry categorizes every entry into exactly {landmarks, events,
+## collectibles}, the bucket and region/travel pure filters are exact, and
+## world_map's _rebuild gates its POI dot set through set_category_filters +
+## the injected travel gate. The collectibles bucket is the speed-trap fix:
+## all eight traps are on the map by default, in the shared family red, at a
+## larger pin radius than a landmark, and hiding the events layer cannot hide
+## them.
 
 const PhotoModeScript: GDScript = preload("res://scripts/ui/photo_mode.gd")
 const ChaseCameraScript: GDScript = preload("res://scripts/camera/chase_camera.gd")
@@ -212,23 +216,32 @@ func test_photo_screenshot_headless_guard() -> void:
 			assert_that(written_path).is_not_empty()
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(written_path))
 
-## Gate #2 core: every registered POI belongs to exactly one category ג€” the base
-## five landmarks vs the event markers (kind-keyed) ג€” exhaustive and disjoint.
+## Gate #2 core: every registered POI belongs to exactly one of the three
+## categories. Exhaustive and disjoint. The collectibles bucket is the
+## speed-trap fix: a collectible is gameplay, not a calendar entry, so it can
+## never be filtered away together with the events.
 func test_poi_categories_are_exhaustive_and_disjoint() -> void:
 	var all_ids: Array = POIRegistry.get_poi_ids()
 	var buckets: Dictionary = POIRegistry.category_buckets()
 	var landmarks: Array = buckets[POIRegistry.CATEGORY_LANDMARKS]
 	var events: Array = buckets[POIRegistry.CATEGORY_EVENTS]
+	var collectibles: Array = buckets[POIRegistry.CATEGORY_COLLECTIBLES]
 	assert_that(all_ids.size()).is_greater(5)
 	assert_that(landmarks.size()).is_equal(5)
-	assert_that(events.size()).is_equal(all_ids.size() - 5)
+	assert_that(collectibles.size()).is_greater(0)
+	assert_that(landmarks.size() + events.size() + collectibles.size()).is_equal(all_ids.size())
 	for poi_id in all_ids:
 		var poi := POIRegistry.get_poi(poi_id)
-		var category: String = POIRegistry.category_of(poi)
-		if poi.has("kind"):
-			assert_that(category).is_equal(POIRegistry.CATEGORY_EVENTS)
+		# The id is a fast path only: classification must agree with it and with
+		# the entry itself, so the two can never disagree.
+		var by_entry: String = POIRegistry.category_of(poi, poi_id)
+		assert_that(by_entry).is_equal(POIRegistry.category_of(poi))
+		if Collectibles.is_collectible_id(poi_id):
+			assert_that(by_entry).is_equal(POIRegistry.CATEGORY_COLLECTIBLES)
+		elif poi.has("kind"):
+			assert_that(by_entry).is_equal(POIRegistry.CATEGORY_EVENTS)
 		else:
-			assert_that(category).is_equal(POIRegistry.CATEGORY_LANDMARKS)
+			assert_that(by_entry).is_equal(POIRegistry.CATEGORY_LANDMARKS)
 
 ## filter_by_category keeps exactly the requested categories (and nothing else).
 func test_poi_filter_by_category_is_exact() -> void:
@@ -240,7 +253,20 @@ func test_poi_filter_by_category_is_exact() -> void:
 		assert_that(category).is_equal(POIRegistry.CATEGORY_LANDMARKS)
 	var both: Dictionary = POIRegistry.filter_by_category(
 		[POIRegistry.CATEGORY_LANDMARKS, POIRegistry.CATEGORY_EVENTS])
-	assert_that(both.size()).is_equal(POIRegistry.get_poi_ids().size())
+	assert_that(both.size()).is_less(POIRegistry.get_poi_ids().size())
+	# The collectibles bucket is the boards/traps/photo spots on their own, and
+	# every id in it really is one.
+	var only_collectibles: Dictionary = POIRegistry.filter_by_category(
+		[POIRegistry.CATEGORY_COLLECTIBLES])
+	assert_that(only_collectibles.size()).is_greater(0)
+	for poi_id in only_collectibles.keys():
+		assert_that(Collectibles.is_collectible_id(poi_id)).is_true()
+	var every: Dictionary = POIRegistry.filter_by_category([
+		POIRegistry.CATEGORY_LANDMARKS,
+		POIRegistry.CATEGORY_EVENTS,
+		POIRegistry.CATEGORY_COLLECTIBLES,
+	])
+	assert_that(every.size()).is_equal(POIRegistry.get_poi_ids().size())
 
 ## Region matching is a case-insensitive substring on the stage name, and the
 ## travel predicate honours an injected gate (empty gate = everyone is eligible).
@@ -298,7 +324,100 @@ func test_world_map_filters_gate_poi_dots() -> void:
 	assert_that(travel_entries.size()).is_equal(1)
 
 	world_map.set_travel_gate(Callable())
-	world_map.set_category_filters({})  # back to shipped all-on defaults
+	world_map.reset_category_filters()
 	world_map.call("_rebuild")
 	var reset_size := (world_map.get("_poi_entries") as Array).size()
 	assert_that(reset_size).is_equal(POIRegistry.get_poi_ids().size())
+
+# ---------------------------------------------------------------------------
+# Speed traps on the pause map: the whole family, in the family colour, and never
+# hidden by the events layer.
+# ---------------------------------------------------------------------------
+
+## A world map over a real road network, because _rebuild() only collects POIs
+## when a road source exists (that is what keeps the map roadless on circuits).
+func _new_world_map(root: Node) -> WorldMap:
+	var network := RoadNetwork.new()
+	network.name = "FilterNetwork"
+	network.add_road([Vector3(0.0, 0.0, 0.0), Vector3(100.0, 0.0, 0.0), Vector3(100.0, 0.0, 100.0), Vector3(0.0, 0.0, 100.0)])
+	root.add_child(network)
+	var world_map := WorldMapScript.new() as WorldMap
+	world_map.name = "TrapMap"
+	world_map.size = Vector2(512.0, 512.0)
+	root.add_child(world_map)
+	return world_map
+
+## The authored speed traps, read from the SAME placement the registry merges,
+## so this gate can never drift from the shipped set.
+func _speed_trap_ids() -> Array[String]:
+	var placed: Dictionary = Collectibles.place_data(
+		CorridorPlanner.plan(CorridorPlanner.MASTER_SEED, Callable(), {}))
+	return Collectibles.ids_of_kind(placed, Collectibles.KIND_SPEED_TRAP)
+
+## Every one of the eight speed traps is on the map by default, projected inside
+## the map rect, and drawn in the shared family red at a pin radius LARGER than a
+## landmark's. A gameplay target that is easy to miss on the pause map is a target
+## that is easy to miss in the world, so the dot set and the colour/radius
+## contract are asserted together.
+func test_world_map_draws_every_speed_trap_in_the_shared_family_red() -> void:
+	var root := _new_root()
+	var world_map := _new_world_map(root)
+	world_map.call("_rebuild")
+	var ids: Array[String] = world_map.poi_entry_ids()
+	var trap_ids := _speed_trap_ids()
+	assert_array(trap_ids).has_size(8)
+	for trap_id in trap_ids:
+		assert_array(ids).contains([trap_id])
+
+	# Every collectible family draws its own palette colour, so a trap never comes
+	# out in the road-tier colour of the corridor it happens to sit on.
+	var rect := Rect2(Vector2.ZERO, world_map.size)
+	var seen := 0
+	for entry in (world_map.get("_poi_entries") as Array):
+		var poi: Dictionary = (entry as Dictionary)["poi"]
+		var poi_id := str(poi.get("id", ""))
+		if not Collectibles.is_collectible_id(poi_id):
+			continue
+		seen += 1
+		var expected: Color = Collectibles.KIND_DOT_COLOR[str(poi.get("kind", ""))]
+		assert_that(world_map.poi_dot_color(poi)).is_equal(expected)
+		var screen: Vector2 = (entry as Dictionary)["screen"]
+		assert_that(rect.has_point(screen)).is_true()
+	assert_that(seen).is_equal(28)
+
+	# A collectible pin outranks a landmark pin in size, and the trap red is the
+	# loud of the three (red channel dominant), never a road-blue or moss-green.
+	assert_that(WorldMap.COLLECTIBLE_RADIUS).is_greater(WorldMap.POI_RADIUS)
+	var red: Color = Collectibles.KIND_DOT_COLOR[Collectibles.KIND_SPEED_TRAP]
+	assert_that(red.r).is_greater(red.g)
+	assert_that(red.r).is_greater(red.b)
+
+## Hiding the CALENDAR must not hide a gameplay target: collectibles carry their
+## own always-on category, so events-off drops the time attacks while every
+## landmark and all eight traps survive. Only the explicit collectibles gate
+## removes them, and the shipped reset brings them back.
+func test_world_map_keeps_speed_traps_when_the_events_layer_is_hidden() -> void:
+	var root := _new_root()
+	var world_map := _new_world_map(root)
+	var trap_ids := _speed_trap_ids()
+
+	world_map.set_category_filters({"events": false})
+	world_map.call("_rebuild")
+	var ids: Array[String] = world_map.poi_entry_ids()
+	assert_array(ids).not_contains(["time_attack_0"])
+	assert_array(ids).contains(["festival_hub"])
+	for trap_id in trap_ids:
+		assert_array(ids).contains([trap_id])
+
+	world_map.set_category_filters({"collectibles": false})
+	world_map.call("_rebuild")
+	ids = world_map.poi_entry_ids()
+	for trap_id in trap_ids:
+		assert_array(ids).not_contains([trap_id])
+	assert_array(ids).contains(["time_attack_0"])
+
+	world_map.reset_category_filters()
+	world_map.call("_rebuild")
+	ids = world_map.poi_entry_ids()
+	for trap_id in trap_ids:
+		assert_array(ids).contains([trap_id])

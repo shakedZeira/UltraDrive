@@ -131,7 +131,7 @@ func update(delta: float, throttle: float, config: CarConfig) -> Dictionary:
     # accelerates the car rearward. Engine-brake torque is already travel-keyed
     # above (absolute axle direction), so it must NOT be flipped again.
     if current_gear < 0 and not engine_braking:
-        drive_torque = -drive_torque
+        drive_torque = -drive_torque * config.reverse_torque_multiplier
 
     # --- Reverse speed limiter ---
     # Hard cap so reverse can never out-accelerate or out-top-speed 1st gear;

@@ -33,6 +33,18 @@ func tick(delta: float, speed_kmh: float, max_g: float, drifting: bool) -> void:
 func note_impact() -> void:
 	_lap_impacts += 1
 
+## Seeds the session best from a persisted cross-session record (roadmap #7).
+## The faster of the two wins, so loading a record can only ever improve what
+## the HUD reports and a fresh race on a track you already hold the record on
+## starts from the record rather than from 0.0. Strictly additive: end_lap()
+## keeps taking the session minimum exactly as before, so a lap that beats the
+## record still wins.
+func seed_best_lap(lap_time: float) -> void:
+	if lap_time <= 0.0:
+		return
+	if _best_lap <= 0.0 or lap_time < _best_lap:
+		_best_lap = lap_time
+
 func start_lap() -> void:
 	_lap_impacts = 0
 	_last_lap_clean = false

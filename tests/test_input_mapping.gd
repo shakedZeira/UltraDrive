@@ -11,3 +11,6 @@ func test_steer_returns_zero_when_no_input() -> void:
 
 func test_handbrake_returns_false_when_no_input() -> void:
     assert_that(InputManager.is_handbrake()).is_equal(false)
+
+func test_headlight_returns_false_when_no_input() -> void:
+    assert_that(InputManager.is_headlight_just_pressed()).is_equal(false)

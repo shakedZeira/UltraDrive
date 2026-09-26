@@ -8,7 +8,12 @@ extends RefCounted
 ## FH5/GT7-style clearcoat-over-metallic paint. All overrides are runtime
 ## clones: embedded materials are NEVER mutated.
 
-const CAR_ORIENT := Transform3D(Basis(Vector3(-1.0, 0.0, 0.0), Vector3(0.0, 1.0, 0.0), Vector3(0.0, 0.0, -1.0)), Vector3.ZERO)
+## CAR_ORIENT's basis, hoisted so the night-lamp mount math (headlight_forward /
+## body_mount) folds a plain Basis instead of reaching into a Transform3D
+## member. Rotates the GLB 180 deg about Y: the visual's +Z nose lands on the
+## car body's -Z.
+const CAR_ORIENT_BASIS := Basis(Vector3(-1.0, 0.0, 0.0), Vector3(0.0, 1.0, 0.0), Vector3(0.0, 0.0, -1.0))
+const CAR_ORIENT := Transform3D(CAR_ORIENT_BASIS, Vector3.ZERO)
 
 ## GT7/FH6-style clearcoat-over-colored-metallic paint. The moderate metallic
 ## blends the swatch albedo into the specular/reflections ("colored metal
@@ -246,6 +251,220 @@ static func apply_brake_glow(material: StandardMaterial3D, brake: float) -> void
 		return
 	material.emission_enabled = true
 	material.emission_energy_multiplier = lerpf(BRAKE_GLOW_MIN, BRAKE_GLOW_MAX, clampf(brake, 0.0, 1.0))
+
+# --- Night headlight/taillight layer (roadmap #5) ---
+#
+# apply_paint() only TINTS the GLB's headlight/taillight materials, so nothing
+# actually lit the road at night. This section owns the real Light3D layer:
+# a pure clock-hour -> intensity map (no scene, no autoload, no clock) plus a
+# factory that builds the lamp nodes and a switch that ramps them. The player
+# controller owns the node lifetime (rebuilt with the visual, see
+# _ensure_night_lamps); the traffic Headlights class is the binary twin.
+
+## Sun-elevation bounds of the dusk/dawn ramp. The DayNightDriver-owned clock
+## drives WeatherManager's sun arc, whose NORMALIZED direction y climbs from
+## -0.958 (midnight) through 0.0 (the 06:00 / 18:00 horizon crossings) to
+## +0.958 (noon) -- see WeatherManager.get_computed_sun_position() -- so these
+## two numbers ARE the ramp: at/above HEADLIGHT_RAMP_DAY the lamps are fully
+## off, at/below HEADLIGHT_RAMP_NIGHT fully on, and the band between is the
+## twilight fade. This is deliberately NOT WeatherManager.is_night()
+## (elevation < 0): the lamps must come on BEFORE dark and off AFTER dawn.
+const HEADLIGHT_RAMP_DAY := 0.35
+const HEADLIGHT_RAMP_NIGHT := -0.15
+
+## Mapped intensity above which the lamp nodes are switched on. A hair above
+## zero so full daylight (intensity exactly 0.0) always reads as "off" and can
+## never leave a stale visible light behind.
+const HEADLIGHT_ON_THRESHOLD := 0.02
+
+## Mapped-intensity delta that re-applies lamp energy. The clock wraps 24h per
+## DAY_LENGTH_SECONDS (2400s), so one frame moves intensity by ~1.7e-5 -- far
+## below this, which keeps the per-frame poll a bare float compare.
+const HEADLIGHT_INTENSITY_EPSILON := 0.002
+
+## Lamp energy at full night, matching the existing Headlights class so the two
+## layers never disagree about brightness. Shadows stay off: these are a
+## gameplay lighting cue, not a lighting authority, and two shadow-casting
+## spots per car would blow the light budget.
+const HEADLIGHT_MAX_ENERGY := 3.0
+const HEADLIGHT_SPOT_ANGLE_DEG := 35.0
+const HEADLIGHT_SPOT_RANGE := 60.0
+const HEADLIGHT_COLOR := Color(1.0, 0.95, 0.86, 1.0)
+
+## Rear tail cue: a short-range red omni so the car reads as lit from behind
+## (and drops a red pool on the road) without a third spot.
+const TAIL_LIGHT_MAX_ENERGY := 1.4
+const TAIL_LIGHT_RANGE := 5.0
+const TAIL_LIGHT_COLOR := Color(1.0, 0.12, 0.08)
+
+## GLB-space (nose +Z) lamp mount points, ordered [left, right], plus the rear
+## tail mount. Converted to car-body space by body_mount(). The GLB is authored
+## nose +Z, so its +X is the car's left; CAR_ORIENT's 180 deg Y flip mirrors
+## both axes and lands that entry on the body-space -X, which is where a -Z
+## forward body puts the driver's left.
+const HEADLIGHT_MOUNT_LOCALS: Array[Vector3] = [
+	Vector3(0.65, 0.70, 1.35),
+	Vector3(-0.65, 0.70, 1.35),
+]
+const TAIL_LIGHT_MOUNT_LOCAL := Vector3(0.0, 0.72, -1.45)
+
+## Node names inside the built layer (also the lookup keys tests assert on).
+const NIGHT_LAMP_HOLDER := "NightLamps"
+const HEADLIGHT_L_NAME := "HeadlightL"
+const HEADLIGHT_R_NAME := "HeadlightR"
+const TAIL_LAMP_NAME := "TaillightGlow"
+
+## Group tag on the built holder, so the layer is findable from the scene tree
+## (get_first_node_in_group) without knowing which car body owns it.
+const NIGHT_LAMP_GROUP := "night_lamps"
+
+## Pure clock-hour -> sun elevation: the y component of WeatherManager's sun
+## direction, re-derived here on the SAME normalized arc (angle =
+## hour/24*360 - 90, then Vector3(cos, sin, 0.3).normalized()) so the mapping
+## is scene-free, autoload-free and provably agrees with
+## WeatherManager.is_night() -- the documented single night authority.
+## fposmod keeps out-of-range hours (advance_time wraps at 24) on that arc.
+static func sun_elevation(hour: float) -> float:
+	var angle := deg_to_rad(fposmod(hour, 24.0) / 24.0 * 360.0 - 90.0)
+	return Vector3(cos(angle), sin(angle), 0.3).normalized().y
+
+## Same predicate as WeatherManager.is_night(), expressed on a raw hour so the
+## suite can pin the below-horizon boundary without touching the autoload.
+static func is_night_hour(hour: float) -> bool:
+	return sun_elevation(hour) < 0.0
+
+## Pure time-of-day -> headlight intensity: 0.0 in full daylight, 1.0 deep at
+## night, linear across the dusk/dawn band. Deterministic by construction --
+## the arc puts 0.0 from ~07:25 to ~16:35, 0.7 exactly on the horizon
+## crossings (18:00 sunset / 06:00 sunrise) and 1.0 by ~18:35 / 05:25, so the
+## lamps read as on before the road is dark and fade out after dawn.
+static func headlight_intensity_for(hour: float) -> float:
+	var elevation := sun_elevation(hour)
+	var span := HEADLIGHT_RAMP_DAY - HEADLIGHT_RAMP_NIGHT
+	return clampf((HEADLIGHT_RAMP_DAY - elevation) / span, 0.0, 1.0)
+
+## Whether the lamp nodes should be lit at a mapped intensity.
+static func headlight_lights_on(intensity: float) -> bool:
+	return intensity > HEADLIGHT_ON_THRESHOLD
+
+# --- Manual override (X / Cross) ---
+#
+# The driver-facing switch layered on top of the clock map: X / Cross cycles
+# OFF -> ON -> AUTO, so the same button both forces the lamps and hands control
+# back to time-of-day. Both helpers are pure (mode in, intensity out) so the
+# whole decision is assertable without a car, a scene or a clock.
+
+enum LampMode { AUTO = 0, OFF = 1, ON = 2 }
+
+## The X / Cross cycle. AUTO first, so the very first press can only ever
+## REDUCE what the world is asking for (silence the lamps at night); the second
+## press forces them and the third hands them back to the clock.
+static func next_lamp_mode(mode: LampMode) -> LampMode:
+	match mode:
+		LampMode.AUTO:
+			return LampMode.OFF
+		LampMode.OFF:
+			return LampMode.ON
+		LampMode.ON:
+			return LampMode.AUTO
+	return LampMode.AUTO
+
+## Resolved lamp intensity for a mode at a raw clock hour: OFF is pinned to
+## 0.0 and ON to 1.0 regardless of the hour, AUTO delegates to the day/night
+## ramp above. In bounds by construction -- the manual pins ARE the bounds.
+static func resolve_lamp_intensity(mode: LampMode, hour: float) -> float:
+	match mode:
+		LampMode.OFF:
+			return 0.0
+		LampMode.ON:
+			return 1.0
+		LampMode.AUTO:
+			return headlight_intensity_for(hour)
+	return headlight_intensity_for(hour)
+
+## Forward (+nose) direction in car-body space. CAR_ORIENT maps the GLB's +Z
+## nose onto the body's -Z, which is also a SpotLight3D's emission axis, so an
+## unrotated lamp parented to the body already aims down the road.
+static func headlight_forward() -> Vector3:
+	return (CAR_ORIENT_BASIS * Vector3(0.0, 0.0, 1.0)).normalized()
+
+## GLB-space mount point -> car-body space, so offsets authored against the
+## nose-+Z visual stay pinned to the real bodywork. Note the 180 deg Y flip
+## mirrors BOTH axes: GLB +X (car left) becomes body -X, GLB +Z (nose) becomes
+## body -Z.
+static func body_mount(local_point: Vector3) -> Vector3:
+	return CAR_ORIENT_BASIS * local_point
+
+## Builds the whole night layer: a holder Node3D carrying the two forward
+## spots and the rear red omni, aimed along headlight_forward() and sitting on
+## body_mount() offsets. Pure factory (no scene, no autoload) so the structure
+## is assertable without a car. Lamps ship hidden at zero energy and are
+## switched by apply_lamp_intensity().
+static func build_night_lamps() -> Node3D:
+	var holder := Node3D.new()
+	holder.name = NIGHT_LAMP_HOLDER
+	holder.add_to_group(NIGHT_LAMP_GROUP)
+	for index in HEADLIGHT_MOUNT_LOCALS.size():
+		var mount: Vector3 = HEADLIGHT_MOUNT_LOCALS[index]
+		var spot := SpotLight3D.new()
+		spot.name = HEADLIGHT_L_NAME if index == 0 else HEADLIGHT_R_NAME
+		spot.position = body_mount(mount)
+		spot.light_color = HEADLIGHT_COLOR
+		spot.light_energy = 0.0
+		spot.spot_angle = HEADLIGHT_SPOT_ANGLE_DEG
+		spot.spot_range = HEADLIGHT_SPOT_RANGE
+		spot.shadow_enabled = false
+		spot.visible = false
+		holder.add_child(spot)
+	var tail := OmniLight3D.new()
+	tail.name = TAIL_LAMP_NAME
+	tail.position = body_mount(TAIL_LIGHT_MOUNT_LOCAL)
+	tail.light_color = TAIL_LIGHT_COLOR
+	tail.light_energy = 0.0
+	tail.omni_range = TAIL_LIGHT_RANGE
+	tail.shadow_enabled = false
+	tail.visible = false
+	holder.add_child(tail)
+	return holder
+
+## Switches a built night layer for a mapped intensity: hidden and zero-energy
+## in daylight, energy ramping with the intensity through dusk, full at night.
+## Idempotent and allocation-free, so the per-frame clock poll is just a float
+## compare (see HEADLIGHT_INTENSITY_EPSILON).
+static func apply_lamp_intensity(lamps: Node3D, intensity: float) -> void:
+	if lamps == null:
+		return
+	var on := headlight_lights_on(intensity)
+	var level := clampf(intensity, 0.0, 1.0)
+	for child: Node in lamps.get_children():
+		if child is SpotLight3D:
+			var spot := child as SpotLight3D
+			spot.light_energy = HEADLIGHT_MAX_ENERGY * level
+			spot.visible = on
+		elif child is OmniLight3D:
+			var omni := child as OmniLight3D
+			omni.light_energy = TAIL_LIGHT_MAX_ENERGY * level
+			omni.visible = on
+
+## Light-node count of a built night layer (2 spots + 1 omni).
+static func night_lamp_count(lamps: Node3D) -> int:
+	if lamps == null:
+		return 0
+	var count := 0
+	for child: Node in lamps.get_children():
+		if child is Light3D:
+			count += 1
+	return count
+
+## True when any lamp in the layer is currently lit -- the "lights are on"
+## state the controller exposes and the suite asserts.
+static func night_lamps_active(lamps: Node3D) -> bool:
+	if lamps == null:
+		return false
+	for child: Node in lamps.get_children():
+		if child is Light3D and (child as Light3D).visible:
+			return true
+	return false
 
 static func apply_paint(visual_root: Node3D, profile: Dictionary) -> void:
 	if visual_root == null:

@@ -48,24 +48,61 @@ var _rain_system: RainSystem
 var _fx_layer: CanvasLayer
 var _wet_overlay: ColorRect
 var _windshield_overlay: ColorRect
+var _loading_steps: int = 0
+var _current_step: int = 0
 
 func _ready() -> void:
 	add_to_group(DRIVER_GROUP)
-	_streamer = get_node_or_null("ChunkStreamer") as ChunkStreamer
-	_terrain_seeder = get_node_or_null("TerrainSeeder") as TerrainSeeder
-	_player = get_node_or_null("%PlayerCar") as Node3D
+	_loading_steps = 8
+	_current_step = 0
+	LoadingScreenManager.show_loading("Initializing world...", 0)
+	await get_tree().process_frame
 	_bootstrap_roads()
+	LoadingScreenManager.update_loading("Building roads...", 12.5)
+	await get_tree().process_frame
+	_bootstrap_speed_trap_visuals()
+	LoadingScreenManager.update_loading("Setting up speed traps...", 25)
+	await get_tree().process_frame
 	_bootstrap_discovery()
+	LoadingScreenManager.update_loading("Initializing discovery...", 37.5)
+	await get_tree().process_frame
 	_push_player_position()
+	LoadingScreenManager.update_loading("Positioning player...", 50)
+	await get_tree().process_frame
 	_bootstrap_sun_driver()
+	LoadingScreenManager.update_loading("Setting up sun...", 62.5)
+	await get_tree().process_frame
 	_bootstrap_static_probes()
+	LoadingScreenManager.update_loading("Building probes...", 75)
+	await get_tree().process_frame
 	_bootstrap_weather_fx()
+	LoadingScreenManager.update_loading("Setting up weather...", 87.5)
+	await get_tree().process_frame
+	_prebake_all_grass()
+	LoadingScreenManager.update_loading("Pre-baking grass...", 100)
+	await get_tree().process_frame
+	LoadingScreenManager.hide_loading()
 
 func _exit_tree() -> void:
 	if WeatherManager.time_of_day_changed.is_connected(_on_time_of_day_changed):
 		WeatherManager.time_of_day_changed.disconnect(_on_time_of_day_changed)
 	if WeatherManager.weather_changed.is_connected(_on_weather_changed):
 		WeatherManager.weather_changed.disconnect(_on_weather_changed)
+
+func _prebake_all_grass() -> void:
+	if _terrain_seeder == null:
+		return
+	LoadingScreenManager.update_loading("Pre-baking terrain grass...", 100)
+	var network := get_node_or_null(road_network_path) as RoadNetwork
+	if network == null:
+		return
+	var roads := network.get_roads()
+	var road_defs := network.get_road_defs()
+	if roads.is_empty():
+		return
+	_terrain_seeder.set_roads(roads, road_defs)
+	# Force immediate grass color bake for player region so grass is visible on spawn
+	_terrain_seeder.force_player_region_color_bake()
 
 func _physics_process(_delta: float) -> void:
 	if _player == null:
@@ -186,11 +223,24 @@ func _bootstrap_roads() -> void:
 	if zone_roads.size() > 0:
 		params["zone_road_points"] = zone_roads
 		params["zone_end"] = end
-	var corridor_defs := CorridorPlanner.plan(CorridorPlanner.MASTER_SEED, Callable(), params)
+	var corridor_defs: Array[RoadDef] = CorridorPlanner.plan(CorridorPlanner.MASTER_SEED, Callable(), params)
 	for def in corridor_defs:
 		network.add_road_def(def)
+	network.recompute_rails()
 	if _terrain_seeder != null:
 		_terrain_seeder.set_roads(network.get_roads(), network.get_road_defs())
+
+## Re-syncs the speed-trap gates now the corridors are registered, so every gantry
+## is aligned to the LIVE centreline and width the player actually drives rather
+## than the headless plan the collectibles were placed from. Their SITES are never
+## re-planned: the node reads the published collectible data either way, so this
+## only sharpens the frame (the live pass-loop chain is sampled differently from
+## the zone-free plan). Runs after _bootstrap_roads() and is a no-op in a scene
+## without the dressing node.
+func _bootstrap_speed_trap_visuals() -> void:
+	var visuals := get_node_or_null("SpeedTrapVisuals") as SpeedTrapVisuals
+	if visuals != null:
+		visuals.rebuild()
 
 ## WeatherManager sun portal (Q6). These helpers are the single source of
 ## truth for baking a DirectionalLight3D sun transform; WeatherManager itself

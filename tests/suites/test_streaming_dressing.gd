@@ -4,12 +4,13 @@ extends GdUnitTestSuite
 ## P7 region-streamed dressing (mirrors tests/suites/test_terrain_seeder_streaming.gd).
 ## Pins the pure corridor km -> region-loc budget ladder, the seeder's cached
 ## bake-height read, the RegionDresser ring mirror (spawn/free budgeting, band
-## density, distance-banded visible culling), and bit-identical per-region
-## placement across eviction + re-entry and across two dresser instances with
-## the same master seed. Headless-safe: all dressing math is main-thread; the
-## only worker the suite starts is stopped before the test returns. Dressing
-## nodes are created under the suite and freed in after_test so the run stays
-## orphan-free.
+## density, distance-banded visible culling), the shared whole-map road network
+## handed to every region's scatterer and the roadside share of its props, and
+## bit-identical per-region placement across eviction + re-entry and across two
+## dresser instances with the same master seed. Headless-safe: all dressing math
+## is main-thread; the only worker the suite starts is stopped before the test
+## returns. Dressing nodes are created under the suite and freed in after_test
+## so the run stays orphan-free.
 
 const MASTER_TEST := 82731408
 const REGION_CELL := 256.0
@@ -256,3 +257,69 @@ func test_band_density_and_visibility_math() -> void:
 	assert_that(dresser.band_visibility(RegionDresser.BAND_PREFETCH)).is_equal(0.25)
 	dresser.prefetch_density = 0.05
 	assert_that(dresser.band_visibility(RegionDresser.BAND_PREFETCH)).is_equal(0.2)
+
+## The shared map-wide RoadNetwork is handed to EVERY region's scatterer whole
+## (never a region-local subset), so roadside dressing can be sampled from any
+## corridor the map has, and each region still dresses its own patch.
+func _props_of(dresser: RegionDresser, loc: Vector2i) -> PropScatterer:
+	var node: Node3D = dresser.region_node(loc)
+	if node == null:
+		return null
+	return node.get_node_or_null(RegionDresser.PROPS_CHILD_NAME) as PropScatterer
+
+func _road_network() -> RoadNetwork:
+	var network := RoadNetwork.new()
+	network.add_road_def(RoadDef.make(RoadDef.Tier.HIGHWAY, _corridor_points(SPAWN.z), "hw", false))
+	network.add_road_def(RoadDef.make(RoadDef.Tier.DIRT, _corridor_points(SPAWN.z + 400.0), "dirt", false))
+	add_child(network)
+	_tracked_nodes.append(network)
+	return network
+
+## A corridor running straight through the spawn region (a real corridor is
+## bounded, not a world-spanning line, so the roadside sampler can reach it).
+func _corridor_points(z: float) -> Array[Vector3]:
+	return [Vector3(SPAWN.x - 400.0, 0.0, z), Vector3(SPAWN.x + 700.0, 0.0, z)]
+
+## test (j): every dressed region gets the SHARED whole-map network, and its
+## scatterer samples roadside dressing from the full corridor set.
+func test_dressed_scatterers_receive_the_shared_road_network() -> void:
+	var roads := _road_network()
+	var dresser := _make_dresser(8)
+	dresser.road_network = roads
+	dresser.sync_player_pos(SPAWN)
+	_drain_all(dresser)
+	assert_that(dresser.dressed_region_count()).is_equal(25)
+	for loc: Vector2i in _ring_locs(Vector2i(0, 0)):
+		var props := _props_of(dresser, loc)
+		assert_object(props).is_not_null()
+		if props == null:
+			continue
+		assert_that(props.road_network).is_equal(roads)
+		assert_int(props.roadside_road_count()).is_equal(roads.get_road_defs().size())
+		assert_float(props.roadside_fraction).is_greater(0.0)
+
+## test (k): with a corridor under the spawn, a live region's props land partly
+## ALONGSIDE the road instead of only in the open annulus, and every single prop
+## still clears the carriageway (half-width + margin).
+func test_dressed_props_cluster_along_the_road() -> void:
+	var roads := _road_network()
+	var dresser := _make_dresser(8)
+	dresser.road_network = roads
+	dresser.sync_player_pos(SPAWN)
+	_drain_all(dresser)
+	var props := _props_of(dresser, Vector2i(0, 0))
+	assert_object(props).is_not_null()
+	if props == null:
+		return
+	var defs: Array[RoadDef] = roads.get_road_defs()
+	var placed: PackedVector3Array = props.get_instance_positions()
+	assert_int(placed.size()).is_greater(0)
+	var roadside := 0
+	for local_pos: Vector3 in placed:
+		var world: Vector3 = props.to_global(local_pos)
+		var info := PropScatterer.road_clearance_info(world, defs)
+		var distance := float(info["distance"])
+		assert_that(distance).is_greater_equal(float(info["half_width"]) + PropScatterer.ROAD_CLEARANCE_MARGIN - 0.001)
+		if distance <= props.roadside_max_dist + 0.001:
+			roadside += 1
+	assert_int(roadside).is_greater(placed.size() / 4)

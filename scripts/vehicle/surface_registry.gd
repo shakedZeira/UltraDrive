@@ -23,6 +23,7 @@ const BAND_HIGHLAND: int = 4
 const BAND_ALPINE: int = 5
 
 const ROAD_TOPPING: float = 6.0
+const ROAD_EDGE_MARGIN: float = 2.5
 
 # --- Grip table: { surface_key: { lateral: float, longitudinal: float } } ---
 # Tuned per FH6-inspired impact table (§3.5 fh6_map.md).
@@ -45,18 +46,25 @@ const TIER_SURFACE: Dictionary = {
 }
 
 # --- RoadTierProvider signature: (pos: Vector3) -> Dictionary ---
-# Returns { "tier": int, "distance": float } when a road exists, {} otherwise.
-# A Callable is used so tests can inject a stub without a live RoadNetwork.
+# Returns { "tier": int, "distance": float, "width": float } when a road exists,
+# {} otherwise. A Callable is used so tests can inject a stub without a live RoadNetwork.
 
 ## Deterministic surface classification. Near a road the road's tier surface
-## wins; otherwise the terrain elevation band maps to an off-road surface.
+## wins; otherwise EVERY off-road position is grass (biome band no longer
+## changes the surface key).
 ## region_biome: TerrainBaker.elevation_band() return value (0..5).
-## distance_to_road: world-space distance to nearest road centre (metres).
+## distance_to_road: XZ distance in metres to the nearest road CENTERLINE, as
+## reported by RoadNetwork.nearest_road_lookup (never the distance to a sparse
+## polyline vertex, which reads 60+ m mid-span on the perimeter highway).
 ## tier: RoadDef.Tier value of nearest road (used only when road-close).
-static func classify(region_biome: int, distance_to_road: float, tier: int) -> Dictionary:
-	if distance_to_road <= ROAD_TOPPING:
+## road_width: full nearest-road width in metres; non-positive keeps the fixed canopy.
+static func classify(region_biome: int, distance_to_road: float, tier: int, road_width: float = -1.0) -> Dictionary:
+	var topping: float = ROAD_TOPPING
+	if road_width > 0.0:
+		topping = maxf(ROAD_TOPPING, road_width * 0.5 + ROAD_EDGE_MARGIN)
+	if distance_to_road <= topping:
 		return _build_entry(TIER_SURFACE.get(tier, ASPHALT) as String)
-	# Off-road: classify by biome band.
+	# Off-road: grass, whatever the band.
 	return _build_entry(_biome_surface(region_biome))
 
 static func _build_entry(surface_key: String) -> Dictionary:
@@ -67,7 +75,11 @@ static func _build_entry(surface_key: String) -> Dictionary:
 		"longitudinal": grip["longitudinal"],
 	}
 
-## Resolves an off-road position into a surface key from the terrain biome band.
+## Resolves an off-road position into a surface key. EVERY biome band is grass:
+## no band changes grip any more, so the whole open world away from tarmac
+## feels like one continuous off-road surface (the alpine snow/ice VISUALS are
+## RegionalClimate/WeatherManager's business, this table is feel only). The
+## match stays for exhaustiveness so a new band has to be added deliberately.
 static func _biome_surface(band: int) -> String:
 	match band:
 		BAND_SEA:
@@ -77,11 +89,11 @@ static func _biome_surface(band: int) -> String:
 		BAND_ROLLING:
 			return GRASS
 		BAND_LOWLAND:
-			return MUD
+			return GRASS
 		BAND_HIGHLAND:
-			return GRAVEL
+			return GRASS
 		BAND_ALPINE:
-			return SNOW
+			return GRASS
 		_:
 			return GRASS
 
@@ -96,23 +108,32 @@ static func get_longitudinal(surface_key: String) -> float:
 	return grip["longitudinal"] as float
 
 ## Default RoadTierProvider bound to `owning_node`'s tree. Finds the local
-## RoadNetwork (group "road_network") and reports { tier, distance } for a
-## position; returns {} when no RoadNetwork exists so the physics falls back
-## to asphalt (headless-safe: no scene, no network => empty).
+## RoadNetwork (group "road_network") and reports { tier, distance, width } for
+## a position; returns {} when no RoadNetwork exists (or it holds no roads) so
+## the physics falls back to asphalt (headless-safe: no scene, no network =>
+## empty).
 static func default_road_tier_provider(owning_node: Node) -> Callable:
 	return func(pos: Vector3) -> Dictionary:
 		var net: RoadNetwork = SurfaceRegistry._current_road_network(owning_node)
 		if net == null:
 			return {}
 		var lookup: Dictionary = net.nearest_road_lookup(pos)
-		var nearest: Vector3 = lookup["pos"]
-		var dist: float = nearest.distance_to(pos)
 		var road_id: int = int(lookup["id"])
+		if road_id < 0:
+			# Network present but empty: report "no tier" so the classifier keeps
+			# its asphalt fallback instead of classifying against an INF distance.
+			return {}
+		# The XZ centerline distance the lookup already resolved -- recomputing it
+		# from lookup["pos"] would reintroduce the vertex-distance bug.
+		var dist: float = float(lookup["distance"])
 		var tier: int = RoadDef.Tier.ARTERIAL
+		var width: float = 0.0
 		var defs: Array[RoadDef] = net.get_road_defs()
-		if road_id >= 0 and road_id < defs.size():
-			tier = defs[road_id].tier
-		return {"tier": tier, "distance": dist}
+		if road_id < defs.size():
+			var road_def: RoadDef = defs[road_id]
+			tier = road_def.tier
+			width = road_def.width
+		return {"tier": tier, "distance": dist, "width": width}
 
 ## Builds a per-position classifier Callable safe to drop into VehiclePhysics.
 ## road_tier_provider: RoadTierProvider conforming callable (empty => asphalt
@@ -131,8 +152,9 @@ static func build_classifier(road_tier_provider: Callable, biome_provider: Calla
 			}
 		var dist := float(tier_report.get("distance", INF))
 		var tier := int(tier_report.get("tier", RoadDef.Tier.ARTERIAL))
+		var road_width: float = float(tier_report.get("width", -1.0))
 		var band := int(biome_provider.call(pos)) if biome_provider.is_valid() else BAND_PLAINS
-		return SurfaceRegistry.classify(band, dist, tier)
+		return SurfaceRegistry.classify(band, dist, tier, road_width)
 
 static func _current_road_network(owning_node: Node) -> RoadNetwork:
 	if owning_node == null or not is_instance_valid(owning_node):

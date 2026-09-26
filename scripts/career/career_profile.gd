@@ -14,6 +14,7 @@ const BASE_XP_PER_LEVEL := 100
 const LICENSE_TEST_XP := 50
 const PODIUM_XP := 100
 const EVENT_XP := 25
+const COLLECTIBLE_XP := 15
 const RACE_LAP_XP := 10
 const RACE_POSITION_XP: Array[int] = [50, 40, 30, 20, 10]
 

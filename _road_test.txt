@@ -1,0 +1,545 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[2J[H[38;2;233;150;122m
+--------------------------------------------------------------------------------------------------
+GdUnit4 Comandline Tool
+--------------------------------------------------------------------------------------------------[0m
+[38;2;218;165;32m
+Headless mode is ignored by option '--ignoreHeadlessMode'"
+
+Please note that tests that use UI interaction do not work correctly in headless mode.
+Godot 'InputEvents' are not transported by the Godot engine in headless mode and therefore
+have no effect in the test!
+[0m
+[38;2;100;149;237mInstalling GdUnit4 session system hooks.[0m
+[38;2;100;149;237mSession hook 'GdUnitHtmlTestReporter' installed.[0m
+[38;2;100;149;237mSession hook 'GdUnitXMLTestReporter' installed.[0m
+[38;2;0;206;209mRun Test Suite: [0m[38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_road_def_tier_defaults_and_names[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_road_def_tier_defaults_and_names[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 110ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_road_def_surface_names[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_road_def_surface_names[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 125ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_road_def_make_applies_tier_defaults_and_overrides[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_road_def_make_applies_tier_defaults_and_overrides[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 108ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_build_topology_shared_endpoint_joins_two_chains[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_build_topology_shared_endpoint_joins_two_chains[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 109ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_build_topology_skips_pair_beyond_threshold[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_build_topology_skips_pair_beyond_threshold[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 111ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_build_topology_single_closed_chain_has_no_self_link[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_build_topology_single_closed_chain_has_no_self_link[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 108ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_build_topology_deterministic_across_runs[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_build_topology_deterministic_across_runs[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 206ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_route_chain_forward_and_reverse[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_route_chain_forward_and_reverse[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 133ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_route_same_node_returns_singleton[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_route_same_node_returns_singleton[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 83ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_route_disconnected_pair_is_empty[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_route_disconnected_pair_is_empty[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 84ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_route_unknown_id_is_empty[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_route_unknown_id_is_empty[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 135ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_route_prefers_fewest_hops[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_route_prefers_fewest_hops[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 105ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_chain_distance_matches_segment_distance[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_chain_distance_matches_segment_distance[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 78ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_network_add_road_returns_incrementing_indices[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_network_add_road_returns_incrementing_indices[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 82ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_network_add_road_before_in_tree_still_works[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_network_add_road_before_in_tree_still_works[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 105ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_network_add_road_def_auto_ids_and_roundtrip[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_network_add_road_def_auto_ids_and_roundtrip[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 126ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_network_nearest_road_id_and_tiebreak[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_network_nearest_road_id_and_tiebreak[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 150ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_point_to_segment_xz_measures_perpendicular_offset[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_point_to_segment_xz_measures_perpendicular_offset[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 161ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_nearest_road_lookup_is_segment_aware[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_nearest_road_lookup_is_segment_aware[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 133ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_nearest_road_lookup_walks_a_closed_ring_wrap_segment[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_nearest_road_lookup_walks_a_closed_ring_wrap_segment[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 176ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_network_topology_matches_hand_built_example[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_network_topology_matches_hand_built_example[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 163ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_open_world_bootstrap_connects_the_classified_network[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://scripts/world/world_driver.gd:190)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:58)
+       [1] scene_runner (res://addons/gdUnit4/src/GdUnitTestSuite.gd:270)
+       [2] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:363)
+       [3] _execute_test_case (res://addons/gdUnit4/src/core/_TestCase.gd:79)
+       [4] execute (res://addons/gdUnit4/src/core/_TestCase.gd:40)
+       [5] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [6] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [7] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:17)
+       [8] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [9] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:26)
+       [10] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [11] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestSuiteExecutionStage.gd:36)
+       [12] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [13] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:35)
+       [14] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [15] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:28)
+       [16] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [17] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [18] execute (res://addons/gdUnit4/src/core/_TestCase.gd:41)
+       [19] test_completed (res://addons/gdUnit4/src/core/_TestCase.gd:86)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://scripts/world/world_driver.gd:190)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:58)
+       [1] scene_runner (res://addons/gdUnit4/src/GdUnitTestSuite.gd:270)
+       [2] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:363)
+       [3] _execute_test_case (res://addons/gdUnit4/src/core/_TestCase.gd:79)
+       [4] execute (res://addons/gdUnit4/src/core/_TestCase.gd:40)
+       [5] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [6] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [7] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:17)
+       [8] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [9] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:26)
+       [10] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [11] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestSuiteExecutionStage.gd:36)
+       [12] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [13] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:35)
+       [14] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [15] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:28)
+       [16] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [17] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [18] execute (res://addons/gdUnit4/src/core/_TestCase.gd:41)
+       [19] test_completed (res://addons/gdUnit4/src/core/_TestCase.gd:86)
+ERROR: Failed to load script "res://scripts/world/world_driver.gd" with error "Parse error".
+   at: load (modules/gdscript/gdscript_resource_format.cpp:46)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:58)
+       [1] scene_runner (res://addons/gdUnit4/src/GdUnitTestSuite.gd:270)
+       [2] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:363)
+       [3] _execute_test_case (res://addons/gdUnit4/src/core/_TestCase.gd:79)
+       [4] execute (res://addons/gdUnit4/src/core/_TestCase.gd:40)
+       [5] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [6] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [7] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:17)
+       [8] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [9] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:26)
+       [10] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [11] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestSuiteExecutionStage.gd:36)
+       [12] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [13] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:35)
+       [14] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [15] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:28)
+       [16] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [17] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [18] execute (res://addons/gdUnit4/src/core/_TestCase.gd:41)
+       [19] test_completed (res://addons/gdUnit4/src/core/_TestCase.gd:86)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://scripts/world/poi_registry.gd:144)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:58)
+       [1] scene_runner (res://addons/gdUnit4/src/GdUnitTestSuite.gd:270)
+       [2] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:363)
+       [3] _execute_test_case (res://addons/gdUnit4/src/core/_TestCase.gd:79)
+       [4] execute (res://addons/gdUnit4/src/core/_TestCase.gd:40)
+       [5] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [6] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [7] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:17)
+       [8] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [9] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:26)
+       [10] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [11] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestSuiteExecutionStage.gd:36)
+       [12] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [13] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:35)
+       [14] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [15] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:28)
+       [16] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [17] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [18] execute (res://addons/gdUnit4/src/core/_TestCase.gd:41)
+       [19] test_completed (res://addons/gdUnit4/src/core/_TestCase.gd:86)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://scripts/world/poi_registry.gd:144)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:58)
+       [1] scene_runner (res://addons/gdUnit4/src/GdUnitTestSuite.gd:270)
+       [2] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:363)
+       [3] _execute_test_case (res://addons/gdUnit4/src/core/_TestCase.gd:79)
+       [4] execute (res://addons/gdUnit4/src/core/_TestCase.gd:40)
+       [5] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [6] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [7] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:17)
+       [8] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [9] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:26)
+       [10] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [11] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestSuiteExecutionStage.gd:36)
+       [12] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [13] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:35)
+       [14] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [15] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:28)
+       [16] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [17] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [18] execute (res://addons/gdUnit4/src/core/_TestCase.gd:41)
+       [19] test_completed (res://addons/gdUnit4/src/core/_TestCase.gd:86)
+SCRIPT ERROR: Compile Error: Failed to compile depended scripts.
+   at: GDScript::reload (res://scripts/world/collectible_field.gd:0)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:58)
+       [1] scene_runner (res://addons/gdUnit4/src/GdUnitTestSuite.gd:270)
+       [2] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:363)
+       [3] _execute_test_case (res://addons/gdUnit4/src/core/_TestCase.gd:79)
+       [4] execute (res://addons/gdUnit4/src/core/_TestCase.gd:40)
+       [5] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [6] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [7] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:17)
+       [8] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [9] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:26)
+       [10] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [11] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestSuiteExecutionStage.gd:36)
+       [12] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [13] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:35)
+       [14] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [15] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:28)
+       [16] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [17] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [18] execute (res://addons/gdUnit4/src/core/_TestCase.gd:41)
+       [19] test_completed (res://addons/gdUnit4/src/core/_TestCase.gd:86)
+SCRIPT ERROR: Compile Error: Failed to compile depended scripts.
+   at: GDScript::reload (res://scripts/ui/world_map.gd:0)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:58)
+       [1] scene_runner (res://addons/gdUnit4/src/GdUnitTestSuite.gd:270)
+       [2] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:363)
+       [3] _execute_test_case (res://addons/gdUnit4/src/core/_TestCase.gd:79)
+       [4] execute (res://addons/gdUnit4/src/core/_TestCase.gd:40)
+       [5] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [6] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [7] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:17)
+       [8] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [9] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:26)
+       [10] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [11] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestSuiteExecutionStage.gd:36)
+       [12] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [13] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:35)
+       [14] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [15] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:28)
+       [16] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [17] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [18] execute (res://addons/gdUnit4/src/core/_TestCase.gd:41)
+       [19] test_completed (res://addons/gdUnit4/src/core/_TestCase.gd:86)
+SCRIPT ERROR: Compile Error: Failed to compile depended scripts.
+   at: GDScript::reload (res://scripts/ui/pause_menu.gd:0)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:58)
+       [1] scene_runner (res://addons/gdUnit4/src/GdUnitTestSuite.gd:270)
+       [2] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:363)
+       [3] _execute_test_case (res://addons/gdUnit4/src/core/_TestCase.gd:79)
+       [4] execute (res://addons/gdUnit4/src/core/_TestCase.gd:40)
+       [5] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [6] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [7] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:17)
+       [8] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [9] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:26)
+       [10] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [11] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestSuiteExecutionStage.gd:36)
+       [12] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [13] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:35)
+       [14] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [15] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:28)
+       [16] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [17] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [18] execute (res://addons/gdUnit4/src/core/_TestCase.gd:41)
+       [19] test_completed (res://addons/gdUnit4/src/core/_TestCase.gd:86)
+ERROR: Failed to load script "res://scripts/ui/pause_menu.gd" with error "Compilation failed".
+   at: load (modules/gdscript/gdscript_resource_format.cpp:46)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:58)
+       [1] scene_runner (res://addons/gdUnit4/src/GdUnitTestSuite.gd:270)
+       [2] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:363)
+       [3] _execute_test_case (res://addons/gdUnit4/src/core/_TestCase.gd:79)
+       [4] execute (res://addons/gdUnit4/src/core/_TestCase.gd:40)
+       [5] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [6] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [7] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:17)
+       [8] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [9] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:26)
+       [10] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [11] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestSuiteExecutionStage.gd:36)
+       [12] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [13] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:35)
+       [14] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [15] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:28)
+       [16] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [17] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [18] execute (res://addons/gdUnit4/src/core/_TestCase.gd:41)
+       [19] test_completed (res://addons/gdUnit4/src/core/_TestCase.gd:86)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://scripts/events/event_session.gd:57)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:58)
+       [1] scene_runner (res://addons/gdUnit4/src/GdUnitTestSuite.gd:270)
+       [2] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:363)
+       [3] _execute_test_case (res://addons/gdUnit4/src/core/_TestCase.gd:79)
+       [4] execute (res://addons/gdUnit4/src/core/_TestCase.gd:40)
+       [5] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [6] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [7] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:17)
+       [8] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [9] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:26)
+       [10] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [11] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestSuiteExecutionStage.gd:36)
+       [12] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [13] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:35)
+       [14] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [15] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:28)
+       [16] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [17] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [18] execute (res://addons/gdUnit4/src/core/_TestCase.gd:41)
+       [19] test_completed (res://addons/gdUnit4/src/core/_TestCase.gd:86)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://scripts/events/event_session.gd:57)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:58)
+       [1] scene_runner (res://addons/gdUnit4/src/GdUnitTestSuite.gd:270)
+       [2] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:363)
+       [3] _execute_test_case (res://addons/gdUnit4/src/core/_TestCase.gd:79)
+       [4] execute (res://addons/gdUnit4/src/core/_TestCase.gd:40)
+       [5] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [6] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [7] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:17)
+       [8] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [9] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:26)
+       [10] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [11] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestSuiteExecutionStage.gd:36)
+       [12] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [13] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:35)
+       [14] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [15] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:28)
+       [16] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [17] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [18] execute (res://addons/gdUnit4/src/core/_TestCase.gd:41)
+       [19] test_completed (res://addons/gdUnit4/src/core/_TestCase.gd:86)
+ERROR: Failed to load script "res://scripts/events/event_session.gd" with error "Parse error".
+   at: load (modules/gdscript/gdscript_resource_format.cpp:46)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:58)
+       [1] scene_runner (res://addons/gdUnit4/src/GdUnitTestSuite.gd:270)
+       [2] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:363)
+       [3] _execute_test_case (res://addons/gdUnit4/src/core/_TestCase.gd:79)
+       [4] execute (res://addons/gdUnit4/src/core/_TestCase.gd:40)
+       [5] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [6] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [7] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:17)
+       [8] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [9] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:26)
+       [10] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [11] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestSuiteExecutionStage.gd:36)
+       [12] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [13] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:35)
+       [14] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [15] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:28)
+       [16] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [17] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [18] execute (res://addons/gdUnit4/src/core/_TestCase.gd:41)
+       [19] test_completed (res://addons/gdUnit4/src/core/_TestCase.gd:86)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://scripts/world/speed_trap_visuals.gd:488)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:58)
+       [1] scene_runner (res://addons/gdUnit4/src/GdUnitTestSuite.gd:270)
+       [2] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:363)
+       [3] _execute_test_case (res://addons/gdUnit4/src/core/_TestCase.gd:79)
+       [4] execute (res://addons/gdUnit4/src/core/_TestCase.gd:40)
+       [5] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [6] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [7] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:17)
+       [8] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [9] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:26)
+       [10] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [11] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestSuiteExecutionStage.gd:36)
+       [12] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [13] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:35)
+       [14] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [15] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:28)
+       [16] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [17] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [18] execute (res://addons/gdUnit4/src/core/_TestCase.gd:41)
+       [19] test_completed (res://addons/gdUnit4/src/core/_TestCase.gd:86)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://scripts/world/speed_trap_visuals.gd:488)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:58)
+       [1] scene_runner (res://addons/gdUnit4/src/GdUnitTestSuite.gd:270)
+       [2] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:363)
+       [3] _execute_test_case (res://addons/gdUnit4/src/core/_TestCase.gd:79)
+       [4] execute (res://addons/gdUnit4/src/core/_TestCase.gd:40)
+       [5] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [6] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [7] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:17)
+       [8] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [9] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:26)
+       [10] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [11] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestSuiteExecutionStage.gd:36)
+       [12] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [13] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:35)
+       [14] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [15] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:28)
+       [16] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [17] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [18] execute (res://addons/gdUnit4/src/core/_TestCase.gd:41)
+       [19] test_completed (res://addons/gdUnit4/src/core/_TestCase.gd:86)
+ERROR: Failed to load script "res://scripts/world/speed_trap_visuals.gd" with error "Parse error".
+   at: load (modules/gdscript/gdscript_resource_format.cpp:46)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:58)
+       [1] scene_runner (res://addons/gdUnit4/src/GdUnitTestSuite.gd:270)
+       [2] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:363)
+       [3] _execute_test_case (res://addons/gdUnit4/src/core/_TestCase.gd:79)
+       [4] execute (res://addons/gdUnit4/src/core/_TestCase.gd:40)
+       [5] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [6] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [7] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:17)
+       [8] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [9] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:26)
+       [10] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [11] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestSuiteExecutionStage.gd:36)
+       [12] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [13] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:35)
+       [14] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [15] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:28)
+       [16] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [17] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [18] execute (res://addons/gdUnit4/src/core/_TestCase.gd:41)
+       [19] test_completed (res://addons/gdUnit4/src/core/_TestCase.gd:86)
+WARNING: instance_reset_physics_interpolation() is deprecated.
+   at: _instance_reset_physics_interpolation_bind_compat_104269 (servers/rendering/rendering_server.compat.inc:62)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:72)
+       [1] scene_runner (res://addons/gdUnit4/src/GdUnitTestSuite.gd:270)
+       [2] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:363)
+       [3] _execute_test_case (res://addons/gdUnit4/src/core/_TestCase.gd:79)
+       [4] execute (res://addons/gdUnit4/src/core/_TestCase.gd:40)
+       [5] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [6] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [7] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:17)
+       [8] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [9] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:26)
+       [10] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [11] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestSuiteExecutionStage.gd:36)
+       [12] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [13] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:35)
+       [14] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [15] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:28)
+       [16] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [17] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [18] execute (res://addons/gdUnit4/src/core/_TestCase.gd:41)
+       [19] test_completed (res://addons/gdUnit4/src/core/_TestCase.gd:86)
+SCRIPT ERROR: Invalid call. Nonexistent function 'get_poi_ids' in base 'GDScript'.
+   at: _collect_collectibles (res://scripts/ui/minimap.gd:82)
+   GDScript backtrace (most recent call first):
+       [0] _collect_collectibles (res://scripts/ui/minimap.gd:82)
+       [1] _ready (res://scripts/ui/minimap.gd:74)
+       [2] _init (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:72)
+       [3] scene_runner (res://addons/gdUnit4/src/GdUnitTestSuite.gd:270)
+       [4] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:363)
+       [5] _execute_test_case (res://addons/gdUnit4/src/core/_TestCase.gd:79)
+       [6] execute (res://addons/gdUnit4/src/core/_TestCase.gd:40)
+       [7] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [8] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [9] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:17)
+       [10] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [11] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:26)
+       [12] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [13] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestSuiteExecutionStage.gd:36)
+       [14] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [15] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:35)
+       [16] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [17] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:28)
+       [18] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [19] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [20] execute (res://addons/gdUnit4/src/core/_TestCase.gd:41)
+       [21] test_completed (res://addons/gdUnit4/src/core/_TestCase.gd:86)
+SCRIPT ERROR: Invalid call. Nonexistent function 'get_poi_ids' in base 'GDScript'.
+   at: CollectibleField._collect_placed (res://scripts/world/collectible_field.gd:60)
+   GDScript backtrace (most recent call first):
+       [0] _collect_placed (res://scripts/world/collectible_field.gd:60)
+       [1] _ready (res://scripts/world/collectible_field.gd:45)
+       [2] _init (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:72)
+       [3] scene_runner (res://addons/gdUnit4/src/GdUnitTestSuite.gd:270)
+       [4] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:363)
+       [5] _execute_test_case (res://addons/gdUnit4/src/core/_TestCase.gd:79)
+       [6] execute (res://addons/gdUnit4/src/core/_TestCase.gd:40)
+       [7] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [8] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [9] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:17)
+       [10] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [11] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:26)
+       [12] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [13] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestSuiteExecutionStage.gd:36)
+       [14] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [15] _execute (res://addons/gdUnit4/src/core/execution/stages/GdUnitTestCaseExecutionStage.gd:35)
+       [16] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [17] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleExecutionStage.gd:28)
+       [18] execute (res://addons/gdUnit4/src/core/execution/stages/IGdUnitExecutionStage.gd:19)
+       [19] _execute (res://addons/gdUnit4/src/core/execution/stages/single/GdUnitTestCaseSingleTestStage.gd:10)
+       [20] execute (res://addons/gdUnit4/src/core/_TestCase.gd:41)
+       [21] test_completed (res://addons/gdUnit4/src/core/_TestCase.gd:86)
+SCRIPT ERROR: Invalid call. Nonexistent function 'get_poi_ids' in base 'GDScript'.
+   at: _collect_collectibles (res://scripts/ui/minimap.gd:82)
+   GDScript backtrace (most recent call first):
+       [0] _collect_collectibles (res://scripts/ui/minimap.gd:82)
+       [1] _process (res://scripts/ui/minimap.gd:282)
+SCRIPT ERROR: Out of bounds get index '0' (on base: 'Array[Array]')
+   at: test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:379)
+   GDScript backtrace (most recent call first):
+       [0] test_open_world_bootstrap_connects_the_classified_network (res://tests/suites/test_road_graph.gd:379)
+       [1] simulate_frames (res://addons/gdUnit4/src/core/GdUnitSceneRunnerImpl.gd:418)
+  [38;2;250;235;215mres://tests/suites/test_road_graph.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_open_world_bootstrap_connects_the_classified_network[0m[38;2;178;34;34m[1m FAILED[0m[38;2;100;149;237m 3s 207ms[0m
+  [38;2;0;206;209m[1m[4mReport:[0m
+  [38;2;128;128;128m[38;2;255;69;0mGodot Runtime Error ![0m
+  '[38;2;30;144;255mParse Error: Could not resolve class "CorridorPlanner", because of a parser error.[0m'[0m[38;2;173;216;230m	at 'test_open_world_bootstrap_connects_the_classified_network' in res://tests/suites/test_road_graph.gd:363[0m  [38;2;128;128;128m[38;2;255;69;0mGodot Runtime Error ![0m
+  '[38;2;30;144;255mParse Error: Could not resolve class "CorridorPlanner", because of a parser error.[0m'[0m[38;2;173;216;230m	at 'test_open_world_bootstrap_connects_the_classified_network' in res://tests/suites/test_road_graph.gd:363[0m  [38;2;128;128;128m[38;2;255;69;0mGodot Runtime Error ![0m
+  '[38;2;30;144;255mParse Error: Could not resolve class "CorridorPlanner", because of a parser error.[0m'[0m[38;2;173;216;230m	at 'test_open_world_bootstrap_connects_the_classified_network' in res://tests/suites/test_road_graph.gd:363[0m  [38;2;128;128;128m[38;2;255;69;0mGodot Runtime Error ![0m
+  '[38;2;30;144;255mParse Error: Could not resolve class "CorridorPlanner", because of a parser error.[0m'[0m[38;2;173;216;230m	at 'test_open_world_bootstrap_connects_the_classified_network' in res://tests/suites/test_road_graph.gd:363[0m  [38;2;128;128;128m[38;2;255;69;0mGodot Runtime Error ![0m
+  '[38;2;30;144;255mCompile Error: Failed to compile depended scripts.[0m'[0m[38;2;173;216;230m	at 'test_open_world_bootstrap_connects_the_classified_network' in res://tests/suites/test_road_graph.gd:363[0m  [38;2;128;128;128m[38;2;255;69;0mGodot Runtime Error ![0m
+  '[38;2;30;144;255mCompile Error: Failed to compile depended scripts.[0m'[0m[38;2;173;216;230m	at 'test_open_world_bootstrap_connects_the_classified_network' in res://tests/suites/test_road_graph.gd:363[0m  [38;2;128;128;128m[38;2;255;69;0mGodot Runtime Error ![0m
+  '[38;2;30;144;255mCompile Error: Failed to compile depended scripts.[0m'[0m[38;2;173;216;230m	at 'test_open_world_bootstrap_connects_the_classified_network' in res://tests/suites/test_road_graph.gd:363[0m  [38;2;128;128;128m[38;2;255;69;0mGodot Runtime Error ![0m
+  '[38;2;30;144;255mParse Error: Could not resolve class "CorridorPlanner", because of a parser error.[0m'[0m[38;2;173;216;230m	at 'test_open_world_bootstrap_connects_the_classified_network' in res://tests/suites/test_road_graph.gd:363[0m  [38;2;128;128;128m[38;2;255;69;0mGodot Runtime Error ![0m
+  '[38;2;30;144;255mParse Error: Could not resolve class "CorridorPlanner", because of a parser error.[0m'[0m[38;2;173;216;230m	at 'test_open_world_bootstrap_connects_the_classified_network' in res://tests/suites/test_road_graph.gd:363[0m  [38;2;128;128;128m[38;2;255;69;0mGodot Runtime Error ![0m
+  '[38;2;30;144;255mParse Error: Could not resolve class "CorridorPlanner", because of a parser error.[0m'[0m[38;2;173;216;230m	at 'test_open_world_bootstrap_connects_the_classified_network' in res://tests/suites/test_road_graph.gd:363[0m  [38;2;128;128;128m[38;2;255;69;0mGodot Runtime Error ![0m
+  '[38;2;30;144;255mParse Error: Could not resolve class "CorridorPlanner", because of a parser error.[0m'[0m[38;2;173;216;230m	at 'test_open_world_bootstrap_connects_the_classified_network' in res://tests/suites/test_road_graph.gd:363[0m  [38;2;128;128;128m[38;2;255;69;0mGodot Runtime Error ![0m
+  '[38;2;30;144;255mInvalid call. Nonexistent function 'get_poi_ids' in base 'GDScript'.[0m'[0m[38;2;173;216;230m	at '_collect_collectibles' in res://scripts/ui/minimap.gd:82
+	at '_ready' in res://scripts/ui/minimap.gd:74
+	at 'test_open_world_bootstrap_connects_the_classified_network' in res://tests/suites/test_road_graph.gd:363[0m  [38;2;128;128;128m[38;2;255;69;0mGodot Runtime Error ![0m
+  '[38;2;30;144;255mInvalid call. Nonexistent function 'get_poi_ids' in base 'GDScript'.[0m'[0m[38;2;173;216;230m	at '_collect_placed' in res://scripts/world/collectible_field.gd:60
+	at '_ready' in res://scripts/world/collectible_field.gd:45
+	at 'test_open_world_bootstrap_connects_the_classified_network' in res://tests/suites/test_road_graph.gd:363[0m  [38;2;128;128;128m[38;2;255;69;0mGodot Runtime Error ![0m
+  '[38;2;30;144;255mInvalid call. Nonexistent function 'get_poi_ids' in base 'GDScript'.[0m'[0m[38;2;173;216;230m	at '_collect_collectibles' in res://scripts/ui/minimap.gd:82
+	at '_process' in res://scripts/ui/minimap.gd:282[0m  [38;2;128;128;128m[38;2;255;69;0mGodot Runtime Error ![0m
+  '[38;2;30;144;255mOut of bounds get index '0' (on base: 'Array[Array]')[0m'[0m[38;2;173;216;230m	at 'test_open_world_bootstrap_connects_the_classified_network' in res://tests/suites/test_road_graph.gd:379[0m  [38;2;128;128;128m[38;2;255;69;0mExpecting to be greater than or equal:[0m
+ [38;2;30;144;255m3[0m but was [38;2;30;144;255m0[0m[0m[38;2;173;216;230m	at 'test_open_world_bootstrap_connects_the_classified_network' in res://tests/suites/test_road_graph.gd:377[0m[38;2;128;128;128m[0m
+[38;2;128;128;128m[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 22 test cases | 15 errors | 1 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 9s 951ms[0m
+[38;2;128;128;128m[0m
+[38;2;128;128;128m[0m
+[38;2;30;144;255mOverall Summary:[0m[38;2;255;255;255m 22 test cases | 15 errors | 1 failures | 0 flaky | 0 skipped | 0 orphans |[0m
+[38;2;233;150;122mExecuted test suites: (1/1)[0m
+[38;2;233;150;122mExecuted test cases : (22/22)[0m
+[38;2;233;150;122mTotal execution time: 9s 951ms[0m
+[38;2;255;255;255m [0m[38;2;100;149;237mOpen XML Report at: file://D:/AI Projects/UltraDrive/reports/report_497/results.xml[0m
+[38;2;100;149;237mOpen HTML Report at: file://D:/AI Projects/UltraDrive/reports/report_497/index.html[0m
+[38;2;178;34;34mExit code: 100[0m
+Run dispose test resources

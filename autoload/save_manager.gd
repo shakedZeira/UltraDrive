@@ -25,6 +25,8 @@ const DISCOVERY_KEY := "discovery"
 const CAREER_MONEY_KEY := "career_money"
 const CAREER_PROFILE_KEY := "career_profile"
 const RIVAL_PERSONAS_KEY := "rival_personas"
+const BEST_LAPS_KEY := "best_laps"
+const COLLECTIBLES_KEY := "collectibles"
 
 ## Slot readiness: MISSING (no file), VALID (parses to a Dictionary) or CORRUPT
 ## (present but unreadable). has_save() stays file-based so a corrupt slot reads
@@ -214,6 +216,35 @@ func load_rival_personas(slot: int) -> Dictionary:
 func save_rival_personas(slot: int, personas: Dictionary) -> bool:
 	var data := load_game(slot)
 	data[RIVAL_PERSONAS_KEY] = personas
+	return save_game(slot, data)
+
+## Read-only accessor for the "best_laps" sub-dict inside a save slot.
+## Used by BestLapRecords.load_from_slot() so the cross-session lap records stay
+## additive to the existing slot schema.
+func load_best_laps(slot: int) -> Dictionary:
+	var data := load_game(slot)
+	var b: Variant = data.get(BEST_LAPS_KEY, {})
+	return b if b is Dictionary else {}
+
+## Merge-write the best-lap records sub-dict into an existing save slot
+## (read-modify-write: preserves owned_cars, discovery, career, ...).
+func save_best_laps(slot: int, best_laps: Dictionary) -> bool:
+	var data := load_game(slot)
+	data[BEST_LAPS_KEY] = best_laps
+	return save_game(slot, data)
+
+## Read-only accessor for the "collectibles" sub-dict inside a save slot.
+## Used by CollectibleField.load_from_slot() (additive to the slot schema).
+func load_collectibles(slot: int) -> Dictionary:
+	var data := load_game(slot)
+	var c: Variant = data.get(COLLECTIBLES_KEY, {})
+	return c if c is Dictionary else {}
+
+## Merge-write the claimed-collectible sub-dict into an existing save slot
+## (read-modify-write: preserves owned_cars, discovery, career, best laps, ...).
+func save_collectibles(slot: int, collectibles: Dictionary) -> bool:
+	var data := load_game(slot)
+	data[COLLECTIBLES_KEY] = collectibles
 	return save_game(slot, data)
 
 static func _valid_slot(slot: int) -> bool:

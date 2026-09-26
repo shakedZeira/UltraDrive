@@ -1,10 +1,11 @@
-[gd_scene load_steps=15 format=3]
+[gd_scene load_steps=16 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/minimap.gd" id="2_minimap"]
 [ext_resource type="Script" path="res://scripts/race/race_ui.gd" id="1_race"]
 [ext_resource type="Script" path="res://scripts/race/tachometer.gd" id="3_tach"]
 [ext_resource type="Script" path="res://scripts/race/results_confetti.gd" id="4_confetti"]
 [ext_resource type="Script" path="res://scripts/ui/speed_overlay.gd" id="5_overlay"]
+[ext_resource type="Script" path="res://scripts/race/traction_lamp.gd" id="8_tlamp"]
 [ext_resource type="PackedScene" path="res://scenes/ui/cockpit_dash.tscn" id="6_cdash"]
 [ext_resource type="PackedScene" path="res://scenes/ui/rear_view_mirror.tscn" id="7_mirror"]
 
@@ -153,6 +154,17 @@ theme_override_colors/font_color = Color(0.92, 0.95, 1, 1)
 theme_override_colors/font_outline_color = Color(0.03, 0.05, 0.1, 1)
 theme_override_constants/outline_size = 3
 theme_override_font_sizes/font_size = 28
+
+[node name="CoordsLabel" type="Label" parent="Root"]
+unique_name_in_owner = true
+offset_left = 20.0
+offset_top = 88.0
+offset_right = 300.0
+offset_bottom = 120.0
+theme_override_colors/font_color = Color(0.7, 0.85, 1, 1)
+theme_override_colors/font_outline_color = Color(0.03, 0.05, 0.1, 1)
+theme_override_constants/outline_size = 2
+theme_override_font_sizes/font_size = 16
 
 [node name="Minimap" type="Control" parent="Root"]
 unique_name_in_owner = true
@@ -350,6 +362,29 @@ theme_override_colors/font_color = Color(0.88, 0.93, 1, 1)
 theme_override_styles/normal = SubResource("StyleBoxFlat_class_pill")
 theme_override_font_sizes/font_size = 22
 
+[node name="TractionLamp" type="Control" parent="Root/Cluster"]
+unique_name_in_owner = true
+offset_left = 462.0
+offset_top = 4.0
+offset_right = 504.0
+offset_bottom = 46.0
+mouse_filter = 2
+script = ExtResource("8_tlamp")
+
+[node name="PowerValue" type="Label" parent="Root/Cluster"]
+unique_name_in_owner = true
+offset_left = 360.0
+offset_top = 250.0
+offset_right = 552.0
+offset_bottom = 286.0
+horizontal_alignment = 2
+vertical_alignment = 1
+text = "-- hp"
+theme_override_colors/font_color = Color(0.62, 0.86, 1, 1)
+theme_override_colors/font_outline_color = Color(0.02, 0.04, 0.09, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 20
+
 [node name="CountdownOverlay" type="Control" parent="Root"]
 unique_name_in_owner = true
 visible = false
@@ -496,6 +531,15 @@ horizontal_alignment = 1
 vertical_alignment = 1
 theme_override_colors/font_color = Color(0.86, 0.9, 0.97, 1)
 theme_override_font_sizes/font_size = 24
+
+[node name="ResultsBestLapDelta" type="Label" parent="Root/ResultsOverlay/Card/VBox"]
+unique_name_in_owner = true
+visible = false
+text = ""
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_colors/font_color = Color(0.55, 0.78, 0.98, 1)
+theme_override_font_sizes/font_size = 18
 
 [node name="ResultsPoints" type="Label" parent="Root/ResultsOverlay/Card/VBox"]
 unique_name_in_owner = true

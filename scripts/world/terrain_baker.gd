@@ -99,26 +99,19 @@ const FIELD_MARGIN := 16.0
 const SAMPLE_SPACING := 2.0
 
 # -- Elevation-band colour palette (RGBA8) -----------------------------------
-const COLOR_SEA := Color(0.12, 0.24, 0.56)
-const COLOR_COAST := Color(0.82, 0.77, 0.55)
-const COLOR_PLAINS := Color(0.38, 0.62, 0.28)
-const COLOR_FARMLAND := Color(0.55, 0.65, 0.28)
-const COLOR_ROLLING := Color(0.28, 0.55, 0.22)
-const COLOR_LOWLAND := Color(0.14, 0.42, 0.14)
-const COLOR_HIGHLAND := Color(0.52, 0.44, 0.32)
-const COLOR_ALPINE := Color(0.92, 0.92, 0.95)
-const COLOR_FALLBACK := Color(0.60, 0.58, 0.42)
+const COLOR_GRASS := Color(0.2, 0.5, 0.15)
 const COLOR_ROAD := Color(0.30, 0.30, 0.32)
 
 ## Band index -> RGBA8 colour, indexed by BAND_* so the colour loop never pays
 ## a per-texel _band_color() match call. Order must match BAND_SEA..BAND_ALPINE.
+## All non-road regions are grass green.
 const BAND_COLORS := [
-	COLOR_SEA,
-	COLOR_PLAINS,
-	COLOR_ROLLING,
-	COLOR_LOWLAND,
-	COLOR_HIGHLAND,
-	COLOR_ALPINE,
+	COLOR_GRASS,
+	COLOR_GRASS,
+	COLOR_GRASS,
+	COLOR_GRASS,
+	COLOR_GRASS,
+	COLOR_GRASS,
 ]
 
 var _bake_scale := 1.0
@@ -412,21 +405,7 @@ static func elevation_band(height: float) -> int:
 
 ## Returns the RGBA8 colour for a given elevation band index.
 func _band_color(band: int) -> Color:
-	match band:
-		BAND_SEA:
-			return COLOR_SEA
-		BAND_PLAINS:
-			return COLOR_PLAINS
-		BAND_ROLLING:
-			return COLOR_ROLLING
-		BAND_LOWLAND:
-			return COLOR_LOWLAND
-		BAND_HIGHLAND:
-			return COLOR_HIGHLAND
-		BAND_ALPINE:
-			return COLOR_ALPINE
-		_:
-			return COLOR_FALLBACK
+	return BAND_COLORS[clampi(band, 0, BAND_COLORS.size() - 1)]
 
 ## Returns an Image.FORMAT_RGBA8 colour map for the given region, deterministic
 ## per (region, scale, roads).  Each texel is coloured by its elevation band
@@ -595,20 +574,8 @@ func bake_region_color(region: Vector2i, bake_scale: float = 1.0, image_width: i
 		for ix in stride:
 			var wx := origin.x + (float(ix) + 0.5) * step
 			var height := clampf(h_buf[row_z + ix], HEIGHT_MIN, HEIGHT_MAX)
-			var band := 5
-			if height < 0.0:
-				band = 0
-			elif height < 10.0:
-				band = 1
-			elif height < 60.0:
-				band = 2
-			elif height < 200.0:
-				band = 3
-			elif height < 600.0:
-				band = 4
-			var band_col: Color = BAND_COLORS[band]
-			var brightness := 0.92 + 0.16 * br_buf[row_z + ix]
-			var col := band_col * brightness
+			var band_col: Color = COLOR_GRASS
+			var col := band_col
 			if not d2_map.is_empty():
 				var d2 := d2_map[row_z + ix]
 				if d2 < blend2:

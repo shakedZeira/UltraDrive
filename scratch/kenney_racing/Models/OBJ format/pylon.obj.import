@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://bnx862xqye0h3"
+path="res://.godot/imported/pylon.obj-43de7f22224a0e68988d4a2b8ad01641.mesh"
+
+[deps]
+
+files=["res://.godot/imported/pylon.obj-43de7f22224a0e68988d4a2b8ad01641.mesh"]
+
+source_file="res://scratch/kenney_racing/Models/OBJ format/pylon.obj"
+dest_files=["res://.godot/imported/pylon.obj-43de7f22224a0e68988d4a2b8ad01641.mesh", "res://.godot/imported/pylon.obj-43de7f22224a0e68988d4a2b8ad01641.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

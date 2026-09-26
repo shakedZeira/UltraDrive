@@ -1,0 +1,97 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[2J[H[38;2;233;150;122m
+--------------------------------------------------------------------------------------------------
+GdUnit4 Comandline Tool
+--------------------------------------------------------------------------------------------------[0m
+[38;2;218;165;32m
+Headless mode is ignored by option '--ignoreHeadlessMode'"
+
+Please note that tests that use UI interaction do not work correctly in headless mode.
+Godot 'InputEvents' are not transported by the Godot engine in headless mode and therefore
+have no effect in the test!
+[0m
+[38;2;100;149;237mInstalling GdUnit4 session system hooks.[0m
+[38;2;100;149;237mSession hook 'GdUnitHtmlTestReporter' installed.[0m
+[38;2;100;149;237mSession hook 'GdUnitXMLTestReporter' installed.[0m
+[38;2;0;206;209mRun Test Suite: [0m[38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_intensity_is_zero_at_midday_and_one_at_midnight[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_intensity_is_zero_at_midday_and_one_at_midnight[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 252ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_sun_elevation_matches_the_weather_manager_arc[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_sun_elevation_matches_the_weather_manager_arc[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 179ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_intensity_is_point_seven_on_the_horizon_crossings[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_intensity_is_point_seven_on_the_horizon_crossings[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 274ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_intensity_stays_inside_zero_one_across_the_whole_clock[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_intensity_stays_inside_zero_one_across_the_whole_clock[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 284ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_dusk_ramp_rises_monotonically_from_day_into_night[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_dusk_ramp_rises_monotonically_from_day_into_night[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 190ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_dawn_ramp_falls_monotonically_from_night_into_day[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_dawn_ramp_falls_monotonically_from_night_into_day[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 263ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_intensity_wraps_like_the_fposmod_clock[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_intensity_wraps_like_the_fposmod_clock[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 157ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_lights_switch_threshold_splits_day_from_dusk[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_lights_switch_threshold_splits_day_from_dusk[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 118ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_build_night_lamps_creates_two_spots_and_a_tail_omni[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_build_night_lamps_creates_two_spots_and_a_tail_omni[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 109ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_lamps_aim_along_the_visual_nose_and_sit_mirrored[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_lamps_aim_along_the_visual_nose_and_sit_mirrored[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 90ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_lamp_energy_ramps_with_intensity_and_drops_to_zero_by_day[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_lamp_energy_ramps_with_intensity_and_drops_to_zero_by_day[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 91ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_null_lamp_holder_is_a_safe_no_op[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_null_lamp_holder_is_a_safe_no_op[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 163ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_controller_builds_lamps_on_the_body_and_lights_them_at_night[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_controller_builds_lamps_on_the_body_and_lights_them_at_night[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 235ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_controller_polls_the_day_night_driver_clock[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_controller_polls_the_day_night_driver_clock[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 107ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_controller_rebuild_is_idempotent_across_visual_swaps[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_controller_rebuild_is_idempotent_across_visual_swaps[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 225ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_controller_without_a_visual_owns_no_lamps[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_controller_without_a_visual_owns_no_lamps[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 329ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_lamp_mode_cycle_runs_off_then_on_then_back_to_auto[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_lamp_mode_cycle_runs_off_then_on_then_back_to_auto[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 212ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_manual_off_beats_midnight_and_manual_on_beats_noon[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_manual_off_beats_midnight_and_manual_on_beats_noon[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 169ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_every_mode_stays_inside_zero_one_across_the_whole_clock[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_every_mode_stays_inside_zero_one_across_the_whole_clock[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 147ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_controller_manual_off_darkens_a_night_drive[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_controller_manual_off_darkens_a_night_drive[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 128ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_controller_manual_on_lights_a_noon_drive[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_controller_manual_on_lights_a_noon_drive[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 227ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_controller_starts_in_auto_and_only_the_button_leaves_it[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_controller_starts_in_auto_and_only_the_button_leaves_it[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 248ms[0m
+[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_holder_is_tagged_for_scene_tree_lookups[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_night_headlights.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_holder_is_tagged_for_scene_tree_lookups[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 260ms[0m
+[38;2;128;128;128m[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 23 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 10s 181ms[0m
+[38;2;128;128;128m[0m
+[38;2;128;128;128m[0m
+[38;2;30;144;255mOverall Summary:[0m[38;2;255;255;255m 23 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m
+[38;2;233;150;122mExecuted test suites: (1/1)[0m
+[38;2;233;150;122mExecuted test cases : (23/23)[0m
+[38;2;233;150;122mTotal execution time: 10s 181ms[0m
+[38;2;255;255;255m [0m[38;2;100;149;237mOpen XML Report at: file://D:/AI Projects/UltraDrive/reports/report_478/results.xml[0m
+[38;2;100;149;237mOpen HTML Report at: file://D:/AI Projects/UltraDrive/reports/report_478/index.html[0m
+[38;2;233;150;122mExit code: 0[0m
+Run dispose test resources

@@ -1,0 +1,386 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[2J[H[38;2;233;150;122m
+--------------------------------------------------------------------------------------------------
+GdUnit4 Comandline Tool
+--------------------------------------------------------------------------------------------------[0m
+[38;2;218;165;32m
+Headless mode is ignored by option '--ignoreHeadlessMode'"
+
+Please note that tests that use UI interaction do not work correctly in headless mode.
+Godot 'InputEvents' are not transported by the Godot engine in headless mode and therefore
+have no effect in the test!
+[0m
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:15)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:27)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:33)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:38)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:40)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:45)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:71)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:110)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:118)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:128)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:133)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:139)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:150)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:163)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:164)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:165)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:178)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:178)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Cannot infer the type of "defs" variable because the value doesn't have a set type.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:178)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:182)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:184)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:184)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Cannot infer the type of "tuned" variable because the value doesn't have a set type.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:184)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Too few arguments for "is_equal_approx()" call. Expected at least 2 but received 1.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:188)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:196)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:196)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Cannot infer the type of "defs" variable because the value doesn't have a set type.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:196)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:270)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:270)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+SCRIPT ERROR: Parse Error: Cannot infer the type of "defs" variable because the value doesn't have a set type.
+   at: GDScript::reload (res://tests/suites/test_corridor_seeding.gd:270)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+ERROR: Failed to load script "res://tests/suites/test_corridor_seeding.gd" with error "Parse error".
+   at: load (modules/gdscript/gdscript_resource_format.cpp:46)
+   GDScript backtrace (most recent call first):
+       [0] load_with_disabled_warnings (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:225)
+       [1] _load_is_test_suite (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:129)
+       [2] scan (res://addons/gdUnit4/src/core/GdUnitTestSuiteScanner.gd:50)
+       [3] discover_tests (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:407)
+       [4] init_gd_unit (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:382)
+       [5] init_runner (res://addons/gdUnit4/src/core/runners/GdUnitTestCIRunner.gd:117)
+       [6] _process (res://addons/gdUnit4/src/core/runners/GdUnitTestSessionRunner.gd:120)
+[38;2;220;20;60mScript errors were detected during test discovery![0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:15[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:27[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:33[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:38[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:40[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:45[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:71[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:110[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:118[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:128[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:133[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:139[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:150[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:163[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:164[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:165[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:178[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:178[0m
+[38;2;255;255;255m  Parse Error: Cannot infer the type of "defs" variable because the value doesn't have a set type.
+	at res://tests/suites/test_corridor_seeding.gd:178[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:182[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:184[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:184[0m
+[38;2;255;255;255m  Parse Error: Cannot infer the type of "tuned" variable because the value doesn't have a set type.
+	at res://tests/suites/test_corridor_seeding.gd:184[0m
+[38;2;255;255;255m  Parse Error: Too few arguments for "is_equal_approx()" call. Expected at least 2 but received 1.
+	at res://tests/suites/test_corridor_seeding.gd:188[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:196[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:196[0m
+[38;2;255;255;255m  Parse Error: Cannot infer the type of "defs" variable because the value doesn't have a set type.
+	at res://tests/suites/test_corridor_seeding.gd:196[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:270[0m
+[38;2;255;255;255m  Parse Error: Could not resolve class "CorridorPlanner", because of a parser error.
+	at res://tests/suites/test_corridor_seeding.gd:270[0m
+[38;2;255;255;255m  Parse Error: Cannot infer the type of "defs" variable because the value doesn't have a set type.
+	at res://tests/suites/test_corridor_seeding.gd:270[0m
+[38;2;220;20;60mAbnormal exit with 105[0m
+Run dispose test resources

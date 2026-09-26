@@ -35,7 +35,9 @@ func test_world_offset_scatterer_keeps_props_off_road() -> void:
 
 func test_road_clearance_is_segment_aware_and_width_aware() -> void:
 	var roads := auto_free(_straight_road(20.0)) as RoadNetwork
-	assert_that(roads.is_on_road(Vector3(0.0, 0.0, 0.0), 6.0)).is_false()
+	# RoadNetwork.is_on_road is segment-aware too: dead centre between the two
+	# road vertices is ON the road, not 300 m away from them.
+	assert_that(roads.is_on_road(Vector3(0.0, 0.0, 0.0), 6.0)).is_true()
 	assert_that(PropScatterer.is_clear_of_road(Vector3(0.0, 0.0, 0.0), roads)).is_false()
 	assert_that(PropScatterer.is_clear_of_road(Vector3(0.0, 0.0, 11.0), roads)).is_false()
 	assert_that(PropScatterer.is_clear_of_road(Vector3(0.0, 0.0, 13.0), roads)).is_true()

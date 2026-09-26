@@ -1,4 +1,4 @@
-[gd_scene load_steps=23 format=3]
+[gd_scene load_steps=25 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/world_driver.gd" id="1_driver"]
 [ext_resource type="Script" path="res://scripts/world/chunk_streamer.gd" id="2_cs"]
@@ -19,6 +19,8 @@
 [ext_resource type="Script" path="res://scripts/weather/weather_audio.gd" id="17_audio"]
 [ext_resource type="Script" path="res://scripts/camera/hood_camera.gd" id="18_hood"]
 [ext_resource type="Script" path="res://scripts/camera/cockpit_camera.gd" id="19_cockpit"]
+[ext_resource type="Script" path="res://scripts/world/collectible_field.gd" id="20_collect"]
+[ext_resource type="Script" path="res://scripts/world/speed_trap_visuals.gd" id="21_trapvis"]
 
 [sub_resource type="ProceduralSkyMaterial" id="sky_mat"]
 sky_top_color = Color(0.25, 0.46, 0.8, 1)
@@ -28,6 +30,9 @@ ground_horizon_color = Color(0.8, 0.72, 0.6, 1)
 sun_angle_max = 20.0
 sun_curve = 0.35
 energy_multiplier = 1.5
+
+[sub_resource type="BoxShape3D" id="fallback_shape"]
+size = Vector3(20000.0, 200.0, 20000.0)
 
 [sub_resource type="Sky" id="sky"]
 sky_material = SubResource("sky_mat")
@@ -85,6 +90,13 @@ cast_shadows = 0
 show_checkered = false
 show_colormap = false
 
+[node name="FallbackGround" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -100, 0)
+
+[node name="FallbackCollision" type="CollisionShape3D" parent="FallbackGround"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+shape = SubResource("fallback_shape")
+
 [node name="TerrainSeeder" type="Node" parent="."]
 script = ExtResource("8_seeder")
 terrain = NodePath("../Terrain3D")
@@ -96,11 +108,11 @@ script = ExtResource("9_net")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3800, 14, 3200)
 
 [node name="PlayerSpawn" type="Marker3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 128, 2.2, 128)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 238, 2.2, 128)
 
 [node name="PlayerCar" parent="." instance=ExtResource("3_car")]
 unique_name_in_owner = true
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 128, 2.2, 128)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 238, 2.2, 128)
 
 [node name="ChaseCamera" type="Node3D" parent="."]
 script = ExtResource("4_chase")
@@ -113,7 +125,7 @@ target = NodePath("%PlayerCar")
 chase_camera_path = NodePath("../ChaseCamera")
 hood_camera_path = NodePath("../HoodCamera")
 cockpit_camera_path = NodePath("../CockpitCamera")
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 128, 4.7, 134)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 238, 4.7, 134)
 
 [node name="HoodCamera" type="Node3D" parent="."]
 script = ExtResource("18_hood")
@@ -189,3 +201,9 @@ script = ExtResource("11_living")
 
 [node name="EventSession" type="Node" parent="."]
 script = ExtResource("15_session")
+
+[node name="CollectibleField" type="Node" parent="."]
+script = ExtResource("20_collect")
+
+[node name="SpeedTrapVisuals" type="Node3D" parent="."]
+script = ExtResource("21_trapvis")

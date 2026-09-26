@@ -1,0 +1,393 @@
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 3 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 1s 376ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 8 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 2s 988ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 11 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 4s 87ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 14 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 5s 845ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 18 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 7s 767ms[0m
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _build_car (res://scripts/ui/grid_spawner.gd:54)
+       [1] build_grid (res://scripts/ui/grid_spawner.gd:39)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _build_car (res://scripts/ui/grid_spawner.gd:55)
+       [1] build_grid (res://scripts/ui/grid_spawner.gd:39)
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 7 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 2s 847ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 20 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 7s 303ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 17 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 6s 894ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 6 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 2s 274ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 4 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 1s 634ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 8 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 3s 510ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 9 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 4s 467ms[0m
+ERROR: Parameter "material" is null.
+ERROR: Parameter "material" is null.
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 7 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 3s 365ms[0m
+ERROR: Parameter "material" is null.
+ERROR: Parameter "material" is null.
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 6 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 2s 677ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 9 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 4s 190ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 9 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 3s 875ms[0m
+  [38;2;250;235;215mres://tests/suites/test_drive_feel.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_chase_camera_script_default_stays_transients_off[0m[38;2;34;139;34m STARTED[0m[38;2;128;128;128m[0m
+  [38;2;250;235;215mres://tests/suites/test_drive_feel.gd[0m[38;2;128;128;128m > [0m[38;2;250;235;215mtest_chase_camera_script_default_stays_transients_off[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 215ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 19 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 8s 635ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 55 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 23s 527ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 6 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 2s 841ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 9 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 4s 176ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 15 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 6s 962ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 8 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 3s 158ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 7 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 3s 378ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 8 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 3s 368ms[0m
+ERROR: Node not found: "WheelFL" (relative to "/root/HUD/NavPlayer").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:70)
+ERROR: Node not found: "WheelFR" (relative to "/root/HUD/NavPlayer").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:71)
+ERROR: Node not found: "WheelRL" (relative to "/root/HUD/NavPlayer").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:72)
+ERROR: Node not found: "WheelRR" (relative to "/root/HUD/NavPlayer").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:73)
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 10 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 4s 494ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 2 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 3s 877ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 10 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 4s 6ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 9 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 3s 567ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 5 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 2s 299ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 3 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 1s 192ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 5 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 5s 550ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 9 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 3s 400ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 19 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 8s 926ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 15 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 7s 527ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 15 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 5s 612ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 5 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 10 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 2s 277ms[0m
+   GDScript backtrace (most recent call first):
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 6 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 6s 117ms[0m
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _rebuild (res://scripts/ui/world_map.gd:181)
+       [1] _draw (res://scripts/ui/world_map.gd:111)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _rebuild (res://scripts/ui/world_map.gd:182)
+       [1] _draw (res://scripts/ui/world_map.gd:111)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _rebuild (res://scripts/ui/world_map.gd:181)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _rebuild (res://scripts/ui/world_map.gd:182)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _rebuild (res://scripts/ui/world_map.gd:181)
+       [1] _draw (res://scripts/ui/world_map.gd:111)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _rebuild (res://scripts/ui/world_map.gd:182)
+       [1] _draw (res://scripts/ui/world_map.gd:111)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _rebuild (res://scripts/ui/world_map.gd:181)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _rebuild (res://scripts/ui/world_map.gd:182)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _process (res://scripts/ui/minimap.gd:174)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _process (res://scripts/ui/minimap.gd:175)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _process (res://scripts/ui/minimap.gd:174)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _process (res://scripts/ui/minimap.gd:175)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _process (res://scripts/ui/minimap.gd:174)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _process (res://scripts/ui/minimap.gd:175)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _process (res://scripts/ui/minimap.gd:174)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _process (res://scripts/ui/minimap.gd:175)
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 7 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 4s 128ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 11 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 4s 669ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 7 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 3s 15ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 11 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 4s 297ms[0m
+ERROR: Error calling from signal 'lap_completed' to callable: 'Node(race_manager.gd)::reset_checkpoints': Method expected 0 argument(s), but called with 3.
+   GDScript backtrace (most recent call first):
+       [0] update (res://scripts/track/lap_counter.gd:41)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+ERROR: Error calling from signal 'lap_completed' to callable: 'Node(race_manager.gd)::reset_checkpoints': Method expected 0 argument(s), but called with 3.
+   GDScript backtrace (most recent call first):
+       [0] update (res://scripts/track/lap_counter.gd:41)
+ERROR: Error calling from signal 'lap_completed' to callable: 'Node(race_manager.gd)::reset_checkpoints': Method expected 0 argument(s), but called with 3.
+   GDScript backtrace (most recent call first):
+       [0] update (res://scripts/track/lap_counter.gd:41)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 14 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 6s 270ms[0m
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _process (res://scripts/ui/minimap.gd:174)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _process (res://scripts/ui/minimap.gd:175)
+ERROR: Error calling from signal 'lap_completed' to callable: 'Node(race_manager.gd)::reset_checkpoints': Method expected 0 argument(s), but called with 3.
+   GDScript backtrace (most recent call first):
+       [0] update (res://scripts/track/lap_counter.gd:41)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [3] _position_text (res://scripts/race/race_ui.gd:266)
+       [4] _process (res://scripts/race/race_ui.gd:105)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [3] _position_text (res://scripts/race/race_ui.gd:266)
+       [4] _process (res://scripts/race/race_ui.gd:105)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [3] _position_text (res://scripts/race/race_ui.gd:266)
+       [4] _process (res://scripts/race/race_ui.gd:105)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [3] _position_text (res://scripts/race/race_ui.gd:266)
+       [4] _process (res://scripts/race/race_ui.gd:105)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _process (res://scripts/ui/minimap.gd:174)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _process (res://scripts/ui/minimap.gd:175)
+ERROR: Error calling from signal 'lap_completed' to callable: 'Node(race_manager.gd)::reset_checkpoints': Method expected 0 argument(s), but called with 3.
+   GDScript backtrace (most recent call first):
+       [0] update (res://scripts/track/lap_counter.gd:41)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _process (res://scripts/ui/minimap.gd:174)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _process (res://scripts/ui/minimap.gd:175)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _process (res://scripts/ui/minimap.gd:174)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _process (res://scripts/ui/minimap.gd:175)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _process (res://scripts/ui/minimap.gd:174)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] _process (res://scripts/ui/minimap.gd:175)
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 8 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 4s 783ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 8 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 3s 260ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 16 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 6s 807ms[0m
+ERROR: Error calling from signal 'lap_completed' to callable: 'Node(race_manager.gd)::reset_checkpoints': Method expected 0 argument(s), but called with 3.
+   GDScript backtrace (most recent call first):
+       [0] update (res://scripts/track/lap_counter.gd:41)
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 13 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 5s 443ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 22 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 28s 201ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 10 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 3s 878ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 14 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 5s 691ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 9 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 2 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 41s 920ms[0m
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   GDScript backtrace (most recent call first):
+       [0] resolve_surface_factors (res://scripts/vehicle/vehicle_physics.gd:488)
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 16 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 6s 627ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 6 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 13s 765ms[0m
+ERROR: Terrain3D#1856:_grab_camera:155: Cannot find the active camera. Set it manually with Terrain3D.set_camera(). Stopping _physics_process()
+   at: push_error (core/variant/variant_utility.cpp:1023)
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 7 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 6 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 7s 298ms[0m
+ERROR: Node not found: "WheelFL" (relative to "/root/test_traffic_driving/@RigidBody3D@1847").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:70)
+ERROR: Node not found: "WheelFR" (relative to "/root/test_traffic_driving/@RigidBody3D@1847").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:71)
+ERROR: Node not found: "WheelRL" (relative to "/root/test_traffic_driving/@RigidBody3D@1847").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:72)
+ERROR: Node not found: "WheelRR" (relative to "/root/test_traffic_driving/@RigidBody3D@1847").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:73)
+ERROR: Node not found: "WheelFL" (relative to "/root/test_traffic_driving/@RigidBody3D@1849").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:70)
+ERROR: Node not found: "WheelFR" (relative to "/root/test_traffic_driving/@RigidBody3D@1849").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:71)
+ERROR: Node not found: "WheelRL" (relative to "/root/test_traffic_driving/@RigidBody3D@1849").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:72)
+ERROR: Node not found: "WheelRR" (relative to "/root/test_traffic_driving/@RigidBody3D@1849").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:73)
+ERROR: Node not found: "WheelFL" (relative to "/root/test_traffic_driving/@RigidBody3D@1851").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:70)
+ERROR: Node not found: "WheelFR" (relative to "/root/test_traffic_driving/@RigidBody3D@1851").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:71)
+ERROR: Node not found: "WheelRL" (relative to "/root/test_traffic_driving/@RigidBody3D@1851").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:72)
+ERROR: Node not found: "WheelRR" (relative to "/root/test_traffic_driving/@RigidBody3D@1851").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:73)
+ERROR: Node not found: "WheelFL" (relative to "/root/test_traffic_driving/@RigidBody3D@1853").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:70)
+ERROR: Node not found: "WheelFR" (relative to "/root/test_traffic_driving/@RigidBody3D@1853").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:71)
+ERROR: Node not found: "WheelRL" (relative to "/root/test_traffic_driving/@RigidBody3D@1853").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:72)
+ERROR: Node not found: "WheelRR" (relative to "/root/test_traffic_driving/@RigidBody3D@1853").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:73)
+ERROR: Node not found: "WheelFL" (relative to "/root/test_traffic_driving/@RigidBody3D@1855").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:70)
+ERROR: Node not found: "WheelFR" (relative to "/root/test_traffic_driving/@RigidBody3D@1855").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:71)
+ERROR: Node not found: "WheelRL" (relative to "/root/test_traffic_driving/@RigidBody3D@1855").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:72)
+ERROR: Node not found: "WheelRR" (relative to "/root/test_traffic_driving/@RigidBody3D@1855").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:73)
+ERROR: Node not found: "WheelFL" (relative to "/root/test_traffic_driving/@RigidBody3D@1857").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:70)
+ERROR: Node not found: "WheelFR" (relative to "/root/test_traffic_driving/@RigidBody3D@1857").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:71)
+ERROR: Node not found: "WheelRL" (relative to "/root/test_traffic_driving/@RigidBody3D@1857").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:72)
+ERROR: Node not found: "WheelRR" (relative to "/root/test_traffic_driving/@RigidBody3D@1857").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:73)
+ERROR: Node not found: "WheelFL" (relative to "/root/test_traffic_driving/@RigidBody3D@1913").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:70)
+ERROR: Node not found: "WheelFR" (relative to "/root/test_traffic_driving/@RigidBody3D@1913").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:71)
+ERROR: Node not found: "WheelRL" (relative to "/root/test_traffic_driving/@RigidBody3D@1913").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:72)
+ERROR: Node not found: "WheelRR" (relative to "/root/test_traffic_driving/@RigidBody3D@1913").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:73)
+ERROR: Node not found: "WheelFL" (relative to "/root/test_traffic_driving/@RigidBody3D@1916").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:70)
+ERROR: Node not found: "WheelFR" (relative to "/root/test_traffic_driving/@RigidBody3D@1916").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:71)
+ERROR: Node not found: "WheelRL" (relative to "/root/test_traffic_driving/@RigidBody3D@1916").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:72)
+ERROR: Node not found: "WheelRR" (relative to "/root/test_traffic_driving/@RigidBody3D@1916").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:73)
+ERROR: Node not found: "WheelFL" (relative to "/root/test_traffic_driving/@RigidBody3D@1918").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:70)
+ERROR: Node not found: "WheelFR" (relative to "/root/test_traffic_driving/@RigidBody3D@1918").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:71)
+ERROR: Node not found: "WheelRL" (relative to "/root/test_traffic_driving/@RigidBody3D@1918").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:72)
+ERROR: Node not found: "WheelRR" (relative to "/root/test_traffic_driving/@RigidBody3D@1918").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:73)
+ERROR: Node not found: "WheelFL" (relative to "/root/test_traffic_driving/@RigidBody3D@1920").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:70)
+ERROR: Node not found: "WheelFR" (relative to "/root/test_traffic_driving/@RigidBody3D@1920").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:71)
+ERROR: Node not found: "WheelRL" (relative to "/root/test_traffic_driving/@RigidBody3D@1920").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:72)
+ERROR: Node not found: "WheelRR" (relative to "/root/test_traffic_driving/@RigidBody3D@1920").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:73)
+ERROR: Node not found: "WheelFL" (relative to "/root/test_traffic_driving/@RigidBody3D@1922").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:70)
+ERROR: Node not found: "WheelFR" (relative to "/root/test_traffic_driving/@RigidBody3D@1922").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:71)
+ERROR: Node not found: "WheelRL" (relative to "/root/test_traffic_driving/@RigidBody3D@1922").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:72)
+ERROR: Node not found: "WheelRR" (relative to "/root/test_traffic_driving/@RigidBody3D@1922").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:73)
+ERROR: Node not found: "WheelFL" (relative to "/root/test_traffic_driving/@RigidBody3D@1924").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:70)
+ERROR: Node not found: "WheelFR" (relative to "/root/test_traffic_driving/@RigidBody3D@1924").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:71)
+ERROR: Node not found: "WheelRL" (relative to "/root/test_traffic_driving/@RigidBody3D@1924").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:72)
+ERROR: Node not found: "WheelRR" (relative to "/root/test_traffic_driving/@RigidBody3D@1924").
+   GDScript backtrace (most recent call first):
+       [0] @implicit_ready (res://scripts/vehicle/vehicle_physics.gd:73)
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 16 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 14s 813ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 12 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 5s 270ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 13 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 5s 697ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 8 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 3s 386ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 21 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 8s 631ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 4 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 2s 76ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 9 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 4s 655ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 5 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 3s 405ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 4 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 1s 810ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 3 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 13s 177ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 4 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 11s 634ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 3 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 1s 470ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 2 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 1s 27ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 3 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 1s 327ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 8 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 9s 251ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 7 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 11s 512ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 2 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 1s 46ms[0m
+[38;2;30;144;255mStatistics:[0m[38;2;128;128;128m 21 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |[0m[38;2;34;139;34m PASSED[0m[38;2;100;149;237m 9s 231ms[0m
+[38;2;30;144;255mOverall Summary:[0m[38;2;255;255;255m 720 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 18 orphans |[0m
+ERROR: 1 RID allocations of type 'P11GodotBody3D' were leaked at exit.
+ERROR: 1 RID allocations of type 'P12GodotShape3D' were leaked at exit.
+ERROR: 3 RID allocations of type 'N13RendererDummy15MaterialStorage13DummyMaterialE' were leaked at exit.
+ERROR: 1 RID allocations of type 'N13RendererDummy15MaterialStorage11DummyShaderE' were leaked at exit.
+ERROR: 3 RID allocations of type 'N13RendererDummy9DummyMeshE' were leaked at exit.
+ERROR: 1 RID allocations of type 'PN13RendererDummy14TextureStorage12DummyTextureE' were leaked at exit.
+ERROR: 3 RID allocations of type 'N17RendererSceneCull8InstanceE' were leaked at exit.
+ERROR: Pages in use exist at exit in PagedAllocator: N20RasterizerSceneDummy21GeometryInstanceDummyE
+ERROR: 5 resources still in use at exit (run with --verbose for details).

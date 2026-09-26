@@ -456,8 +456,11 @@ func _bake_player_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vect
 	if _baked.has(loc):
 		var rec: Variant = _baked[loc]
 		var image: Image = rec["image"]
+		var color: Image = rec.get("color")
 		if image != null:
-			_write_region(data, region, loc, image, rec["height_min"], rec["height_max"], true, rec.get("color"))
+			if color == null:
+				color = _baker.bake_region_color(loc, bake_scale, image.get_width(), _roads)
+			_write_region(data, region, loc, image, rec["height_min"], rec["height_max"], true, color)
 			_applied[loc] = true
 			_hm("bake_player", _t_start)
 			return
@@ -469,8 +472,11 @@ func _bake_player_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vect
 	var near_rec := _nearest_cached_record(loc)
 	if not near_rec.is_empty():
 		var near_image: Image = near_rec["image"]
+		var near_color: Image = near_rec.get("color")
 		if near_image != null:
-			_write_region(data, region, loc, near_image, near_rec["height_min"], near_rec["height_max"], true, near_rec.get("color"))
+			if near_color == null:
+				near_color = _baker.bake_region_color(loc, bake_scale, near_image.get_width(), _roads)
+			_write_region(data, region, loc, near_image, near_rec["height_min"], near_rec["height_max"], true, near_color)
 	_applied[loc] = true
 	_hm("bake_player", _t_start)
 
@@ -763,6 +769,28 @@ func _stop_worker() -> void:
 	_queued.clear()
 	_work_queue.clear()
 	_lock.unlock()
+
+## Forces an immediate synchronous grass color bake for the player region.
+## Called after set_roads() clears the cache to ensure grass is visible on spawn.
+func force_player_region_color_bake() -> void:
+	if terrain == null:
+		return
+	var data: Terrain3DData = terrain.data
+	if data == null:
+		return
+	var center := _region_center(_player_region)
+	var region: Terrain3DRegion = data.get_regionp(center) if data.has_regionp(center) else null
+	if region == null:
+		return
+	var map := region.get_map(Terrain3DRegion.TYPE_HEIGHT)
+	if map == null:
+		return
+	var image: Image = _baker.bake_region(_player_region, bake_scale, map.get_width(), _roads)
+	var color: Image = _baker.bake_region_color(_player_region, bake_scale, map.get_width(), _roads)
+	var range := _scan_height_range(image)
+	_baked[_player_region] = {"image": image, "color": color, "height_min": range.x, "height_max": range.y}
+	_write_region(data, region, _player_region, image, range.x, range.y, true, color)
+	_applied[_player_region] = true
 
 ## Internal pipeline state, exposed for the streaming tests.
 func _bake_queued(loc: Vector2i) -> bool:

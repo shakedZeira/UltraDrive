@@ -52,22 +52,38 @@ static func has_poi(poi_id: String) -> bool:
 	return pois.has(poi_id)
 
 ## AAA-3 map filters: every known POI belongs to exactly one category —
-## CATEGORY_LANDMARKS (the base five destinations) or CATEGORY_EVENTS (every
-## marker with a "kind", i.e. the planned race/event sites). Event identity is
-## data-driven: base POIs carry no "kind" key, so category is a pure function
-## of the registry entry and needs no side tables.
+## CATEGORY_LANDMARKS (the base five destinations), CATEGORY_EVENTS (the planned
+## race/event sites) or CATEGORY_COLLECTIBLES (the road-anchored bonus boards,
+## speed traps and photo spots).
+##
+## Collectibles get their OWN category instead of riding the events bucket.
+## They are permanent gameplay the player has to aim at, not a calendar entry,
+## so the events filter can never hide a speed trap: the pause map is the only
+## planning tool the player has, and a target missing off that map is a target
+## that is easy to miss in the world. Both families are still data-driven — a
+## base POI carries neither a "kind" nor a collectible id — so category stays a
+## pure function of the registry entry and needs no side tables.
 const CATEGORY_LANDMARKS := "landmarks"
 const CATEGORY_EVENTS := "events"
+const CATEGORY_COLLECTIBLES := "collectibles"
 
-static func category_of(poi: Dictionary) -> String:
+## `poi_id` is optional and only ever a fast path: the map's filter holds the id
+## it is drawing, so it can classify even an entry that forgot to carry its own
+## "id" key. Everything else reads the entry, which is what the static buckets
+## and the tests do.
+static func category_of(poi: Dictionary, poi_id: String = "") -> String:
+	var id := poi_id if not poi_id.is_empty() else str(poi.get("id", ""))
+	if Collectibles.is_collectible_id(id):
+		return CATEGORY_COLLECTIBLES
 	return CATEGORY_EVENTS if poi.has("kind") else CATEGORY_LANDMARKS
 
-## Exact per-category id buckets: {"landmarks": [ids...], "events": [ids...]}.
-## Exhaustive and disjoint — every get_poi_ids() id lands in exactly one bucket.
+## Exact per-category id buckets: {"landmarks": [ids...], "events": [ids...],
+## "collectibles": [ids...]}. Exhaustive and disjoint — every get_poi_ids() id
+## lands in exactly one bucket.
 static func category_buckets() -> Dictionary:
-	var buckets := {CATEGORY_LANDMARKS: [], CATEGORY_EVENTS: []}
+	var buckets := {CATEGORY_LANDMARKS: [], CATEGORY_EVENTS: [], CATEGORY_COLLECTIBLES: []}
 	for poi_id in get_poi_ids():
-		var cat: String = category_of(get_poi(poi_id))
+		var cat: String = category_of(get_poi(poi_id), poi_id)
 		var bucket: Array = buckets[cat]
 		bucket.append(poi_id)
 		buckets[cat] = bucket
@@ -79,7 +95,7 @@ static func filter_by_category(include: Array) -> Dictionary:
 	var out := {}
 	for poi_id in get_poi_ids():
 		var poi := get_poi(poi_id)
-		if include.has(category_of(poi)):
+		if include.has(category_of(poi, poi_id)):
 			out[poi_id] = poi
 	return out
 
@@ -112,6 +128,15 @@ static func is_travel_eligible(poi_id: String, revealed: Callable = Callable()) 
 ## site into `pois`, keeping the base { name, stage, position } shape (plus
 ## kind / tier / road_id / extra). world_map.gd draws dots from get_poi_ids(),
 ## so the event markers appear on the pause map automatically.
+##
+## AAA-16: the road-anchored collectibles (bonus boards, speed traps, photo
+## spots) merge in the same pass, in the same shape and with a "kind" so both
+## map dot layers pick them up from get_poi_ids() with no second source. They
+## classify as CATEGORY_COLLECTIBLES (their own always-shown bucket, NOT the
+## events one), so the pause map's events filter can never hide a speed trap.
+## The anchors are read from the base five only, so collectible placement is NOT
+## bound by the 0..6144 base-POI tile bounds — like the event markers it rides
+## the real road net.
 static func _load_events() -> void:
 	if _events_loaded:
 		return
@@ -124,3 +149,4 @@ static func _load_events() -> void:
 	_events = EventRegistry.place_data(defs, anchors)
 	for event_id: String in _events.keys():
 		pois[event_id] = _events[event_id]
+	pois.merge(Collectibles.place_data(defs), true)

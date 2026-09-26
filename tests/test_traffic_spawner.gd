@@ -27,6 +27,16 @@ const EVENT_POI_IDS := [
 	"outbreak",
 	"convoy",
 ]
+## AAA-16 road-anchored collectibles, derived from the same corridor plan with
+## the same master seed, so their ids and order are just as deterministic.
+const COLLECTIBLE_POI_IDS := [
+	"bonus_0", "bonus_1", "bonus_2", "bonus_3", "bonus_4", "bonus_5",
+	"bonus_6", "bonus_7", "bonus_8", "bonus_9", "bonus_10", "bonus_11",
+	"speedtrap_0", "speedtrap_1", "speedtrap_2", "speedtrap_3",
+	"speedtrap_4", "speedtrap_5", "speedtrap_6", "speedtrap_7",
+	"photospot_0", "photospot_1", "photospot_2", "photospot_3",
+	"photospot_4", "photospot_5", "photospot_6", "photospot_7",
+]
 
 func _build_ring() -> Array[Vector3]:
 	var points: Array[Vector3] = []
@@ -39,7 +49,8 @@ func test_poi_registry_returns_exactly_the_seeded_set() -> void:
 	var ids := POIRegistry.get_poi_ids()
 	# Base landscape POIs first, then the S7 event markers derived from the
 	# classified road network (same master seed -> same ids, same order): the
-	# 6 P6 families plus the two open-world brands (outbreak / convoy).
+	# 6 P6 families plus the two open-world brands (outbreak / convoy), then the
+	# AAA-16 collectibles from the same plan.
 	assert_array(ids).contains_exactly([
 		"festival_hub",
 		"lowland_view",
@@ -58,8 +69,8 @@ func test_poi_registry_returns_exactly_the_seeded_set() -> void:
 		"time_attack_4",
 		"outbreak",
 		"convoy",
-	])
-	assert_that(ids.size()).is_equal(BASE_POI_IDS.size() + EVENT_POI_IDS.size())
+	] + COLLECTIBLE_POI_IDS)
+	assert_that(ids.size()).is_equal(BASE_POI_IDS.size() + EVENT_POI_IDS.size() + COLLECTIBLE_POI_IDS.size())
 	for poi_id: String in ids:
 		var data := POIRegistry.get_poi(poi_id)
 		assert_that(data.has("name")).is_true()

@@ -1,0 +1,37 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[2J[H[38;2;233;150;122m
+--------------------------------------------------------------------------------------------------
+GdUnit4 Comandline Tool
+--------------------------------------------------------------------------------------------------[0m
+[38;2;220;20;60mUnknown ';' command![0m
+[38;2;233;150;122m
+Usage:
+	runtest -a <directory|path of testsuite>
+	runtest -a <directory> -i <path of testsuite|testsuite_name|testsuite_name:test_name>
+[0m
+[38;2;233;150;122m-- Options ---------------------------------------------------------------------------------------[0m
+[38;2;100;149;237m  ["-a", "--add"]                         [0m
+[38;2;144;238;144mAdds the given test suite or directory to the execution pipeline.[0m
+[38;2;0;206;209m     -a <directory|path of testsuite>[0m
+[38;2;255;255;255m[0m
+[38;2;100;149;237m  ["-i", "--ignore"]                      [0m
+[38;2;144;238;144mAdds the given test suite or test case to the ignore list.[0m
+[38;2;0;206;209m     -i <testsuite_name|testsuite_name:test-name>[0m
+[38;2;255;255;255m[0m
+[38;2;100;149;237m  ["-c", "--continue"]                    [0m
+[38;2;144;238;144mBy default GdUnit will abort checked first test failure to be fail fast,
+				instead of stop after first failure you can use this option to run the complete test set.[0m
+[38;2;255;255;255m[0m
+[38;2;100;149;237m  ["-conf", "--config"]                   [0m
+[38;2;144;238;144mRun all tests by given test configuration. Default is 'GdUnitRunner.cfg'[0m
+[38;2;0;206;209m     -conf [testconfiguration.cfg][0m
+[38;2;255;255;255m[0m
+[38;2;100;149;237m  ["-help"]                               [0m
+[38;2;144;238;144mShows this help message.[0m
+[38;2;255;255;255m[0m
+[38;2;100;149;237m  ["--help-advanced"]                     [0m
+[38;2;144;238;144mShows advanced options.[0m
+[38;2;255;255;255m[0m
+[38;2;220;20;60mAbnormal exit with 100[0m
+Run dispose test resources

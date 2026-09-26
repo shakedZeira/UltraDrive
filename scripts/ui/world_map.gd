@@ -35,6 +35,23 @@ const POI_COLOR := Color(0.75, 0.85, 1.0, 0.85)
 const POI_OUTLINE := Color(0.02, 0.04, 0.09, 0.95)
 const POI_CORE := Color(0.97, 0.97, 1.0, 0.95)
 const POI_RADIUS := 4.0
+## Collectible pins (bonus boards, speed traps, photo spots) draw a little
+## LARGER than a landmark pin and HOLLOW instead of solid-cored, in the shared
+## Collectibles.KIND_DOT_COLOR family palette. A landmark is a place you visit;
+## a collectible is a thing you hit, and over a road-coloured 10 km network the
+## difference between "another map dot" and "a gate I have to hit" is exactly a
+## bigger ring in the family's own colour. The claimed look (below) is preserved:
+## a banked pin keeps the ring but drops its brightness with the fill.
+const COLLECTIBLE_RADIUS := 5.0
+const COLLECTIBLE_RING := Color(1.0, 0.96, 0.94, 0.95)
+const COLLECTIBLE_RING_WIDTH := 1.8
+## AAA-16: a collectible the player has already banked keeps its dot (so the map
+## still shows where it is) but reads as spent -- the family fill is lerped toward
+## this tint, a landmark loses its bright core, and a collectible's inner ring
+## turns to the tint instead of white -- which is the whole claimed/unclaimed
+## visual state this milestone needs without any new UI plumbing.
+const POI_CLAIMED_TINT := Color(0.5, 0.55, 0.65, 0.5)
+const POI_CLAIMED_MIX := 0.62
 const BACKDROP_COLOR := Color(0.05, 0.07, 0.13, 0.94)
 const BORDER_COLOR := Color(0.3, 0.5, 0.85, 0.6)
 const INSET := 32.0
@@ -55,22 +72,30 @@ var _player_angle := -PI / 2.0
 var _pulse_time := 0.0
 var _last_pulse_tick := -1
 var _discovery_source: WorldDiscovery = null
+var _collectible_source: CollectibleField = null
 
 ## AAA-3 map filters: per-category gates default to full visibility plus an
 ## optional region substring and travel-eligibility gate, so the shipped map
 ## renders exactly as before until a UI opts in. POI dots failing the active
 ## gates are excluded from the fit as well as the draw pass.
+##
+## The collectibles gate is deliberately ITS OWN flag and not part of "events":
+## a speed trap is a gameplay target, so hiding it is never a consequence of
+## hiding the calendar markers. Shipped default: everything on.
 var show_pois: bool = true
 var show_landmarks: bool = true
 var show_events: bool = true
+var show_collectibles: bool = true
 var show_travel: bool = true
 var region_filter: String = ""
 var _travel_gate: Callable = Callable()
 
-## AAA-3 filter API: flags keys are "pois" / "landmarks" / "events" / "travel"
-## (bools, the shipped all-on defaults) plus "region" (String substring on the
-## POI's stage name, "" = any). Rebuilds on every call so the dot set always
-## matches the active gates.
+## AAA-3 filter API: flags keys are "pois" / "landmarks" / "events" /
+## "collectibles" / "travel" (bools, the shipped all-on defaults) plus "region"
+## (String substring on the POI's stage name, "" = any). Only the keys present
+## are touched, so a partial update never silently resets another gate. Marks the
+## map dirty and queues a redraw, so the dot set is rebuilt against the active
+## gates on the next draw pass (headless gates call _rebuild() directly).
 func set_category_filters(flags: Dictionary) -> void:
 	if flags.has("pois"):
 		show_pois = bool(flags["pois"])
@@ -78,11 +103,25 @@ func set_category_filters(flags: Dictionary) -> void:
 		show_landmarks = bool(flags["landmarks"])
 	if flags.has("events"):
 		show_events = bool(flags["events"])
+	if flags.has("collectibles"):
+		show_collectibles = bool(flags["collectibles"])
 	if flags.has("travel"):
 		show_travel = bool(flags["travel"])
 	if flags.has("region"):
 		region_filter = str(flags["region"])
 	refresh()
+
+## Every shipped gate explicitly ON -- the reset the map and the gate use after a
+## partial update, since set_category_filters({}) is a no-op by design.
+func reset_category_filters() -> void:
+	set_category_filters({
+		"pois": true,
+		"landmarks": true,
+		"events": true,
+		"collectibles": true,
+		"travel": true,
+		"region": "",
+	})
 
 ## Travel-eligibility gate for the "travel" filter: a Callable(String poi_id) ->
 ## bool (typically "road revealed / reachable"). Empty callable = every POI is
@@ -95,10 +134,12 @@ func set_travel_gate(gate: Callable) -> void:
 func _poi_passes_filters(poi: Dictionary, poi_id: String) -> bool:
 	if not show_pois:
 		return false
-	var category: String = POIRegistry.category_of(poi)
+	var category: String = POIRegistry.category_of(poi, poi_id)
 	if category == POIRegistry.CATEGORY_LANDMARKS and not show_landmarks:
 		return false
 	if category == POIRegistry.CATEGORY_EVENTS and not show_events:
+		return false
+	if category == POIRegistry.CATEGORY_COLLECTIBLES and not show_collectibles:
 		return false
 	if show_travel and not POIRegistry.is_travel_eligible(poi_id, _travel_gate):
 		return false
@@ -188,15 +229,70 @@ func _draw_road_path(path: PackedVector2Array, color: Color, width: float) -> vo
 
 ## Draws a POI as a small satellite-style pin: dark outline ring around a
 ## zone/tier-coloured fill with a bright core, readable over any terrain tint.
+## A claimed collectible (AAA-16) drops the bright core and fades, so banked and
+## un-banked collectibles are distinguishable straight off the map.
+##
+## Collectibles get their own treatment: the family palette
+## (Collectibles.KIND_DOT_COLOR) at COLLECTIBLE_RADIUS with a HOLLOW ring in
+## place of the solid core, so a speed trap reads as a target to drive at rather
+## than as one more landmark blob. A banked one keeps the ring in the dimmed
+## claimed tint, so the spent state is still unmistakable.
 func _draw_poi(screen: Vector2, poi: Dictionary) -> void:
+	var collectible := _is_collectible_poi(poi)
+	var claimed := _is_claimed_collectible(poi)
+	var radius := COLLECTIBLE_RADIUS if collectible else POI_RADIUS
+	draw_circle(screen, radius + 2.0, POI_OUTLINE)
+	draw_circle(screen, radius, poi_dot_color(poi))
+	if collectible:
+		var ring := POI_CLAIMED_TINT if claimed else COLLECTIBLE_RING
+		draw_arc(screen, maxf(radius - 2.6, 1.0), 0.0, TAU, 20, ring, COLLECTIBLE_RING_WIDTH, true)
+		return
+	if not claimed:
+		draw_circle(screen, POI_RADIUS - 2.2, POI_CORE)
+
+## True for a collectible entry (bonus board / speed trap / photo spot): the
+## three families that are permanent gameplay rather than a place to visit, so
+## they carry the family palette, the larger hollow pin and the claimed dimming.
+## Base landmarks and event markers return false and keep the zone/tier fill.
+func _is_collectible_poi(poi: Dictionary) -> bool:
+	return Collectibles.is_collectible_id(str(poi.get("id", "")))
+
+## The exact fill colour a POI dot draws with, claim state included. Public so
+## the headless gate can assert the map's per-family colour contract (a speed
+## trap is the shared red; a banked one is the dimmed tint) without a render
+## pass, and so _draw_poi has a single source for "what colour is this dot".
+func poi_dot_color(poi: Dictionary) -> Color:
 	var fill := _poi_fill_color(poi)
-	draw_circle(screen, POI_RADIUS + 2.0, POI_OUTLINE)
-	draw_circle(screen, POI_RADIUS, fill)
-	draw_circle(screen, POI_RADIUS - 2.2, POI_CORE)
+	if not _is_claimed_collectible(poi):
+		return fill
+	return fill.lerp(POI_CLAIMED_TINT, POI_CLAIMED_MIX)
+
+## Ids of the POIs in the current dot set, in draw order. Public so the gate can
+## assert the map really carries (say) speedtrap_0 without reaching into the
+## cached _poi_entries.
+func poi_entry_ids() -> Array[String]:
+	var out: Array[String] = []
+	for entry in _poi_entries:
+		var poi: Dictionary = (entry as Dictionary)["poi"]
+		out.append(str(poi.get("id", "")))
+	return out
+
+## True only for a collectible id the open-world CollectibleField has already
+## paid. No field node (circuit scene, or headless with no world) => false, and
+## base landmarks / event markers are never dimmed.
+func _is_claimed_collectible(poi: Dictionary) -> bool:
+	if not _is_collectible_poi(poi):
+		return false
+	return _collectible_source != null and _collectible_source.is_claimed(str(poi.get("id", "")))
 
 ## Zone-aware POI colour: base land- mark stages map to their region, event sites
 ## fall back to their road tier colour so they never blend into the terrain.
+## Collectibles short-circuit to their FAMILY colour first: a speed trap on a
+## touge must not come out road-blue just because the host corridor's tier colour
+## is blue, which is exactly how a gameplay target disappears into the network.
 func _poi_fill_color(poi: Dictionary) -> Color:
+	if _is_collectible_poi(poi):
+		return Collectibles.kind_color(str(poi.get("kind", "")), POI_COLOR)
 	var stage := str(poi.get("stage", "")).to_lower()
 	if stage.contains("festival") or stage.contains("plains"):
 		return Color(0.96, 0.72, 0.2)
@@ -232,6 +328,7 @@ func _rebuild() -> void:
 		player_facing = -car.global_basis.z
 	_player_angle = MapRoads.marker_world_angle(player_facing)
 	_discovery_source = MapRoads.resolve_discovery_source(self) as WorldDiscovery
+	_collectible_source = _resolve_collectible_field()
 
 	var content: Array = []
 	var raw_pois: Array = []
@@ -359,3 +456,10 @@ func _resolve_driver() -> WorldDriver:
 	if get_tree() == null:
 		return null
 	return get_tree().get_first_node_in_group(WorldDriver.DRIVER_GROUP) as WorldDriver
+
+## The open-world collectible runtime, resolved once per rebuild (the map only
+## rebuilds on open / filter change) so dot dimming never walks the tree per dot.
+func _resolve_collectible_field() -> CollectibleField:
+	if get_tree() == null:
+		return null
+	return get_tree().get_first_node_in_group(CollectibleField.GROUP_NAME) as CollectibleField

@@ -16,10 +16,17 @@ const POSITION_POINTS: Array[int] = [1000, 750, 500, 250]
 const GOLD_TITLE := Color(0.949, 0.741, 0.167)
 const NEUTRAL_TITLE := Color(0.96, 0.98, 1.0)
 
+## Below this gap (seconds) a run and the record read as identical, so the
+## results card says so instead of printing a "+0.00" delta.
+const BEST_LAP_DELTA_EPSILON := 0.005
+
 @onready var cluster: Tachometer = %Cluster
+@onready var traction_lamp: TractionLamp = %TractionLamp
+@onready var power_value: Label = %PowerValue
 @onready var lap_label: Label = %LapLabel
 @onready var position_label: Label = %PositionLabel
 @onready var time_label: Label = %TimeLabel
+@onready var coords_label: Label = %CoordsLabel
 @onready var countdown_overlay: Control = %CountdownOverlay
 @onready var banner: Label = %Banner
 @onready var flare: Panel = %Flare
@@ -31,6 +38,7 @@ const NEUTRAL_TITLE := Color(0.96, 0.98, 1.0)
 @onready var results_position: Label = %ResultsPosition
 @onready var results_total: Label = %ResultsTotal
 @onready var results_best_lap: Label = %ResultsBestLap
+@onready var results_best_lap_delta: Label = %ResultsBestLapDelta
 @onready var results_points: Label = %ResultsPoints
 @onready var results_stats_rows: VBoxContainer = %ResultsStatsRows
 @onready var next_race_button: Button = %NextRaceButton
@@ -56,6 +64,17 @@ var _recorder: ReplayRecorder = null
 var _last_recording: ReplayRecorder = null
 var _capture_enabled: bool = false
 var _best_lap: float = 0.0
+## Best lap of THIS run only, never seeded from the save, so the results card
+## can show how the run compared against the cross-session record.
+var _run_best_lap: float = 0.0
+## (track id, car class) the persisted records are filed under. The track is
+## fixed for the lifetime of this HUD (it lives inside one track scene); the
+## class is re-read per submit so a mid-session car swap cannot misfile a lap.
+var _record_track_id: String = ""
+var _record_car_class: String = BestLapRecords.UNKNOWN_CAR_CLASS
+## The persisted cross-session record for that pair, reloaded after every
+## submit. The results card reads it, so a return visit shows the old time.
+var _record_best_lap: float = 0.0
 var _tracked_counter: LapCounter = null
 var _countdown_audio: CountdownAudio = null
 var _ui_blip: UiBlip = null
@@ -82,6 +101,7 @@ func _ready() -> void:
 	next_race_button.pressed.connect(_on_next_race)
 	return_free_roam_button.pressed.connect(_on_return_free_roam)
 	_resolve_nav_source()
+	_load_persisted_best_lap()
 
 func _process(delta: float) -> void:
 	if _pending_laps <= 0:
@@ -95,6 +115,10 @@ func _process(delta: float) -> void:
 	_resolve_nav_source()
 	var car := VehicleManager.get_player_car()
 	if car == null:
+		# No car: nothing to report, and the lamp must not be left lit from
+		# the last frame that had one.
+		_refresh_traction_lamp(null)
+		_refresh_power_readout({}, null)
 		return
 	_refresh_lap_tracking(car)
 	_refresh_standings()
@@ -118,6 +142,8 @@ func _process(delta: float) -> void:
 	if cfg != null:
 		cluster.set_engine_range(cfg.idle_rpm, cfg.redline_rpm)
 		cluster.set_car_class(cfg.car_class)
+	_refresh_traction_lamp(car)
+	_refresh_power_readout(info, cfg)
 	_refresh_nav_assist(car)
 	if _race_over:
 		return
@@ -125,6 +151,8 @@ func _process(delta: float) -> void:
 	var lap_counter := RaceManager.get_lap_counter(car)
 	lap_label.text = "LAP %d" % (lap_counter.get_current_lap() if lap_counter else 1)
 	time_label.text = "%.3f" % (lap_counter.get_lap_time() if lap_counter else 0.0)
+	var pos := car.global_position
+	coords_label.text = "X: %.1f  Y: %.1f  Z: %.1f" % [pos.x, pos.y, pos.z]
 
 func _drive_countdown(delta: float) -> void:
 	if countdown_overlay == null:
@@ -239,6 +267,9 @@ func _on_race_finished(standings: Array) -> void:
 		{"label": "DRIFT TIME", "value": _format_time(_stats.get_drift_time())},
 	]
 	rows.append_array(_build_persona_finish_rows(standings))
+	# Final idempotent commit: the best lap may have been set on a lap this HUD
+	# never saw (a counter swap mid-race), and the card must read the record.
+	_submit_best_lap(_stats.get_best_lap())
 	show_result(position, total, _best_lap, rows)
 	if not _rewards_banked:
 		_rewards_banked = true
@@ -258,7 +289,12 @@ func show_result(position: int, total_time: float, best_lap: float, extra_rows: 
 	results_position.text = "P%d" % safe
 	results_title.text = "1ST PLACE!" if safe == 1 else "RACE FINISH"
 	results_total.text = "TOTAL TIME  %s" % _format_time(total_time)
+	# `best_lap` is the merged cross-session record (the record wins whenever it
+	# exists), so a return visit to a track still shows the old time. The run
+	# delta lives on its own label so the record line keeps its trailing
+	# M:SS.ss token for the HUD parser.
 	results_best_lap.text = "BEST LAP  %s" % _format_time(best_lap)
+	_refresh_best_lap_delta(best_lap)
 	results_points.text = "POSITION POINTS  +%d" % points_for_position(safe)
 	_rebuild_stats_rows(extra_rows)
 	results_title.add_theme_color_override("font_color", GOLD_TITLE if safe == 1 else NEUTRAL_TITLE)
@@ -267,6 +303,31 @@ func show_result(position: int, total_time: float, best_lap: float, extra_rows: 
 		confetti.burst()
 	else:
 		confetti.reset()
+
+## Applies best_lap_delta_text() to the delta label, hiding the line entirely
+## when there is nothing to compare (no record yet, or no lap this run).
+func _refresh_best_lap_delta(record_best: float) -> void:
+	if results_best_lap_delta == null:
+		return
+	var text := best_lap_delta_text(record_best, _run_best_lap)
+	results_best_lap_delta.text = text
+	results_best_lap_delta.visible = text != ""
+
+## How THIS run's best lap compared against the persisted cross-session record:
+## positive = slower than the record, negative = a new record, "" when there is
+## nothing to compare. Pure so the wording is testable without a scene.
+static func best_lap_delta_text(record_best: float, run_best: float) -> String:
+	if record_best <= 0.0 or run_best <= 0.0:
+		return ""
+	var delta := snappedf(run_best - record_best, 0.01)
+	if absf(delta) < BEST_LAP_DELTA_EPSILON:
+		return "MATCHES RECORD"
+	return "THIS RUN %s" % _signed_seconds(delta)
+
+## Explicit sign rendering (no reliance on a %-format sign flag) so the delta
+## string is byte-identical across platforms.
+static func _signed_seconds(value: float) -> String:
+	return ("+%.2f" % value) if value >= 0.0 else ("%.2f" % value)
 
 func _rebuild_stats_rows(rows: Array[Dictionary]) -> void:
 	for child in results_stats_rows.get_children():
@@ -309,10 +370,82 @@ func _refresh_lap_tracking(car: VehiclePhysics) -> void:
 func _on_lap_completed(_vehicle: VehiclePhysics, _lap: int, lap_time: float) -> void:
 	_stats.end_lap(lap_time)
 	_stats.start_lap()
-	_best_lap = _stats.get_best_lap()
+	# Persist immediately: the record (and the HUD delta derived from it) is
+	# already current while the player is still on the finish straight.
+	_submit_best_lap(lap_time)
+	if lap_time > 0.0 and (_run_best_lap <= 0.0 or lap_time < _run_best_lap):
+		_run_best_lap = lap_time
 	CareerProfile.grant_xp(CareerProfile.RACE_LAP_XP)
 	if _ui_blip != null:
 		_ui_blip.play_blip("hud")
+
+## Cross-session best-lap flow (roadmap #7). The track id is reverse-looked-up
+## from the track scene this HUD is instanced under; the car class comes off the
+## player's live config. The persisted record is loaded once at session start
+## and seeded into the session accumulator, so a return visit to a track shows
+## the old time before a single lap is turned.
+func _load_persisted_best_lap() -> void:
+	_record_track_id = _resolve_track_id()
+	_record_car_class = _resolve_car_class()
+	_record_best_lap = BestLapRecords.load_record(_record_track_id, _record_car_class)
+	if _record_best_lap > 0.0:
+		_stats.seed_best_lap(_record_best_lap)
+	_best_lap = _stats.get_best_lap()
+
+## Load / compare / write the lap against the record for (track, class) and
+## refresh the merged HUD best. Returns true when the lap set a new record; a
+## worse lap leaves the stored record untouched.
+func _submit_best_lap(lap_time: float) -> bool:
+	if lap_time <= 0.0:
+		return false
+	var car_class := _resolve_car_class()
+	_record_car_class = car_class
+	var improved := BestLapRecords.submit_lap(_record_track_id, car_class, lap_time)
+	_record_best_lap = BestLapRecords.load_record(_record_track_id, car_class)
+	_stats.seed_best_lap(_record_best_lap)
+	_best_lap = _stats.get_best_lap()
+	return improved
+
+## Registry id of the track scene this HUD is instanced under, reverse-looked-up
+## from the parent scene's file path so nothing new has to be plumbed through
+## track select. "" (the "unknown" bucket) when the HUD is not inside a
+## registered track — free roam or a scene missing from TrackRegistry.
+func _resolve_track_id() -> String:
+	var ids: Array[String] = []
+	ids.assign(TrackRegistry.get_track_ids())
+	var node: Node = get_parent()
+	while node != null:
+		var path := node.scene_file_path
+		for track_id in ids:
+			if path == TrackRegistry.get_scene_path(track_id):
+				return track_id
+		node = node.get_parent()
+	return ""
+
+## The player's live car class, falling back to the class resolved at session
+## start (and finally the shared "D" bucket) when no car is on the track.
+func _resolve_car_class() -> String:
+	var car := VehicleManager.get_player_car()
+	if car != null and car.config != null:
+		return BestLapRecords.normalize_class(car.config.car_class)
+	return _record_car_class
+
+## Traction lamp: driven straight off the integrated wheel state, so it lights
+## exactly when the same 1.25x rolling-match test that drives the wheel-spin
+## visuals says traction is gone. Presentation only.
+func _refresh_traction_lamp(car: VehiclePhysics) -> void:
+	if traction_lamp == null:
+		return
+	traction_lamp.set_severity(WheelspinGauge.severity_for_car(car))
+
+## HP line under the cluster: the engine's power at the current rpm against its
+## own rated peak, so the number means the same thing for every car.
+func _refresh_power_readout(info: Dictionary, cfg: CarConfig) -> void:
+	if power_value == null:
+		return
+	var text := PowerGauge.format_text(cfg, float(info.get("rpm", 0.0)))
+	if power_value.text != text:
+		power_value.text = text
 
 func _g_from_speed_delta(delta: float, speed_kmh: float) -> float:
 	if delta <= 0.0:

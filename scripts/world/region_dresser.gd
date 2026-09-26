@@ -168,6 +168,12 @@ func _queue_free(loc: Vector2i) -> void:
 ## both configured with the deterministic per-region seed, the band density and
 ## the region-anchored ground-height provider, then relies on their _ready to
 ## generate the MultiMesh batches on this (main) thread when parented.
+##
+## The dresser's own `road_network` is handed to each scatterer as-is: it is
+## the SHARED whole-map network (roads run through many regions, and every
+## scatterer samples its own slice of the full corridor set for roadside
+## dressing), never a region-local subset. The scatterer still bounds its
+## roadside pull to its own radius, so a region only ever dresses its own patch.
 func _spawn_region(job: Dictionary) -> void:
 	var loc: Vector2i = job["loc"]
 	var band: int = int(job["band"])
@@ -323,20 +329,11 @@ static func region_seed(master: int, loc: Vector2i) -> int:
 
 ## Deterministic dressing zone for a region (one of PropScatterer's
 ## default_preset zones: festival / lowlands / coast / highlands / alpine).
-## Pure function of (master_seed, loc): near-spawn regions run festival /
-## lowlands, mid-distance lowlands/coast, far highlands/alpine -- with a
-## seeded roll breaking ties so a single master_seed maps the whole world.
+## Pure function of (master_seed, loc): ALL regions use "lowlands" for
+## grass-appropriate props (power poles, rocks, track rails) instead of
+## biome-specific variations.
 static func region_zone(master: int, loc: Vector2i) -> String:
-	var roll := absi(region_seed(master, loc) % 100)
-	var world := Vector2(float(loc.x) * REGION_CELL + REGION_CELL * 0.5, float(loc.y) * REGION_CELL + REGION_CELL * 0.5)
-	var dist := world.distance_to(TerrainBaker.BIOME_SPAWN_CENTER)
-	if dist < 2500.0:
-		return "festival" if roll < 40 else "lowlands"
-	if dist < 6000.0:
-		return "lowlands" if roll < 55 else "coast"
-	if dist < 10000.0:
-		return "highlands" if roll < 60 else "coast"
-	return "alpine" if roll < 85 else "highlands"
+	return "lowlands"
 
 ## Region-anchored ground-height provider for a dressing node. The
 ## PropScatterer/Foliage contract hands the provider node-LOCAL XZ, so this

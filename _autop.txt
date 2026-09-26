@@ -1,0 +1,33 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+Vulkan 1.3.280 - Forward+ - Using Device #0: NVIDIA - NVIDIA GeForce GTX 970
+
+[UltraDrive] Main scene loaded – transitioning to main menu
+[AUTOP] booting main.tscn; current_scene=Main:<Node3D#56019125865>
+[AUTOP] MainMenu is live at frame 120
+[AUTOP] SceneTransition._transitioning = false
+[AUTOP] current_scene=MainMenu:<Control#61924705850>
+[AUTOP] MenuLayout type=VBoxContainer mouse_filter=1
+[AUTOP]   PlayButton disabled=false focus_mode=2
+[AUTOP]   FreeRoamButton disabled=false focus_mode=2
+[AUTOP]   GarageButton disabled=false focus_mode=2
+[AUTOP]   ContinueButton disabled=false focus_mode=2
+[AUTOP]   SettingsButton disabled=false focus_mode=2
+[AUTOP]   QuitButton disabled=false focus_mode=2
+[AUTOP] overlay check: root children: 
+[AUTOP]   /InputManager type=Node
+[AUTOP]   /GameState type=Node
+[AUTOP]   /RaceManager type=Node
+[AUTOP]   /VehicleManager type=Node
+[AUTOP]   /WeatherManager type=Node
+[AUTOP]   /DayNightDriver type=Node
+[AUTOP]   /SaveManager type=Node
+[AUTOP]   /SceneTransition type=CanvasLayer
+[AUTOP]   /MenuAutopilot type=Node
+[AUTOP]   /MainMenu type=Control
+[AUTOP] PlayButton disabled=false visible=true focus=false
+[AUTOP] PlayButton canvas center=(960.0, 430.0) window pos=(960.0, 430.0)
+[AUTOP] click injected on PlayButton
+[AUTOP] after play click current_scene=MainMenu:<Control#61924705850> transitioning=false
+[AUTOP] poll start scene=MainMenu:<Control#61924705850>
+[AUTOP] FAIL: never reached track_select (scene=Garage:<Control#79440119406>)
+[AUTOP] transitioning=false

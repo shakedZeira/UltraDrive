@@ -5,6 +5,9 @@ Project knowledge for autonomous agents. Godot project root = this directory
 `D:\Godot\Godot_v4.7.2-stable_win64.exe` (win64 arrows). GDUnit4 addon at
 `addons/gdUnit4`, tests under `tests/` (suite: `tests/suites`).
 
+## FILESYSTEM HYGIENE (MANDATORY)
+- **Only write to `D:\AI Projects\UltraDrive` (the project root).** Do not write anywhere on `C:\` (no temp files, no logs, no scratch). All tool output, logs, and artifacts must stay inside the project directory. This machine has limited C: space; writing there causes failures.
+
 ## VISION BRIDGE (local image analysis)
 
 - A text-only session (opencode/big-pickle) can still "see" via the

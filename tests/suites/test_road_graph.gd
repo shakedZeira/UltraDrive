@@ -1,6 +1,18 @@
 # tests/suites/test_road_graph.gd
 extends GdUnitTestSuite
 
+## Road-graph gates: adjacency counts, per-zone link provenance, flush junction
+## (zero-distance) semantics, route reachability after the open-world bootstrap,
+## and loop-shape features (clean closed rings, no phantom chord cancellation).
+##
+## Topology source of truth (ROADS, MATCHED ORDER):
+##   0 hub-ring         1 hub-pass (connector)  2 pass-loop
+##   3 highway-ring     4 hub-coast arterial   5 hub-highway-ramp
+##   6 touge-a          7 touge-b              8 coast-a
+##   9 coast-b         10 dirt-a              11 dirt-b
+##  12 pass-highway-ramp  13 coast-highway-ramp 14 touge-highway-ramp
+##  15 spawn-highway-ramp
+
 ## P0 open-world road-plan gate: RoadDef data tables, RoadGraph topology and
 ## hop routing, RoadNetwork integration, the P2 classified-road bootstrap
 ## connectivity contract and TrackBuilder tier/material/banking rendering.
@@ -57,7 +69,7 @@ func _edge_materials(builder: TrackBuilder) -> Array[StandardMaterial3D]:
 
 func test_road_def_tier_defaults_and_names() -> void:
 	var tiers: Array[int] = [RoadDef.Tier.HIGHWAY, RoadDef.Tier.ARTERIAL, RoadDef.Tier.TOUGE, RoadDef.Tier.COASTAL, RoadDef.Tier.DIRT]
-	var widths: Array[float] = [16.0, 10.0, 9.0, 9.0, 7.0]
+	var widths: Array[float] = [24.0, 10.0, 9.0, 9.0, 7.0]
 	var names: Array[String] = ["Highway", "Arterial", "Touge", "Coastal", "Dirt"]
 	for i in tiers.size():
 		var tier := tiers[i]
@@ -246,7 +258,7 @@ func test_network_add_road_def_auto_ids_and_roundtrip() -> void:
 	assert_float(defs[0].width).is_equal_approx(7.0, 0.001)
 	assert_that(defs[0].surface).is_equal(RoadDef.Surface.GRAVEL)
 	assert_that(defs[1].tier).is_equal(RoadDef.Tier.HIGHWAY)
-	assert_float(defs[1].width).is_equal_approx(16.0, 0.001)
+	assert_float(defs[1].width).is_equal_approx(24.0, 0.001)
 
 func test_network_nearest_road_id_and_tiebreak() -> void:
 	var network := RoadNetwork.new()
@@ -264,6 +276,60 @@ func test_network_nearest_road_id_and_tiebreak() -> void:
 	add_child(empty)
 	_track(empty)
 	assert_that(empty.nearest_road_id(Vector3(5, 0, 5))).is_equal(-1)
+	# An empty network is never "on a road" (INF distance, not a 0 m self-match).
+	assert_bool(empty.is_on_road(Vector3(5, 0, 5), 6.0)).is_false()
+	assert_float(empty.nearest_road_distance(Vector3(5, 0, 5))).is_greater(1.0e9)
+
+## XZ point-to-segment math: on-segment reads 0 (never the distance to the
+## nearest sparse vertex), an offset reads its perpendicular distance, past
+## either end clamps to that endpoint and Y is ignored.
+func test_point_to_segment_xz_measures_perpendicular_offset() -> void:
+	var a := Vector3(0.0, 20.0, 0.0)
+	var b := Vector3(200.0, 20.0, 0.0)
+	# On the segment: mid-span and both endpoints.
+	assert_float(RoadNetwork.point_to_segment_xz(Vector3(100.0, 20.0, 0.0), a, b)).is_equal_approx(0.0, 0.001)
+	assert_float(RoadNetwork.point_to_segment_xz(Vector3(0.0, 0.0, 0.0), a, b)).is_equal_approx(0.0, 0.001)
+	assert_float(RoadNetwork.point_to_segment_xz(Vector3(200.0, -80.0, 0.0), a, b)).is_equal_approx(0.0, 0.001)
+	# Perpendicular offset, either side, at several stations along the span.
+	for x: float in [10.0, 65.0, 100.0, 150.0, 190.0]:
+		for lateral: float in [9.0, -9.0, 20.0, -20.0]:
+			var query := Vector3(x, 20.0, lateral)
+			assert_float(RoadNetwork.point_to_segment_xz(query, a, b)).is_equal_approx(absf(lateral), 0.001)
+	# Past either end the projection clamps to the endpoint.
+	assert_float(RoadNetwork.point_to_segment_xz(Vector3(-30.0, 20.0, 4.0), a, b)).is_equal_approx(Vector2(30.0, 4.0).length(), 0.001)
+	assert_float(RoadNetwork.point_to_segment_xz(Vector3(260.0, 20.0, 0.0), a, b)).is_equal_approx(60.0, 0.001)
+	# Degenerate (zero-length) segment falls back to the XZ point distance.
+	assert_float(RoadNetwork.point_to_segment_xz(Vector3(3.0, 0.0, 4.0), a, a)).is_equal_approx(5.0, 0.001)
+
+## The lookup measures the CENTERLINE, so a car mid-span of a long road reads
+## its real lane offset (and nearest_road_pos projects onto the segment).
+func test_nearest_road_lookup_is_segment_aware() -> void:
+	var network := RoadNetwork.new()
+	add_child(network)
+	_track(network)
+	network.add_road([Vector3(0, 20, 0), Vector3(200, 20, 0)], 24.0, false)
+	var mid := Vector3(100.0, 20.0, 9.0)
+	var lookup := network.nearest_road_lookup(mid)
+	assert_that(int(lookup["id"])).is_equal(0)
+	assert_float(float(lookup["distance"])).is_equal_approx(9.0, 0.001)
+	var nearest: Vector3 = lookup["pos"]
+	assert_that(nearest).is_equal_approx(Vector3(100.0, 20.0, 0.0), Vector3(0.001, 0.001, 0.001))
+	assert_float(network.nearest_road_distance(mid)).is_equal_approx(9.0, 0.001)
+	assert_that(network.get_nearest_road_pos(mid)).is_equal_approx(
+		Vector3(100.0, 20.0, 0.0), Vector3(0.001, 0.001, 0.001)
+	)
+	assert_bool(network.is_on_road(mid, 10.0)).is_true()
+	assert_bool(network.is_on_road(Vector3(100.0, 20.0, 40.0), 10.0)).is_false()
+
+## A closed ring's wrap segment (last -> first) is part of the road surface.
+func test_nearest_road_lookup_walks_a_closed_ring_wrap_segment() -> void:
+	var ring := RoadNetwork.new()
+	add_child(ring)
+	_track(ring)
+	ring.add_road(_square_points(), 10.0, true)
+	assert_bool(ring.is_on_road(Vector3(-8.0, 0.0, 50.0), 10.0)).is_true()
+	assert_bool(ring.is_on_road(Vector3(108.0, 0.0, 50.0), 10.0)).is_true()
+	assert_bool(ring.is_on_road(Vector3(50.0, 0.0, 140.0), 10.0)).is_false()
 
 func test_network_topology_matches_hand_built_example() -> void:
 	var network := RoadNetwork.new()
@@ -305,7 +371,7 @@ func test_open_world_bootstrap_connects_the_classified_network() -> void:
 	if network == null:
 		return
 	var roads := network.get_roads()
-	# The P2 classified network (CorridorPlanner.plan) emits 12 road defs; the
+	# The P2 classified network (CorridorPlanner.plan) emits 16 road defs; the
 	# bootstrap core invariant is that defs 0..2 are hub ring / hub->pass
 	# connector / pass loop, so the growth must never break that prefix.
 	assert_that(roads.size()).is_greater_equal(3)
@@ -314,18 +380,29 @@ func test_open_world_bootstrap_connects_the_classified_network() -> void:
 	# Hub ring point 0 doubles as the connector's first point.
 	assert_that(hub[0]).is_equal_approx(Vector3(238.0, 2.2, 128.0), Vector3(0.001, 0.001, 0.001))
 	var adj := network.get_adjacency()
-	# Hub ring (0) is the network spine: it spawns the connector (1), the coast
-	# arterial (4), the highway on-ramp (5) and both dirt cut-throughs (10, 11)
-	# at their construction anchors, so the highway tier reaches the hub through
-	# the on-ramp and dirt cuts.
-	assert_that(adj[0]).is_equal(PackedInt32Array([1, 4, 5, 10, 11]))
-	# The connector (1) not only joins hub (0) <-> pass loop (2); its Catmull-Rom
-	# line also crosses the highway ring's western rim (3) and meets the coast
-	# arterial (4), the on-ramp (5) and both dirt cuts (10, 11) in the hub basin
-	# -- all deterministic classified-network links under the 15 m LINK_THRESHOLD.
-	assert_that(adj[1]).is_equal(PackedInt32Array([0, 2, 3, 4, 5, 10, 11]))
-	# The pass loop (2) terminates the connector and has no other links.
-	assert_that(adj[2]).is_equal(PackedInt32Array([1]))
+	var expected_adjacency := {
+		0: PackedInt32Array([1, 4, 5, 10, 11, 15]),
+		1: PackedInt32Array([0, 2, 3, 4, 5, 10, 11]),
+		2: PackedInt32Array([1, 12]),
+		3: PackedInt32Array([1, 5, 10, 11, 12, 13, 14, 15]),
+		4: PackedInt32Array([0, 1, 5, 9, 10, 11, 13]),
+		5: PackedInt32Array([0, 1, 3, 4, 10, 11, 15]),
+		6: PackedInt32Array([14]),
+		7: PackedInt32Array(),
+		8: PackedInt32Array(),
+		9: PackedInt32Array([4, 13]),
+		10: PackedInt32Array([0, 1, 3, 4, 5, 11, 15]),
+		11: PackedInt32Array([0, 1, 3, 4, 5, 10, 15]),
+		12: PackedInt32Array([2, 3]),
+		13: PackedInt32Array([3, 4, 9]),
+		14: PackedInt32Array([3, 6]),
+		15: PackedInt32Array([0, 3, 5, 10, 11]),
+	}
+	for road_id: int in expected_adjacency:
+		assert_that(adj[road_id]).is_equal(expected_adjacency[road_id])
+	# The spawn ramp (15) joins the hub ring (0) and highway ring (3), and shares
+	# the hub basin approaches (5, 10, 11); it does not join the eastern connector (1).
+	assert_that(adj[15]).is_equal(PackedInt32Array([0, 3, 5, 10, 11]))
 	var junctions := network.get_junctions()
 	var ring_junction: Dictionary = {}
 	var pass_junction: Dictionary = {}

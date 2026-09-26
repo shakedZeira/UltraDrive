@@ -5,16 +5,45 @@ extends Node3D
 ## Generic low-cost prop scatterer for the open world. One MultiMesh per prop
 ## type (guardrail / tent / power pole / rock), all meshes built from fused
 ## primitives at runtime so there are zero external assets. Candidates are
-## rejection-sampled inside a disc annulus, spaced out, and rejected whenever
-## they land on/near a road (RoadNetwork.is_on_road). Props are visual only:
-## no physics, no collision, no top-level transform. Deterministic for a given
-## seed; counts are bounded by the preset and every retry loop is capped so
-## placement can never hang. Zones are wired by calling configure() with a
-## Dictionary preset (see default_preset() for per-zone examples).
+## rejection-sampled, spaced out, and rejected whenever they land on/near a road
+## (RoadNetwork.is_on_road). Props are visual only: no physics, no collision,
+## no top-level transform. Deterministic for a given seed; counts are bounded by
+## the preset and every retry loop is capped so placement can never hang. Zones
+## are wired by calling configure() with a Dictionary preset (see
+## default_preset() for per-zone examples).
+##
+## Placement has two modes, mixed per prop by roadside_fraction:
+##  * ROADSIDE (default 0.5): the candidate is drawn in a corridor alongside a
+##    road centreline -- the player drives past the dressing instead of the
+##    dressing sitting marooned in open fields. Road picks are tier-weighted
+##    (HIGHWAY/ARTERIAL outrank DIRT) over the FULL map road set, the point is
+##    sampled along a random centerline segment, and the offset is perpendicular
+##    to that segment, clamped per road so it can never enter the carriageway.
+##  * ANNULUS (the rest): the historical uniform-area disc ring.
+## Both modes consume the SAME fixed RNG token budget per attempt, so the draw
+## order is identical whether or not a region has any road near it and the
+## preset counts never desync. A roadside sample that lands outside this
+## scatterer's own radius (a road that never passes near the region) falls back
+## to the annulus built from the same tokens, which keeps the dressing local to
+## the region that owns it.
 
 const MAX_PLACEMENT_ATTEMPTS := 64
 const GROUND_OFFSET_Y := 0.0
 const ROAD_CLEARANCE_MARGIN := 3.0
+## Roadside weight per RoadDef tier: the highways and arterials the player
+## actually drives get the most roadside dressing, dirt tracks get the least.
+const ROADSIDE_TIER_WEIGHTS := {
+	RoadDef.Tier.HIGHWAY: 6.0,
+	RoadDef.Tier.ARTERIAL: 3.0,
+	RoadDef.Tier.TOUGE: 2.0,
+	RoadDef.Tier.COASTAL: 1.5,
+	RoadDef.Tier.DIRT: 0.5,
+}
+## RNG values every placement attempt consumes, whichever mode it takes.
+const ROADSIDE_TOKEN_COUNT := 6
+## Minimum width of a roadside distance band when a road's own half-width plus
+## the clearance margin would otherwise swallow roadside_max_dist.
+const ROADSIDE_MIN_BAND := 0.5
 
 ## P1/P2/P4 imported CC0 meshes (Kenney Racing Kit + Quaternius via Poly Pizza),
 ## loaded once per scatterer and cached. Kenney GLBs are single-node
@@ -51,12 +80,24 @@ const NATIVE_MATERIAL_TYPES := [
 @export var road_threshold: float = 6.0
 @export var placement_attempts: int = MAX_PLACEMENT_ATTEMPTS
 
+## Roadside placement: fraction of each prop type drawn in a corridor alongside
+## a road centreline (0 = pure annulus, 1 = pure roadside), and the signed
+## distance band the offset is drawn from, measured from the CENTRELINE. The
+## effective near bound is raised per road to that road's half-width plus
+## ROAD_CLEARANCE_MARGIN (and never below road_threshold), so a 24 m highway
+## naturally clears 12 + 3 m while a 7 m dirt road clears 3.5 + 3 m.
+@export_range(0.0, 1.0) var roadside_fraction: float = 0.5
+@export var roadside_max_dist: float = 18.0
+@export var roadside_min_dist: float = 3.0
+
 ## Optional map-height lookup, given a world (x, z) position as Vector2,
 ## returning the ground surface Y at that spot. When unset, props sit at Y 0
 ## (the flat-floor default used by the standalone circuits).
 var ground_height_provider: Callable = Callable()
 
-## Road network used for placement exclusion; when unset props scatter freely.
+## Road network used for placement exclusion and for roadside sampling. The
+## WHOLE network is used (never a region-local subset): roads run through many
+## regions and each region draws a different slice of the map's corridors.
 var road_network: RoadNetwork = null
 
 var _rng := RandomNumberGenerator.new()
@@ -65,6 +106,12 @@ var _placed: Dictionary = {}  # prop_type -> PackedVector3Array of positions
 var _mesh_builders: Dictionary = {}
 var _materials: Dictionary = {}
 var _real_mesh_cache: Dictionary = {}  # GLB path -> cached ArrayMesh
+## Full-map road snapshot + its tier-weighted cumulative pick table, refreshed
+## once per generate() (RoadNetwork.get_road_defs() duplicates on every call,
+## so the per-attempt sampler reads these instead).
+var _road_defs_cache: Array[RoadDef] = []
+var _roadside_weights := PackedFloat32Array()
+var _roadside_weight_total := 0.0
 
 ## P7 per-region dressing state. When the scatterer is managed by a
 ## RegionDresser these identify the region it belongs to and the LOD density
@@ -106,6 +153,9 @@ func configure(preset: Dictionary) -> void:
 	seed = int(preset.get("seed", seed))
 	road_threshold = float(preset.get("road_threshold", road_threshold))
 	placement_attempts = maxi(int(preset.get("placement_attempts", placement_attempts)), 1)
+	roadside_fraction = clampf(float(preset.get("roadside_fraction", roadside_fraction)), 0.0, 1.0)
+	roadside_max_dist = maxf(float(preset.get("roadside_max_dist", roadside_max_dist)), 0.0)
+	roadside_min_dist = maxf(float(preset.get("roadside_min_dist", roadside_min_dist)), 0.0)
 	_preset = preset
 
 ## P7 per-region hook (RegionDresser): pins this scatterer to a region and its
@@ -126,6 +176,7 @@ func generate() -> void:
 		child.free()
 	_rng.seed = seed
 	_placed.clear()
+	_refresh_roadside_cache()
 	var props: Dictionary = _preset.get("props", {})
 	for prop_type: String in props.keys():
 		if not _mesh_builders.has(prop_type):
@@ -177,12 +228,15 @@ func get_instance_positions() -> PackedVector3Array:
 
 ## Per-zone presets mirroring plan Section 5. Counts stay small (14-28 props
 ## per zone); the integration agent may tune or replace these Dictionaries.
+## `radius` is the region dressing reach (bumped so one scatterer covers its
+## whole 256 m region cell and its roadside pull, not just an inscribed circle),
+## `roadside_fraction` the share of each prop type that hugs a road centreline.
 static func default_preset(zone: String) -> Dictionary:
 	match zone:
 		"festival":
 			return {
-				"radius": 200.0, "inner_clear_radius": 90.0, "seed": 1001,
-				"road_threshold": 8.0,
+				"radius": 260.0, "inner_clear_radius": 90.0, "seed": 1001,
+				"road_threshold": 8.0, "roadside_fraction": 0.5,
 				"props": {
 					"tent": {"count": 12, "min_spacing": 16.0, "scale": Vector2(0.9, 1.2)},
 					"grandstand": {"count": 3, "min_spacing": 70.0, "scale": Vector2(8.0, 10.0)},
@@ -200,8 +254,8 @@ static func default_preset(zone: String) -> Dictionary:
 			}
 		"lowlands":
 			return {
-				"radius": 400.0, "inner_clear_radius": 30.0, "seed": 1002,
-				"road_threshold": 10.0,
+				"radius": 440.0, "inner_clear_radius": 30.0, "seed": 1002,
+				"road_threshold": 10.0, "roadside_fraction": 0.5,
 				"props": {
 					"power_pole": {"count": 8, "min_spacing": 90.0, "scale": Vector2(0.9, 1.1)},
 					"rock": {"count": 20, "min_spacing": 12.0, "scale": Vector2(0.8, 1.6)},
@@ -210,8 +264,8 @@ static func default_preset(zone: String) -> Dictionary:
 			}
 		"coast":
 			return {
-				"radius": 400.0, "inner_clear_radius": 20.0, "seed": 1003,
-				"road_threshold": 8.0,
+				"radius": 440.0, "inner_clear_radius": 20.0, "seed": 1003,
+				"road_threshold": 8.0, "roadside_fraction": 0.5,
 				"props": {
 					"rock": {"count": 24, "min_spacing": 15.0, "scale": Vector2(1.4, 2.4)},
 					"track_rail": {"count": 8, "min_spacing": 24.0, "scale": Vector2(2.5, 3.5)},
@@ -219,8 +273,8 @@ static func default_preset(zone: String) -> Dictionary:
 			}
 		"highlands":
 			return {
-				"radius": 500.0, "inner_clear_radius": 40.0, "seed": 1004,
-				"road_threshold": 11.0,
+				"radius": 540.0, "inner_clear_radius": 40.0, "seed": 1004,
+				"road_threshold": 11.0, "roadside_fraction": 0.5,
 				"props": {
 					"guardrail": {"count": 26, "min_spacing": 16.0, "scale": Vector2(1.0, 1.0)},
 					"racing_barrier_red": {"count": 6, "min_spacing": 16.0, "scale": Vector2(3.0, 4.0)},
@@ -231,13 +285,13 @@ static func default_preset(zone: String) -> Dictionary:
 			}
 		"alpine":
 			return {
-				"radius": 500.0, "inner_clear_radius": 50.0, "seed": 1005,
-				"road_threshold": 11.0,
+				"radius": 540.0, "inner_clear_radius": 50.0, "seed": 1005,
+				"road_threshold": 11.0, "roadside_fraction": 0.5,
 				"props": {"rock": {"count": 18, "min_spacing": 20.0, "scale": Vector2(1.2, 2.2)}},
 			}
 	return {
 		"radius": 300.0, "inner_clear_radius": 0.0, "seed": 1000,
-		"road_threshold": 8.0, "props": {},
+		"road_threshold": 8.0, "roadside_fraction": 0.5, "props": {},
 	}
 
 static func _point_segment_distance_xz(pos: Vector3, a: Vector3, b: Vector3) -> float:
@@ -258,6 +312,8 @@ static func _point_segment_distance_xz(pos: Vector3, a: Vector3, b: Vector3) -> 
 static func road_clearance_info(pos: Vector3, defs: Array[RoadDef]) -> Dictionary:
 	var best := INF
 	var half_width := 0.0
+	var is_ramp := false
+	var def_id := ""
 	for def: RoadDef in defs:
 		var pts: Array[Vector3] = def.points
 		var count := pts.size()
@@ -268,18 +324,30 @@ static func road_clearance_info(pos: Vector3, defs: Array[RoadDef]) -> Dictionar
 			if d < best:
 				best = d
 				half_width = def.width * 0.5
+				is_ramp = def.id.begins_with("ramp") or def.id.begins_with("hub-highway-ramp") or def.id.begins_with("pass-highway-ramp") or def.id.begins_with("coast-highway-ramp") or def.id.begins_with("touge-highway-ramp") or def.id.begins_with("spawn-highway-ramp")
+				def_id = def.id
 		if def.closed and count > 2:
 			var d := _point_segment_distance_xz(pos, pts[count - 1], pts[0])
 			if d < best:
 				best = d
 				half_width = def.width * 0.5
-	return {"distance": best, "half_width": half_width}
+				is_ramp = def.id.begins_with("ramp") or def.id.begins_with("hub-highway-ramp") or def.id.begins_with("pass-highway-ramp") or def.id.begins_with("coast-highway-ramp") or def.id.begins_with("touge-highway-ramp") or def.id.begins_with("spawn-highway-ramp")
+				def_id = def.id
+	return {"distance": best, "half_width": half_width, "is_ramp": is_ramp, "def_id": def_id}
 
 static func is_clear_of_road(pos: Vector3, network: RoadNetwork, floor_m: float = 0.0) -> bool:
 	if network == null:
 		return true
 	var info := road_clearance_info(pos, network.get_road_defs())
-	return float(info["distance"]) >= maxf(floor_m, float(info["half_width"]) + ROAD_CLEARANCE_MARGIN)
+	var required_clearance := maxf(floor_m, float(info["half_width"]) + ROAD_CLEARANCE_MARGIN)
+	if info["is_ramp"]:
+		var def_id: String = info["def_id"]
+		var is_spawn_ramp: bool = def_id.begins_with("spawn-highway-ramp")
+		var ramp_clearance := floor_m + 4.0
+		if is_spawn_ramp:
+			ramp_clearance = 20.0
+		required_clearance = maxf(required_clearance, ramp_clearance)
+	return float(info["distance"]) >= required_clearance
 
 func _place_prop(entry: Dictionary) -> PackedVector3Array:
 	var base_count := int(entry.get("count", 0))
@@ -289,7 +357,7 @@ func _place_prop(entry: Dictionary) -> PackedVector3Array:
 	var result := PackedVector3Array()
 	for _i in range(count):
 		for _attempt in range(placement_attempts):
-			var pos_2d := _annulus_pos()
+			var pos_2d := _sample_pos()
 			var pos := Vector3(pos_2d.x, _ground_height(pos_2d), pos_2d.y)
 			if _spacing_ok(pos_2d, used, min_spacing) and _road_ok(pos):
 				used.append(pos_2d)
@@ -528,12 +596,131 @@ func _spacing_ok(pos: Vector2, used: Array[Vector2], min_spacing: float) -> bool
 			return false
 	return true
 
-## Uniform area sampling inside the disc ring [inner_clear_radius, radius].
-func _annulus_pos() -> Vector2:
+## Uniform area sampling inside the disc ring [inner_clear_radius, radius],
+## built from two pre-drawn tokens (angle fraction, radial fraction) so the
+## draw count never depends on which placement mode was taken.
+func _annulus_pos(angle_roll: float, radial_roll: float) -> Vector2:
 	var inner := clampf(inner_clear_radius, 0.0, maxf(radius - 0.5, 0.0))
-	var angle := _rng.randf_range(0.0, TAU)
-	var dist := sqrt(_rng.randf_range(inner * inner, radius * radius))
+	var angle := angle_roll * TAU
+	var dist := sqrt(lerpf(inner * inner, radius * radius, radial_roll))
 	return Vector2(cos(angle), sin(angle)) * dist
+
+## One placement candidate in node-local xz: the roadside corridor or the
+## annulus. Both branches always consume the same ROADSIDE_TOKEN_COUNT values in
+## the same order, so the RNG stream stays in lockstep with the per-prop loop
+## whatever the road layout is -- two regions never desync their preset counts
+## because one of them has roads and the other doesn't.
+func _sample_pos() -> Vector2:
+	var mode_roll := _rng.randf()
+	var road_roll := _rng.randf()
+	var angle_roll := _rng.randf()
+	var radial_roll := _rng.randf()
+	var side_roll := _rng.randf()
+	var out_roll := _rng.randf()
+	if mode_roll < roadside_fraction:
+		var roadside := _roadside_pos(road_roll, angle_roll, radial_roll, side_roll, out_roll)
+		# Out-of-reach (the token picked a road nowhere near this region) and
+		# degenerate networks fall back to the annulus built from the SAME
+		# tokens, so the dressing a region owns stays inside its own radius and
+		# a roadless region keeps today's placement and count exactly.
+		if roadside.is_finite() and roadside.length() <= radius:
+			return roadside
+	return _annulus_pos(angle_roll, radial_roll)
+
+## Roadside candidate in node-local xz from five pre-drawn tokens: which road
+## (tier-weighted over the full map set), which centerline segment, where inside
+## that segment, which side of the centreline, and how far out from it. Returns
+## Vector2.INF when no road is samplable (no network, or every def degenerate).
+func _roadside_pos(road_roll: float, seg_roll: float, t_roll: float, side_roll: float, out_roll: float) -> Vector2:
+	if _roadside_weights.is_empty() or _roadside_weight_total <= 0.0:
+		return Vector2.INF
+	var def: RoadDef = _road_defs_cache[_pick_road_index(road_roll)]
+	var pts: Array[Vector3] = def.points
+	var segments := _segment_count(pts, def.closed)
+	if segments <= 0:
+		return Vector2.INF
+	var pair := _segment_pair(pts, def.closed, mini(int(seg_roll * float(segments)), segments - 1))
+	var a: Vector3 = pts[pair.x]
+	var b: Vector3 = pts[pair.y]
+	var band := roadside_band_for(def)
+	var centre := Vector2(a.x, a.z).lerp(Vector2(b.x, b.z), t_roll)
+	var dir := Vector2(b.x - a.x, b.z - a.z)
+	if dir.length_squared() <= 0.0001:
+		dir = Vector2.RIGHT
+	dir = dir.normalized()
+	var side := 1.0 if side_roll >= 0.5 else -1.0
+	return _local_xz(centre + Vector2(-dir.y, dir.x) * (side * lerpf(band.x, band.y, out_roll)))
+
+## The [near, far] signed-distance band a roadside sample on this road is drawn
+## from, measured from its CENTRELINE. The near bound is the requested floor
+## raised to that road's own half-width + ROAD_CLEARANCE_MARGIN (a 24 m highway
+## clears 12 + 3 = 15 m, a 7 m dirt road 3.5 + 3 = 6.5 m) and to
+## road_threshold, so a roadside sample can never land inside a road and never
+## wastes an attempt on the annulus gate. The far bound keeps at least
+## ROADSIDE_MIN_BAND of room above it.
+func roadside_band_for(def: RoadDef) -> Vector2:
+	var half_width := maxf(def.width * 0.5, 0.0)
+	var near_bound := maxf(maxf(roadside_min_dist, half_width + ROAD_CLEARANCE_MARGIN), road_threshold)
+	return Vector2(near_bound, maxf(roadside_max_dist, near_bound + ROADSIDE_MIN_BAND))
+
+## The full-map road snapshot this generation samples roadside dressing from:
+## the WHOLE network (roads run through many regions), 0 without one.
+func roadside_road_count() -> int:
+	return _road_defs_cache.size()
+
+## Tier-weighted pick over the cached road snapshot. Zero-weight (degenerate)
+## roads are never selected, so the returned def always has a samplable
+## centerline.
+func _pick_road_index(roll: float) -> int:
+	var target := roll * _roadside_weight_total
+	for i in _roadside_weights.size():
+		if target < _roadside_weights[i]:
+			return i
+	return _roadside_weights.size() - 1
+
+## Snapshots the WHOLE map road set once per generate() and precomputes the
+## cumulative tier weights the roadside pick walks. The snapshot is
+## region-independent: roads run through many regions, and each region samples
+## a different slice of the map's corridors from the same table.
+func _refresh_roadside_cache() -> void:
+	_road_defs_cache = []
+	_roadside_weights = PackedFloat32Array()
+	_roadside_weight_total = 0.0
+	if road_network == null:
+		return
+	_road_defs_cache = road_network.get_road_defs()
+	_roadside_weights.resize(_road_defs_cache.size())
+	for i in _road_defs_cache.size():
+		var def: RoadDef = _road_defs_cache[i]
+		var weight := 0.0
+		if def.points.size() >= 2:
+			weight = float(ROADSIDE_TIER_WEIGHTS.get(def.tier, 1.0))
+		_roadside_weight_total += weight
+		_roadside_weights[i] = _roadside_weight_total
+
+## Number of centerline segments a road is sampled on: n - 1 plus the closing
+## segment of a closed ring (mirrors road_clearance_info's segment walk).
+static func _segment_count(points: Array[Vector3], closed: bool) -> int:
+	var n := points.size()
+	if n < 2:
+		return 0
+	return n - 1 + (1 if closed and n > 2 else 0)
+
+## The two point indices of segment `index`, resolved against the same index
+## space as _segment_count.
+static func _segment_pair(points: Array[Vector3], closed: bool, index: int) -> Vector2i:
+	var n := points.size()
+	if closed and n > 2 and index == n - 1:
+		return Vector2i(n - 1, 0)
+	return Vector2i(index, index + 1)
+
+## World xz -> node-local xz for a roadside sample, the inverse of _world_pos,
+## so an offset scatterer (the RegionDresser's per-region nodes, the static
+## scene scatterers) still dresses its own patch of the map.
+func _local_xz(world_xz: Vector2) -> Vector2:
+	var gt := global_transform if is_inside_tree() else transform
+	var local := gt.affine_inverse() * Vector3(world_xz.x, 0.0, world_xz.y)
+	return Vector2(local.x, local.z)
 
 ## Ground surface Y at a map position; falls back to 0 when no provider is set.
 func _ground_height(pos: Vector2) -> float:

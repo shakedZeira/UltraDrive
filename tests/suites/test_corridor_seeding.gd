@@ -9,7 +9,7 @@ extends GdUnitTestSuite
 ## different). Fully headless: every call is a static plan() with an empty
 ## height_provider, so this suite needs no scene, no Terrain3D and no frames.
 
-const ROAD_COUNT := 12
+const ROAD_COUNT := 16
 
 func _plan(seed: int) -> Array[RoadDef]:
 	return CorridorPlanner.plan(seed)
@@ -49,10 +49,19 @@ func test_tier_counts_exact_per_class() -> void:
 	var coastal := _count_tier(defs, RoadDef.Tier.COASTAL)
 	var dirt := _count_tier(defs, RoadDef.Tier.DIRT)
 	assert_that(highway).is_equal(1)
-	assert_that(arterial).is_equal(5)
-	assert_that(touge).is_equal(2)
+	assert_that(arterial).is_equal(8)
+	assert_that(touge).is_equal(3)
 	assert_that(coastal).is_equal(2)
 	assert_that(dirt).is_equal(2)
+	var found_highway := false
+	for def in defs:
+		if def.id == "highway-ring":
+			found_highway = true
+			assert_float(def.width).is_equal_approx(24.0, 0.001)
+			assert_int(def.lane_count()).is_equal(4)
+			assert_that(def.rails_enabled()).is_true()
+			break
+	assert_that(found_highway).is_true()
 
 ## (3) Road-index invariant: defs 0/1/2 reproduce the bootstrap 1:1 — hub ring
 ## (w12 closed), hub->pass connector (w10 OPEN, ending flush on the pass loop),
@@ -89,14 +98,16 @@ func test_road_index_invariant_0_1_2() -> void:
 ## first (geocheck: gap > 2x average segment for open, <= 2x for closed, the
 ## same "nearly-touch" rule terrain_baker uses).
 func test_closed_correctness_per_class() -> void:
-	var expect_closed := {
+	var expect_closed: Dictionary = {
 		"hub-ring": true, "hub-pass": false, "pass-loop": true, "highway-ring": true,
 		"hub-coast": false, "hub-highway-ramp": false,
 		"touge-a": true, "touge-b": true,
 		"coast-a": false, "coast-b": false,
 		"dirt-a": false, "dirt-b": false,
+		"pass-highway-ramp": false, "coast-highway-ramp": false, "touge-highway-ramp": false,
+		"spawn-highway-ramp": false,
 	}
-	var defs := _plan(CorridorPlanner.MASTER_SEED)
+	var defs: Array[RoadDef] = _plan(CorridorPlanner.MASTER_SEED)
 	for def in defs:
 		var expected: bool = expect_closed[def.id]
 		assert_that(def.closed).is_equal(expected)
@@ -104,7 +115,7 @@ func test_closed_correctness_per_class() -> void:
 		var n := pts.size()
 		if n < 2:
 			continue
-		var avg := CorridorPlanner.chain_length_m(pts) / float(n - 1)
+		var avg: float = CorridorPlanner.chain_length_m(pts) / float(n - 1)
 		var gap := pts[n - 1].distance_to(pts[0])
 		if expected:
 			assert_float(gap).is_less_equal(2.0 * avg)
@@ -119,7 +130,7 @@ func test_open_connector_has_no_phantom_chord() -> void:
 	assert_that(defs[1].closed).is_false()
 	var gap := conn[conn.size() - 1].distance_to(conn[0])
 	assert_float(gap).is_greater(1000.0)
-	var avg := CorridorPlanner.chain_length_m(conn) / float(conn.size() - 1)
+	var avg: float = CorridorPlanner.chain_length_m(conn) / float(conn.size() - 1)
 	assert_float(gap).is_greater(2.0 * avg)
 
 ## (6) All road Ys stay driveable: every non-touge point in [-8, 120], every
@@ -164,14 +175,138 @@ func test_determinism_same_seed_same_chains() -> void:
 ## scene, no Terrain3D) returns a full, valid network with non-empty chains and
 ## all tier/length/closed guarantees intact.
 func test_headless_pure_static_call_with_empty_callable() -> void:
-	var defs := CorridorPlanner.plan(CorridorPlanner.MASTER_SEED, Callable(), {})
+	var defs: Array[RoadDef] = CorridorPlanner.plan(CorridorPlanner.MASTER_SEED, Callable(), {})
 	assert_that(defs.size()).is_equal(ROAD_COUNT)
 	for def in defs:
 		assert_that(def.points.size()).is_greater_equal(2)
 	assert_float(_total_km(defs)).is_greater_equal(CorridorPlanner.KM_TARGET)
 	# Tier defaults can widen/shrink the network per class.
-	var tuned := CorridorPlanner.plan(CorridorPlanner.MASTER_SEED, Callable(),
+	var tuned: Array[RoadDef] = CorridorPlanner.plan(CorridorPlanner.MASTER_SEED, Callable(),
 		{"km_target": 40.0, "highway_width": 20.0})
 	for def in tuned:
 		if def.id == "highway-ring":
 			assert_float(def.width).is_equal_approx(20.0, 0.001)
+
+## Ramp merge-lane geometry (headless): each access ramp ends with a runner
+## that runs parallel to the highway ring at the ring's Y, offset OUTSIDE the
+## loop, with offset tapering monotonically to 0. Endpoint is the ring vertex
+## verbatim (XZ+Y). No ramp point within 250 m of the junction drops more than
+## 0.5 m below the nearest ring vertex Y.
+func test_access_ramp_merge_lane_geometry() -> void:
+	var defs: Array[RoadDef] = CorridorPlanner.plan(CorridorPlanner.MASTER_SEED)
+	var ring: Array[Vector3] = defs[3].points  # highway-ring
+	var ring_center := Vector2(4400.0, 2250.0)
+	var ramp_ids := ["pass-highway-ramp", "coast-highway-ramp", "touge-highway-ramp", "spawn-highway-ramp"]
+	
+	for ramp_id in ramp_ids:
+		var ramp_def: RoadDef = null
+		for def in defs:
+			if def.id == ramp_id:
+				ramp_def = def
+				break
+		assert_that(ramp_def).is_not_null()
+		var pts: Array[Vector3] = ramp_def.points
+		var n := pts.size()
+		assert_that(n).is_greater_equal(10)
+		
+		# Endpoint exact match (zero-distance junction)
+		var end := pts[n - 1]
+		var matches := false
+		for rp in ring:
+			if assert_that(rp).is_equal_approx(end, Vector3(0.001, 0.001, 0.001)):
+				matches = true
+				break
+		assert_that(matches).is_true()
+		
+		# Runner: last 8 points (7 runner + approach end)
+		var runner_start_idx := n - 8
+		var prev_offset := -1.0
+		for i in range(runner_start_idx, n):
+			var p := pts[i]
+			var p2d := Vector2(p.x, p.z)
+			var d_from_center := p2d.distance_to(ring_center)
+			
+			# Find nearest ring vertex
+			var min_ring_dist := INF
+			var nearest_ring_y := 0.0
+			var nearest_ring_2d := Vector2.ZERO
+			for rp in ring:
+				var dist := p2d.distance_to(Vector2(rp.x, rp.z))
+				if dist < min_ring_dist:
+					min_ring_dist = dist
+					nearest_ring_y = rp.y
+					nearest_ring_2d = Vector2(rp.x, rp.z)
+			var offset := min_ring_dist
+			var ring_vert_dist_from_center := nearest_ring_2d.distance_to(ring_center)
+			
+			# Outside or on the ring locus
+			assert_float(d_from_center).is_greater_equal(ring_vert_dist_from_center - 0.5)
+			
+			# At-grade Y (within 0.5 m of ring Y)
+			assert_float(absf(p.y - nearest_ring_y)).is_less_equal(0.5)
+			
+			# Offset shrinks monotonically
+			if prev_offset >= 0.0 and i > runner_start_idx + 1:
+				assert_float(offset).is_less_equal(prev_offset + 0.1)
+			prev_offset = offset
+		
+		# Approach climb: no point within 250 m of junction below ring Y - 0.5
+		for i in range(runner_start_idx):
+			var p := pts[i]
+			var p2d := Vector2(p.x, p.z)
+			var dist_to_junction := p2d.distance_to(Vector2(end.x, end.z))
+			if dist_to_junction < 250.0:
+				var nearest_ring_y := 0.0
+				var min_d := INF
+				for rp in ring:
+					var d := p2d.distance_to(Vector2(rp.x, rp.z))
+					if d < min_d:
+						min_d = d
+						nearest_ring_y = rp.y
+				assert_float(p.y).is_greater_equal(nearest_ring_y - 0.5)
+
+## No ramp-ring self-intersection (headless, XZ plane).
+func test_access_ramp_no_self_intersection() -> void:
+	var defs: Array[RoadDef] = CorridorPlanner.plan(CorridorPlanner.MASTER_SEED)
+	var ring: Array[Vector3] = defs[3].points
+	var ramp_ids := ["pass-highway-ramp", "coast-highway-ramp", "touge-highway-ramp", "spawn-highway-ramp"]
+	
+	for ramp_id in ramp_ids:
+		var ramp_def: RoadDef = null
+		for def in defs:
+			if def.id == ramp_id:
+				ramp_def = def
+				break
+		assert_that(ramp_def).is_not_null()
+		var pts: Array[Vector3] = ramp_def.points
+		
+		for i in range(pts.size() - 1):
+			var a1 := pts[i]
+			var a2 := pts[i + 1]
+			for j in range(ring.size()):
+				var b1 := ring[j]
+				var b2 := ring[(j + 1) % ring.size()]
+				# Skip if segments share the junction endpoint
+				if a2.distance_to(b1) < 0.01 or a2.distance_to(b2) < 0.01:
+					continue
+				if _segments_intersect_xz(a1, a2, b1, b2):
+					assert_that(false).is_true()
+					return
+
+func _segments_intersect_xz(a1: Vector3, a2: Vector3, b1: Vector3, b2: Vector3) -> bool:
+	var p := Vector2(a1.x, a1.z)
+	var r := Vector2(a2.x - a1.x, a2.z - a1.z)
+	var q := Vector2(b1.x, b1.z)
+	var s := Vector2(b2.x - b1.x, b2.z - b1.z)
+	
+	var rxs := r.x * s.y - r.y * s.x
+	var q_p := q - p
+	var qpxs := q_p.x * s.y - q_p.y * s.x
+	
+	if absf(rxs) < 0.0001:
+		return false
+	
+	var t := (q_p.x * r.y - q_p.y * r.x) / rxs
+	var u := qpxs / rxs
+	
+	return t > 0.0 and t < 1.0 and u > 0.0 and u < 1.0

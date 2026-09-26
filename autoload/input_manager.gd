@@ -47,6 +47,9 @@ func is_shift_up_just_pressed() -> bool:
 func is_shift_down_just_pressed() -> bool:
     return Input.is_action_just_pressed("shift_down")
 
+func is_headlight_just_pressed() -> bool:
+    return Input.is_action_just_pressed("headlight")
+
 func is_any_input_active() -> bool:
     ## Returns true if any vehicle input is active (useful for AI takeover).
     return get_throttle() > 0.01 or get_brake() > 0.01 or absf(get_steer()) > 0.01
