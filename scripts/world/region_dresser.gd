@@ -186,10 +186,6 @@ func _spawn_region(job: Dictionary) -> void:
 	var preset: Dictionary = PropScatterer.default_preset(zone)
 	preset["seed"] = seed
 	var density: float = band_density(band)
-	# Mountain Pass grassland: the same shaded grass the terrain baker paints on
-	# the player region, so grass dressing blends with the terrain instead of
-	# floating over a flat colour.
-	var grass_color := TerrainBaker.mountain_pass_grass(0.0)
 	var node := Node3D.new()
 	node.name = "%s %d,%d" % [DRESS_NODE_NAME, loc.x, loc.y]
 	node.position = Vector3(loc.x * region_size + region_size * 0.5, 0.0, loc.y * region_size + region_size * 0.5)
@@ -345,7 +341,7 @@ static func region_zone(master: int, loc: Vector2i) -> String:
 ## prefetch ring keeps it warm before a region goes live), then the live
 ## Terrain3D, then flat Y0. Main thread only -- the dresser never touches
 ## Terrain3D or the bake cache off the main thread.
-	func _make_ground_provider(loc: Vector2i) -> Callable:
+func _make_ground_provider(loc: Vector2i) -> Callable:
 	var anchor := Vector3(float(loc.x) * region_size + region_size * 0.5, 0.0, float(loc.y) * region_size + region_size * 0.5)
 	var seeder: TerrainSeeder = terrain_seeder
 	var terrain_src: Terrain3D = terrain
