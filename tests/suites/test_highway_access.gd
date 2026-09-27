@@ -315,12 +315,15 @@ func test_open_world_every_zone_routes_to_and_from_the_ring() -> void:
 ## for it.
 func test_hub_access_ramp_rail_gapped_on_receiving_hub_ring() -> void:
 	var defs := CorridorPlanner.plan(CorridorPlanner.MASTER_SEED)
-	var hub_ring := defs.find(func(d: RoadDef) -> bool: return d.id == "hub-ring")
-	var ramp := defs.find(func(d: RoadDef) -> bool: return d.id == "hub-access-ramp")
-	assert_that(hub_ring).is_not_null()
-	assert_that(ramp).is_not_null()
-	if hub_ring == null or ramp == null:
+	var by_id := {}
+	for def in defs:
+		by_id[def.id] = def
+	assert_that(by_id.has("hub-ring")).is_true()
+	assert_that(by_id.has("hub-access-ramp")).is_true()
+	if not by_id.has("hub-ring") or not by_id.has("hub-access-ramp"):
 		return
+	var hub_ring: RoadDef = by_id["hub-ring"]
+	var ramp: RoadDef = by_id["hub-access-ramp"]
 	assert_that(RoadDef.is_merge_point(ramp.id)).is_true()
 	assert_that(ramp.points.size()).is_greater(2)
 	var first := ramp.points[0]
@@ -348,7 +351,6 @@ func test_hub_access_ramp_rail_gapped_on_receiving_hub_ring() -> void:
 	assert_int(hub_rails_after).is_equal(2)
 	var hub_right_rail := hub_builder.get_node("RoadRailRight") as MeshInstance3D
 	assert_that(hub_right_rail.mesh.get_surface_count()).is_greater(0)
-	var _gap_mat := hub_builder.get_node("RoadRailRight").get_surface_override_material(0)
 	# The on-ramp itself stays rail-free at the merge (no RoadRail children produced).
 	assert_int(ramp_rails_after).is_equal(0)
 
@@ -434,3 +436,14 @@ func test_access_road_approach_stays_outside_ring() -> void:
 			# Approach point must be outside or on the ring (further from center)
 			# Allow small tolerance (0.5 m) for numerical precision
 			assert_float(d_from_center).is_greater_equal(ring_vert_dist_from_center - 0.5)
+
+## Counts direct children of `node` named `child_name`. TrackBuilder spawns one
+## node per rail side, so a left/right pair reads as 2 and a suppressed side as 0.
+func _child_named_count(node: Node, child_name: String) -> int:
+	if node == null:
+		return 0
+	var n := 0
+	for child in node.get_children():
+		if child.name == child_name:
+			n += 1
+	return n
