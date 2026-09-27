@@ -52,7 +52,18 @@ static func build_overlay() -> ColorRect:
 
 ## Applies a computed (grip, night, storm) state onto an overlay built by
 ## build_overlay(). Pure function of the same state the gate asserts.
+## Null contract: `overlay` is still Nil until the await-chained _ready()
+## bootstrap reaches the step that builds the FX layer, and that window is a
+## legitimate "nothing to apply to yet" state -- so a Nil overlay returns
+## without writing anything instead of raising "Invalid assignment of property
+## or key 'visible' ... on a base object of type 'Nil'" every frame. The assert
+## is the loud half of that contract: it keeps a real wiring regression (an
+## overlay that is never built) impossible to miss in a dev run, and is
+## stripped from release builds so a shipped frame stays quiet.
 static func apply_intensity(overlay: ColorRect, intensity: float, is_night: bool, is_storm: bool) -> void:
+	assert(overlay != null, "WetSurface.apply_intensity: nil overlay, FX layer not built yet")
+	if overlay == null:
+		return
 	var active := tint_active(intensity, is_night, is_storm)
 	overlay.visible = active
 	overlay.color = Color(WET_TINT.r, WET_TINT.g, WET_TINT.b, overlay_alpha(intensity, active))

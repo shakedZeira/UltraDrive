@@ -66,5 +66,13 @@ static func build_overlay() -> ColorRect:
 
 ## Applies the (raining, chase_mode) state to an overlay built by
 ## build_overlay(). Visibility is exactly active().
+## Null contract: same deal as WetSurface.apply_intensity() -- the overlay is
+## still Nil until the await-chained _ready() bootstrap builds the FX layer, so
+## a Nil overlay is the "nothing to apply to yet" state and returns without
+## writing, while the assert keeps a never-built overlay loud in a dev run and
+## is stripped from release builds.
 static func apply(overlay: ColorRect, raining: bool, chase_mode: bool) -> void:
+	assert(overlay != null, "WindshieldFX.apply: nil overlay, FX layer not built yet")
+	if overlay == null:
+		return
 	overlay.visible = active(raining, chase_mode)

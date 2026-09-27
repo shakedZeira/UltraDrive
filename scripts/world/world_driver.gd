@@ -362,6 +362,10 @@ func _on_weather_changed(_weather: WeatherManager.Weather) -> void:
 
 ## The one switch-over: drive lights/rain/audio/wet overlay/windshield from
 ## the current (time_of_day, weather) state. Pure read of WeatherManager.
+## The overlays are only built by _bootstrap_weather_fx() (step 7 of the
+## await-chained _ready()), while the day_night_driver autoload already emits
+## time_of_day_changed from frame 1 -- so both are null-guarded exactly like
+## _rain_system / _weather_audio, and the state re-syncs on the bootstrap call.
 func _sync_weather_state() -> void:
 	var night := WeatherManager.is_night()
 	_sync_night_lights(night)
@@ -372,9 +376,11 @@ func _sync_weather_state() -> void:
 	var grip := WeatherManager.get_road_grip_factor()
 	var intensity := WetSurface.wet_intensity(grip)
 	var storm := WeatherManager.current_weather == WeatherManager.Weather.STORM
-	WetSurface.apply_intensity(_wet_overlay, intensity, night, storm)
+	if _wet_overlay != null:
+		WetSurface.apply_intensity(_wet_overlay, intensity, night, storm)
 	var raining := _rain_system != null and _rain_system.is_raining()
-	WindshieldFX.apply(_windshield_overlay, raining, _is_forward_view())
+	if _windshield_overlay != null:
+		WindshieldFX.apply(_windshield_overlay, raining, _is_forward_view())
 
 func _sync_night_lights(night: bool) -> void:
 	for light in get_tree().get_nodes_in_group(STREET_LIGHT_GROUP):

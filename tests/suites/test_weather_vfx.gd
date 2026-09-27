@@ -9,6 +9,12 @@ extends GdUnitTestSuite
 ## rain particles are headless-culled (state machine still runs), and the
 ## weather ambience bed maps weather -> volume on a fixed monotonic ladder
 ## without touching AudioServer (no bus leak).
+##
+## Both overlay appliers additionally pin their Nil contract: a Nil overlay is
+## the await-chained _ready() window in which the FX layer is not built yet,
+## so the call returns without writing and costs exactly the one dev-time
+## assert (the signal that keeps a never-built overlay from hiding) instead of
+## the per-frame "Invalid assignment ... 'Nil'" spam it used to raise.
 
 var _managed: Array = []
 
@@ -81,6 +87,38 @@ func test_wet_overlay_hides_when_rule_gates() -> void:
 	assert_float(overlay.color.a).is_equal(0.0)
 	WetSurface.apply_intensity(overlay, 0.0, true, false)
 	assert_that(overlay.visible).is_false()
+
+## The async-bootstrap window, armed: night + storm at full intensity, so the
+## tint rule is fired and the unguarded version wrote .visible onto the Nil.
+func _wet_intensity_on_nil_overlay() -> void:
+	var missing: ColorRect = null
+	WetSurface.apply_intensity(missing, 1.0, true, true)
+
+## A Nil overlay must cost exactly ONE script error -- the dev-time assert the
+## null contract documents -- and must not also raise the "Invalid assignment
+## of property or key 'visible' ... 'Nil'" it used to. The message is matched
+## exactly (the engine prefixes an assert with "Assertion failed: ") so this
+## pins OUR assert, not just any error: drop the guard and the Nil write
+## becomes a second, unmatched error; drop the assert and there is none at all.
+func test_wet_overlay_nil_overlay_is_guarded_not_written() -> void:
+	await assert_error(_wet_intensity_on_nil_overlay).is_runtime_error(
+		"Assertion failed: WetSurface.apply_intensity: nil overlay, FX layer not built yet"
+	)
+
+## The guard is a null check and nothing more: a built overlay is still driven
+## exactly as it was, both on the armed and the parked side of the tint rule.
+func test_wet_overlay_nil_guard_leaves_the_non_null_path_intact() -> void:
+	var overlay := WetSurface.build_overlay()
+	_managed.append(overlay)
+	await assert_error(_wet_intensity_on_nil_overlay).is_runtime_error(
+		"Assertion failed: WetSurface.apply_intensity: nil overlay, FX layer not built yet"
+	)
+	WetSurface.apply_intensity(overlay, 0.5, true, false)
+	assert_that(overlay.visible).is_true()
+	assert_float(overlay.color.a).is_equal_approx(0.5 * WetSurface.OVERLAY_ALPHA_MAX, 0.001)
+	WetSurface.apply_intensity(overlay, 0.5, false, false)
+	assert_that(overlay.visible).is_false()
+	assert_float(overlay.color.a).is_equal(0.0)
 
 func test_headlights_should_enable_is_night_exact() -> void:
 	assert_that(Headlights.should_enable(true)).is_true()
@@ -168,6 +206,33 @@ func test_windshield_overlay_visible_only_when_active() -> void:
 	WindshieldFX.apply(overlay, true, true)
 	assert_that(overlay.visible).is_true()
 	WindshieldFX.apply(overlay, true, false)
+	assert_that(overlay.visible).is_false()
+
+## The async-bootstrap window, armed: rain up in chase-cam mode, so active()
+## is true and the unguarded version wrote .visible onto the Nil.
+func _windshield_on_nil_overlay() -> void:
+	var missing: ColorRect = null
+	WindshieldFX.apply(missing, true, true)
+
+## Same contract as the wet overlay: a Nil overlay costs exactly ONE script
+## error -- the documented dev-time assert -- and never the Nil assignment.
+func test_windshield_overlay_nil_overlay_is_guarded_not_written() -> void:
+	await assert_error(_windshield_on_nil_overlay).is_runtime_error(
+		"Assertion failed: WindshieldFX.apply: nil overlay, FX layer not built yet"
+	)
+
+## And the chase-cam gate on a built overlay is untouched by the guard.
+func test_windshield_overlay_nil_guard_leaves_the_non_null_path_intact() -> void:
+	var overlay := WindshieldFX.build_overlay()
+	_managed.append(overlay)
+	await assert_error(_windshield_on_nil_overlay).is_runtime_error(
+		"Assertion failed: WindshieldFX.apply: nil overlay, FX layer not built yet"
+	)
+	WindshieldFX.apply(overlay, true, true)
+	assert_that(overlay.visible).is_true()
+	WindshieldFX.apply(overlay, true, false)
+	assert_that(overlay.visible).is_false()
+	WindshieldFX.apply(overlay, false, true)
 	assert_that(overlay.visible).is_false()
 
 func test_weather_audio_gain_ladder_monotonic() -> void:
