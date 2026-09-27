@@ -8,6 +8,22 @@ extends GdUnitTestSuite
 
 const JUNCTION := Vector3(0.0, 0.0, 100.0)
 
+## WorldDriver._ready() is an await-chained staged load: it registers its group
+## and the road defs synchronously, then yields one process_frame per step
+## (speed-trap visuals -> discovery -> position push -> ...). So the moment
+## add_child() returns the driver is in its group but has NO WorldDiscovery
+## child yet -- and fast_travel_to() gates on exactly that node. Roads are the
+## only step that runs before the first yield; _bootstrap_discovery() resumes on
+## the second frame, so two frames reach it and four leaves a frame of slack.
+const BOOTSTRAP_FRAMES := 4
+
+## Walks the driver's staged load the way the game does: one real process frame
+## per await-chained step, so the assertions after it see the bootstrapped state
+## (discovery node, group registration) instead of the loading screen.
+func _await_driver_bootstrap() -> void:
+	for _i in BOOTSTRAP_FRAMES:
+		await get_tree().process_frame
+
 func _two_roads() -> RoadNetwork:
 	var network := RoadNetwork.new()
 	network.name = "RoadNetwork"
@@ -76,7 +92,9 @@ func test_fast_travel_gates_on_discovery_and_snaps_car() -> void:
 	add_child(driver)
 	assert_that(driver.is_in_group(WorldDriver.DRIVER_GROUP)).is_true()
 
-	# The driver bootstrapped a WorldDiscovery; teach it one road and reveal it.
+	# The driver bootstrapped a WorldDiscovery, but only on the second frame of
+	# its staged load; teach it one road and reveal it.
+	await _await_driver_bootstrap()
 	var disc: WorldDiscovery = null
 	for candidate in driver.get_children():
 		if candidate is WorldDiscovery:
@@ -112,8 +130,32 @@ func test_driver_reuses_existing_discovery_node() -> void:
 	var driver := WorldDriver.new()
 	driver.name = "Driver"
 	holder.add_child(driver)
+	# The reuse happens in the staged load, so the chain has to be walked before
+	# the driver's handle can be compared against the pre-existing node.
+	await _await_driver_bootstrap()
 	# The driver found the group instance and must not have added a second one.
 	assert_that(driver.get_node_or_null("WorldDiscovery") == null).is_true()
 	assert_that(driver._discovery == existing).is_true()
 	assert_that(holder.get_children().size()).is_equal(2)
 	holder.free()
+
+## Regression: the driver's WorldDiscovery is created by the await-chained
+## staged load, so anything that reads the driver's state before that load has
+## walked sees a driver with no discovery at all -- which is exactly what
+## fast_travel_to() gates on. The node must exist, be parented to the driver and
+## be the one the pause map / minimap resolve through the world_discovery group.
+func test_driver_bootstraps_a_grouped_discovery_node_for_the_maps() -> void:
+	var driver := WorldDriver.new()
+	driver.name = "Driver"
+	add_child(driver)
+	await _await_driver_bootstrap()
+
+	var disc: WorldDiscovery = driver._discovery
+	assert_that(disc).is_not_null()
+	if disc == null:
+		driver.free()
+		return
+	assert_that(disc.get_parent()).is_same(driver)
+	assert_that(disc.is_in_group(WorldDiscovery.GROUP_NAME)).is_true()
+	assert_that(get_tree().get_first_node_in_group(WorldDiscovery.GROUP_NAME)).is_same(disc)
+	driver.free()

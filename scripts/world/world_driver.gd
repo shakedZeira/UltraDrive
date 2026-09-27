@@ -39,6 +39,22 @@ const STREET_LIGHT_Y := 6.0
 const STREET_LIGHT_RANGE := 32.0
 const STREET_LIGHT_ENERGY := 0.6
 
+## Discovery reveal cadence. WorldDiscovery.reveal_at() is a FULL-NETWORK scan:
+## it distance-tests every not-yet-visited segment of the whole classified
+## network — thousands of segments spread over 60-100 km, almost all of them far
+## outside the 90 m reveal radius and therefore never visited — and only then
+## keeps the ones inside the radius. Calling that on all 60 physics ticks put an
+## O(network) pass on the per-frame budget, and it was pure waste for a parked
+## car, which re-revealed a disc that was already revealed. The reveal is
+## monotonic and radius-based, so it is driven by MOVEMENT rather than by tick
+## count: it fires the moment the car has travelled REVEAL_MOVE_M, then at most
+## every REVEAL_INTERVAL while driving and every PARKED_REVEAL_INTERVAL while
+## standing still, so the standing disc always completes and no segment the
+## player can reach is left un-revealed.
+const REVEAL_MOVE_M := 8.0
+const REVEAL_INTERVAL := 0.1
+const PARKED_REVEAL_INTERVAL := 0.5
+
 var _streamer: ChunkStreamer
 var _terrain_seeder: TerrainSeeder
 var _player: Node3D
@@ -50,13 +66,26 @@ var _wet_overlay: ColorRect
 var _windshield_overlay: ColorRect
 var _loading_steps: int = 0
 var _current_step: int = 0
+var _reveal_pos := Vector3.INF
+var _reveal_elapsed := 0.0
 
 func _ready() -> void:
 	add_to_group(DRIVER_GROUP)
+	# Resolved before the first await: every bootstrap step below (and the
+	# physics tick's lazy re-resolve) needs these three, and yielding first would
+	# leave _push_player_position() a permanent no-op -- with _streamer null it
+	# returns early, so the TerrainSeeder never gets sync_player_pos() and no
+	# region is ever baked, leaving the world with no ground and no chunks.
+	_streamer = get_node_or_null("ChunkStreamer") as ChunkStreamer
+	_terrain_seeder = get_node_or_null("TerrainSeeder") as TerrainSeeder
+	_player = get_node_or_null("%PlayerCar") as Node3D
 	_loading_steps = 8
 	_current_step = 0
 	LoadingScreenManager.show_loading("Initializing world...", 0)
-	await get_tree().process_frame
+	# Roads are registered before the first await on purpose: _physics_process
+	# pushes the player position on the very next tick, and a push that beats
+	# set_roads() bakes (and caches, and marks applied) the player's own region
+	# with no centrelines, which the conforming pass then never revisits.
 	_bootstrap_roads()
 	LoadingScreenManager.update_loading("Building roads...", 12.5)
 	await get_tree().process_frame
@@ -93,25 +122,45 @@ func _prebake_all_grass() -> void:
 	if _terrain_seeder == null:
 		return
 	LoadingScreenManager.update_loading("Pre-baking terrain grass...", 100)
-	var network := get_node_or_null(road_network_path) as RoadNetwork
-	if network == null:
-		return
-	var roads := network.get_roads()
-	var road_defs := network.get_road_defs()
-	if roads.is_empty():
-		return
-	_terrain_seeder.set_roads(roads, road_defs)
-	# Force immediate grass color bake for player region so grass is visible on spawn
+	# set_roads() is deliberately NOT repeated here. _bootstrap_roads() already
+	# handed the seeder the same centrelines, ahead of the first
+	# _push_player_position(), and a second identical call would bump the roads
+	# generation, drop every queued and in-flight corridor bake, clear the bake
+	# cache the ring had already filled, and re-queue the whole corridor
+	# pre-bake — restarting the streaming storm for no gain. All this step owes
+	# the player is the colour bake, which re-bakes the player region itself.
 	_terrain_seeder.force_player_region_color_bake()
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	if _player == null:
 		_player = get_node_or_null("%PlayerCar") as Node3D
 	if _streamer == null or _player == null:
 		return
 	_push_player_position()
 	if _discovery != null:
-		_discovery.reveal_at(_player.global_position)
+		_reveal_discovery(delta)
+
+## Movement-gated WorldDiscovery.reveal_at(); see REVEAL_INTERVAL for why the
+## cadence is driven by distance travelled rather than by physics ticks.
+func _reveal_discovery(delta: float) -> void:
+	if _discovery == null:
+		return
+	_reveal_elapsed += delta
+	var here: Vector3 = _player.global_position
+	if _reveal_pos == Vector3.INF:
+		# First reveal of this world: unconditional, so the spawn disc is
+		# revealed (and fast travel unlocked) on the very first tick.
+		_discovery.reveal_at(here)
+		_reveal_pos = here
+		_reveal_elapsed = 0.0
+		return
+	var moved: bool = here.distance_to(_reveal_pos) >= REVEAL_MOVE_M
+	var interval: float = REVEAL_INTERVAL if moved else PARKED_REVEAL_INTERVAL
+	if _reveal_elapsed < interval:
+		return
+	_discovery.reveal_at(here)
+	_reveal_pos = here
+	_reveal_elapsed = 0.0
 
 func _push_player_position() -> void:
 	if _streamer == null or _player == null:
@@ -362,6 +411,10 @@ func _on_weather_changed(_weather: WeatherManager.Weather) -> void:
 
 ## The one switch-over: drive lights/rain/audio/wet overlay/windshield from
 ## the current (time_of_day, weather) state. Pure read of WeatherManager.
+## The overlays are only built by _bootstrap_weather_fx() (step 7 of the
+## await-chained _ready()), while the day_night_driver autoload already emits
+## time_of_day_changed from frame 1 -- so both are null-guarded exactly like
+## _rain_system / _weather_audio, and the state re-syncs on the bootstrap call.
 func _sync_weather_state() -> void:
 	var night := WeatherManager.is_night()
 	_sync_night_lights(night)
@@ -372,9 +425,11 @@ func _sync_weather_state() -> void:
 	var grip := WeatherManager.get_road_grip_factor()
 	var intensity := WetSurface.wet_intensity(grip)
 	var storm := WeatherManager.current_weather == WeatherManager.Weather.STORM
-	WetSurface.apply_intensity(_wet_overlay, intensity, night, storm)
+	if _wet_overlay != null:
+		WetSurface.apply_intensity(_wet_overlay, intensity, night, storm)
 	var raining := _rain_system != null and _rain_system.is_raining()
-	WindshieldFX.apply(_windshield_overlay, raining, _is_forward_view())
+	if _windshield_overlay != null:
+		WindshieldFX.apply(_windshield_overlay, raining, _is_forward_view())
 
 func _sync_night_lights(night: bool) -> void:
 	for light in get_tree().get_nodes_in_group(STREET_LIGHT_GROUP):

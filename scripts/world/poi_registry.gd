@@ -1,8 +1,15 @@
 class_name POIRegistry
 extends RefCounted
 
-## Static registry of every open-world point of interest: id -> { name, stage, position }.
-## Positions are world-space meters (map footprint 0..6144 on X and Z).
+## Static registry of every open-world point of interest:
+## id -> { id, name, stage, position }. Positions are world-space meters (map
+## footprint 0..6144 on X and Z).
+##
+## Every entry carries its OWN registry key in "id" (base landmarks and event
+## markers here, collectibles in Collectibles._entry), so a consumer holding
+## only the entry -- the pause map's dot set, the collectible family palette,
+## the claimed dimming -- can always name the POI it is drawing. An entry that
+## forgot its id was an anonymous dot that no category gate could match.
 
 ## P6: event markers appended lazily on first access (one-shot), derived from
 ## the classified road network via EventRegistry.place / CorridorPlanner.plan.
@@ -13,26 +20,31 @@ static var _events_loaded := false
 
 static var pois: Dictionary = {
 	"festival_hub": {
+		"id": "festival_hub",
 		"name": "Horizon Festival",
 		"stage": "Festival Plains",
 		"position": Vector3(128.0, 2.2, 128.0),
 	},
 	"lowland_view": {
+		"id": "lowland_view",
 		"name": "Lowland View",
 		"stage": "Rolling Lowlands",
 		"position": Vector3(1536.0, 6.0, 1536.0),
 	},
 	"dry_lake": {
+		"id": "dry_lake",
 		"name": "Dry Lake",
 		"stage": "Coast Apron",
 		"position": Vector3(5888.0, 2.5, 1536.0),
 	},
 	"pass_entry": {
+		"id": "pass_entry",
 		"name": "Pass Entry",
 		"stage": "Forested Highlands",
 		"position": Vector3(3840.0, 10.0, 2304.0),
 	},
 	"alpine_overlook": {
+		"id": "alpine_overlook",
 		"name": "Alpine Overlook",
 		"stage": "Alpine Overlook",
 		"position": Vector3(5632.0, 35.0, 5632.0),
@@ -68,9 +80,9 @@ const CATEGORY_EVENTS := "events"
 const CATEGORY_COLLECTIBLES := "collectibles"
 
 ## `poi_id` is optional and only ever a fast path: the map's filter holds the id
-## it is drawing, so it can classify even an entry that forgot to carry its own
-## "id" key. Everything else reads the entry, which is what the static buckets
-## and the tests do.
+## it is drawing, so it can classify straight from its own loop variable. Every
+## shipped entry also carries its id, so the no-argument form is the same
+## answer -- the fast path exists so a caller can never disagree with the entry.
 static func category_of(poi: Dictionary, poi_id: String = "") -> String:
 	var id := poi_id if not poi_id.is_empty() else str(poi.get("id", ""))
 	if Collectibles.is_collectible_id(id):
@@ -126,8 +138,10 @@ static func is_travel_eligible(poi_id: String, revealed: Callable = Callable()) 
 
 ## One-shot enrichment: plans the full corridor network and merges every event
 ## site into `pois`, keeping the base { name, stage, position } shape (plus
-## kind / tier / road_id / extra). world_map.gd draws dots from get_poi_ids(),
-## so the event markers appear on the pause map automatically.
+## kind / tier / road_id / extra) and stamping the registry key in as "id" -- an
+## event marker is as much a named POI as a base landmark, and the map resolves
+## it by id. world_map.gd draws dots from get_poi_ids(), so the event markers
+## appear on the pause map automatically.
 ##
 ## AAA-16: the road-anchored collectibles (bonus boards, speed traps, photo
 ## spots) merge in the same pass, in the same shape and with a "kind" so both
@@ -148,5 +162,7 @@ static func _load_events() -> void:
 		anchors.append(poi["position"] as Vector3)
 	_events = EventRegistry.place_data(defs, anchors)
 	for event_id: String in _events.keys():
-		pois[event_id] = _events[event_id]
+		var event: Dictionary = _events[event_id]
+		event["id"] = event_id
+		pois[event_id] = event
 	pois.merge(Collectibles.place_data(defs), true)

@@ -9,6 +9,12 @@ extends RefCounted
 const ROAD_GROUP := "road_network"
 const OPEN_WORLD_GROUP := "open_world"
 
+## Placeholder id for a chain whose source cannot name it (a tree-walked fallback
+## that only duck-types get_roads()). Deliberately NOT a number or a fabricated
+## name: a consumer that cannot identify a road must be able to see that it
+## cannot, and the array still has one slot per chain so every index stays put.
+const UNKNOWN_ROAD_ID := ""
+
 ## World-map terrain composite: the pause map samples a height provider on a
 ## discrete grid and tints each cell by elevation (satellite-map look, FH6-style)
 ## plus a subtle NW-light hillshade. Everything below is pure/deterministic, so
@@ -139,10 +145,53 @@ static func _walk_for_roads(root: Node) -> Object:
 ## Road chains (each an Array of Vector3 world points) from any source object
 ## that exposes get_roads(). Empty array when nothing is available.
 static func get_roads(source: Object) -> Array:
+	return _road_chains(source)
+
+## The resolved chain list, shared by get_roads() and get_road_ids() so the two
+## can never disagree about how many chains there are or in what order.
+static func _road_chains(source: Object) -> Array:
 	if source != null and source.has_method("get_roads"):
 		var roads = source.get_roads()
 		if roads != null and roads is Array:
 			return roads
+	return []
+
+## Road ids, one per chain, in the SAME order get_roads() returns them: entry i
+## names chain i. That index parity is load-bearing, not cosmetic -- the pause
+## map's discovery mask is keyed by CHAIN INDEX, so a short or shifted id array
+## would tint the reveal state of the wrong road and label the wrong line. The
+## array is therefore sized from the chain list, never from the def list.
+##
+## A real RoadNetwork exposes get_road_defs() and answers with each RoadDef's own
+## id. A tree-walked fallback source may implement get_roads() alone; it has no
+## identity to report, so its entries are UNKNOWN_ROAD_ID -- aligned and blank
+## rather than absent.
+static func get_road_ids(source: Object) -> Array:
+	var chains := _road_chains(source)
+	var defs := _road_defs(source)
+	var ids: Array = []
+	ids.resize(chains.size())
+	for index in chains.size():
+		ids[index] = UNKNOWN_ROAD_ID
+		if index >= defs.size():
+			continue
+		var def = defs[index]
+		if not (def is RoadDef):
+			continue
+		var typed: RoadDef = def
+		if not typed.id.is_empty():
+			ids[index] = typed.id
+	return ids
+
+## The source's RoadDef list when it exposes one, else []. Duck-typed on purpose
+## (no cast to RoadNetwork): resolve_road_source() may hand back any node with a
+## get_roads() method, and a map must not care which of the two shapes it got.
+static func _road_defs(source: Object) -> Array:
+	if source == null or not source.has_method("get_road_defs"):
+		return []
+	var defs = source.get_road_defs()
+	if defs != null and defs is Array:
+		return defs
 	return []
 
 ## Best discovery source for the scene: the first node in the

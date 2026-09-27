@@ -5,9 +5,9 @@ extends RefCounted
 ## Pure heightfield math for Terrain3D regions: no scene tree access, so the
 ## whole class is headless-unit-testable and deterministic. bake_region() runs
 ## the passes in order: deterministic natural heightfield (region-seeded fBm
-## over a blended biome elevation table plus alpine domes), optional
-## road-corridor conforming via a coarse distance field, a 3x3 separable blur,
-## then the spawn-plateau guard and the final height clamp. bake_region_color()
+## over a blended biome elevation table plus alpine domes), the spawn-plateau
+## guard, optional road-corridor conforming via a per-texel segment-splat min,
+## a 3x3 separable blur, then the final height clamp. bake_region_color()
 ## produces a matching FORMAT_RGBA8 colour map by reusing the same biome/dome
 ## math and painting per-elevation-band colours plus road-surface tints.
 
@@ -138,20 +138,21 @@ func bake_region(region: Vector2i, bake_scale: float = 1.0, image_width: int = 1
 	var buf := PackedFloat32Array()
 	buf.resize(stride * stride)
 	_bilinear_upsample(coarse, buf, K, cs, stride)
+	_apply_spawn_guard(buf, stride, origin, step)
 	if not roads.is_empty():
 		var chains := _raw_road_chains(roads)
 		if not chains.is_empty():
 			_conform_roads(buf, chains, origin, step)
 	_blur3x3(buf, stride)
-	_apply_spawn_guard(buf, stride, origin, step)
 	for iz in stride:
 		for ix in stride:
 			buf[iz * stride + ix] = clampf(buf[iz * stride + ix], HEIGHT_MIN, HEIGHT_MAX)
 	return Image.create_from_data(image_width, image_width, false, Image.FORMAT_RF, buf.to_byte_array())
 
 ## Natural height at a world XZ position: region-seeded fBm detail on top of a
-## blended biome base, plus alpine domes, scaled by _bake_scale. The spawn
-## guard is applied later inside bake_region() so it wins over everything.
+## blended biome base, plus alpine domes, scaled by _bake_scale. Neither the
+## spawn plateau nor road conforming is applied here -- both are bake_region()
+## passes, so an off-ring sample reads raw natural relief.
 func _height_at(wx: float, wz: float) -> float:
 	return _natural_height(wx, wz)
 
@@ -574,8 +575,10 @@ func bake_region_color(region: Vector2i, bake_scale: float = 1.0, image_width: i
 		for ix in stride:
 			var wx := origin.x + (float(ix) + 0.5) * step
 			var height := clampf(h_buf[row_z + ix], HEIGHT_MIN, HEIGHT_MAX)
-			var band_col: Color = COLOR_GRASS
-			var col := band_col
+			var band := elevation_band(height)
+			var band_col: Color = BAND_COLORS[band]
+			var brightness := 0.92 + 0.16 * br_buf[row_z + ix]
+			var col := band_col * brightness
 			if not d2_map.is_empty():
 				var d2 := d2_map[row_z + ix]
 				if d2 < blend2:
@@ -876,6 +879,13 @@ func _blur3x3(buf: PackedFloat32Array, stride: int) -> void:
 			var dy := mini(iz + 1, stride - 1)
 			buf[iz * stride + ix] = (tmp[uy * stride + ix] + tmp[iz * stride + ix] + tmp[dy * stride + ix]) * third
 
+## Flattens the spawn disc (SPAWN_PLATEAU_CENTER, SPAWN_PLATEAU_RADIUS) to
+## SPAWN_HEIGHT so the car always starts on level ground. Runs BEFORE road
+## conforming: a road centreline is a drivable surface, the plateau is only a
+## pad, so a corridor that terminates inside the disc is still carved to its own
+## height instead of being buried under (or floating above) the flat pad. The
+## pad stays flat everywhere else, and the following blur softens the carve
+## edges into it.
 func _apply_spawn_guard(buf: PackedFloat32Array, stride: int, origin: Vector2, step: float) -> void:
 	var c := SPAWN_PLATEAU_CENTER
 	var r := SPAWN_PLATEAU_RADIUS

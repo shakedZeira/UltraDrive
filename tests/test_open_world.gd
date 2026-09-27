@@ -21,6 +21,35 @@ func test_open_world_instantiates_player_at_spawn_with_cameras() -> void:
 	assert_that(orbit).is_not_null()
 	assert_that(orbit.target == player).is_true()
 
+func test_open_world_bakes_ground_under_the_player_spawn() -> void:
+	# The TerrainSeeder is only ever fed by WorldDriver._push_player_position().
+	# If that wiring is missing the seeder never syncs a player position, no
+	# region is ever baked, and every Terrain3D height lookup in the world
+	# (road conforming, props, foliage) silently reads NaN. Ten frames covers the
+	# driver bootstrap (roads first, then the player push) plus the ring pass.
+	var runner := scene_runner(OPEN_WORLD_SCENE)
+	await runner.simulate_frames(10)
+	var scene := runner.scene()
+	var terrain := scene.get_node_or_null("Terrain3D") as Terrain3D
+	assert_that(terrain).is_not_null()
+	if terrain == null:
+		return
+	var spawn := scene.get_node_or_null("PlayerSpawn") as Node3D
+	assert_that(spawn).is_not_null()
+	if spawn == null:
+		return
+	var ground: float = terrain.data.get_height(spawn.global_position)
+	assert_that(is_nan(ground)).is_false()
+	if is_nan(ground):
+		return
+	var player := scene.get_node_or_null("%PlayerCar") as VehiclePhysics
+	assert_that(player).is_not_null()
+	if player == null:
+		return
+	# The car starts on the ground the seeder wrote, not on the flat-circuit
+	# fallback: a couple of metres of settle is all the drop from SPAWN_HEIGHT.
+	assert_that(absf(player.global_position.y - ground)).is_less(3.0)
+
 func test_open_world_driver_streams_chunks_around_player() -> void:
 	var runner := scene_runner(OPEN_WORLD_SCENE)
 	await runner.simulate_frames(3)

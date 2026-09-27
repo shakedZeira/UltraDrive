@@ -146,13 +146,15 @@ static func plan(master_seed: int, height_provider: Callable = Callable(), tier_
 		_access_ramp(Vector3(128.0, 2.2, 128.0), ring, 110, Vector2(60.0, -16.0)),
 		"spawn-highway-ramp", false, _width_for(RoadDef.Tier.ARTERIAL, tier_defaults)))
 
-	# -- HUB ACCESS RAMP: starts at the center of the hub ring (XZ = 128,128) at a
-	# low crown Y (-0.1) and finishes on the hub ring at the point nearest the player
-	# viewpoint (128, ~2, 128). The ramp is wired as a merge point so rails are cleared
-	# on the receiving hub-ring approach at the junction and stay open on the ramp side.
+	# -- HUB ACCESS RAMP: climbs out of the spawn basin at a low crown Y (-0.1),
+	# 46 m out from the hub centre (clear of the r40 spawn plateau), and lands
+	# FLUSH on the hub ring's north point (ring 72 = 128, 18) at the ring's own
+	# Y 2.2, so RoadGraph registers a real zero-distance hub-ring junction. The
+	# ramp is wired as a merge point, so the receiving hub ring clears its rail
+	# across that junction and the ramp side carries no rails at all.
 	var hub_access_start := Vector3(128.0, -0.1, 81.8)
-	var hub_access_end := Vector3(128.0, 2.0, 128.0)
-	var hub_access_mid := Vector3(128.0, 3.5, 104.9)
+	var hub_access_end := _hub_ring_point_at(72)
+	var hub_access_mid := Vector3(128.0, 0.0, 49.9)
 	var hub_access_control: Array[Vector3] = [hub_access_start, hub_access_mid, hub_access_end]
 	defs.append(RoadDef.make(RoadDef.Tier.ARTERIAL,
 		_open_chain(hub_access_control),
@@ -299,23 +301,41 @@ static func _ramp_arterial(ring: Array[Vector3]) -> Array[Vector3]:
 ## Interchange access ramp: a from-point on a sub-network (pass loop / coast
 ## ribbon / touge loop) to a fixed highway ring anchor. The ramp builds a
 ## merge/acceleration lane that runs PARALLEL alongside the highway ring (at
-## the ring's Y, offset OUTSIDE the loop), tapering in so the ramp lands flush
-## on ring[ring_idx] from the side — never passing under the roadbed.
+## the ring's Y, offset off the carriageway by MERGE_CLEARANCE or more),
+## tapering in so the ramp lands flush on ring[ring_idx] from the side — never
+## passing under the roadbed. The lane and the whole approach are held on the
+## source's side of the ring ellipse, so no access road ever crosses the
+## highway: an inside source (pass) keeps the lane inside, an outside source
+## (coast / touge / spawn) keeps it outside.
 ## The endpoint is the ring point verbatim (XZ and Y) so RoadGraph registers
 ## the ramp<->ring junction at zero distance.
 static func _access_ramp(source: Vector3, ring: Array[Vector3], ring_idx: int, bulge: Vector2) -> Array[Vector3]:
 	var ring_end := ring[ring_idx]
 	var N := ring.size()
 	
-	# Build the merge runner: ~14 ring points immediately PRECEDING ring_idx,
-	# each offset OUTWARD by a taper distance that starts ~16 m and shrinks to 0.
-	# "Outward" = away from the ring center (ellipse center at 4400, 2250).
-	# 14 points at 12 m spacing = ~168 m merge lane alongside highway.
+	# Build the merge runner: the 14 ring points immediately PRECEDING ring_idx,
+	# each offset off the ring by a taper that starts at TAPER_START and shrinks
+	# to 0 at ring[ring_idx]. Ring vertices are ~134 m apart (N=192 on the
+	# 4600x3550 ellipse), so this parallels the highway for ~1.9 km.
+	# The side is resolved RELATIVE TO THE SOURCE, not "away from the ring
+	# centre": a ramp whose source sits INSIDE the ellipse (pass) has to run its
+	# lane on the inside, otherwise its approach would have to cross the
+	# carriageway to reach it. A source outside (coast / spawn) keeps the lane
+	# outside. TAPER_START exceeds MERGE_CLEARANCE so the two roadbeds never
+	# overlap: the ring is 24 m wide (12 m half) and this ramp 10 m (5 m half).
 	const RUNNER_COUNT := 14
-	const TAPER_START := 16.0
+	const TAPER_START := 24.0
+	const MERGE_CLEARANCE := 17.0
+	const RING_AXIS_X := 4600.0
+	const RING_AXIS_Z := 3550.0
 	var runner_pts: Array[Vector3] = []
 	var runner_ys: Array[float] = []
 	var ring_center := Vector2(4400.0, 2250.0)
+
+	# -1.0 when the source is inside the ring ellipse, +1.0 when it is outside.
+	var src_nx := (source.x - ring_center.x) / RING_AXIS_X
+	var src_nz := (source.z - ring_center.y) / RING_AXIS_Z
+	var merge_side := -1.0 if (src_nx * src_nx + src_nz * src_nz) < 1.0 else 1.0
 	
 	for k in range(RUNNER_COUNT, -1, -1):
 		var idx := (ring_idx - k) % N
@@ -330,15 +350,15 @@ static func _access_ramp(source: Vector3, ring: Array[Vector3], ring_idx: int, b
 		else:
 			var ang := TAU * float(idx) / float(N)
 			outward = Vector2(cos(ang), sin(ang))
-		var taper := TAPER_START * float(k) / float(RUNNER_COUNT)
+		var taper := TAPER_START * float(k) / float(RUNNER_COUNT) * merge_side
 		var offset_x := outward.x * taper
 		var offset_z := outward.y * taper
 		runner_pts.append(Vector3(rp.x + offset_x, rp.y, rp.z + offset_z))
 		runner_ys.append(rp.y)
 	
 	# Build the approach control points: source -> bulged mid -> runner[0]
-	# Use the provided bulge (carefully tuned per ramp) but ensure the approach
-	# stays outside the highway ring by correcting any points that fall inside.
+	# The bulge is tuned per ramp; the keep-out below then holds the resampled
+	# chain on the source's side of the highway ellipse.
 	var approach_mid := Vector3(
 		(source.x + runner_pts[0].x) * 0.5 + bulge.x,
 		0.0,
@@ -357,44 +377,42 @@ static func _access_ramp(source: Vector3, ring: Array[Vector3], ring_idx: int, b
 	approach_chain[DENSE] = Vector3(runner_pts[0].x, 0.0, runner_pts[0].z)
 	var approach_resampled := Spline.resample_by_arc(approach_chain, 12.0, 0.0, Vector3(runner_pts[0].x, 0.0, runner_pts[0].z))
 	
-	# Ensure the resampled approach ends exactly at runner_pts[0] (resample_by_arc may drop the endpoint).
+	# Snap the resampled approach's last point exactly onto runner_pts[0] — the
+	# outer end of the merge lane, offset TAPER_START off the ring. Overwriting
+	# rather than appending: resample_by_arc can stop a fraction of a metre
+	# short, and appending the exact point would leave a sub-metre segment
+	# between the two.
 	if approach_resampled.size() > 0:
-		var last := approach_resampled[approach_resampled.size() - 1]
-		if Vector2(last.x, last.z).distance_to(Vector2(runner_pts[0].x, runner_pts[0].z)) > 0.01:
-			approach_resampled.append(Vector3(runner_pts[0].x, 0.0, runner_pts[0].z))
+		approach_resampled[approach_resampled.size() - 1] = Vector3(runner_pts[0].x, 0.0, runner_pts[0].z)
 	
-	# Correct approach XZ to stay OUTSIDE the highway ring (further from center than ring vertices).
-	# Any point that falls inside gets pushed out to the ring radius + 0.5 m at that angle.
-	# Skip index 0 (the source point) to preserve exact junction with source zone.
-	# Only apply correction if the source is INSIDE the highway ring ellipse (ramps from pass/touge).
-	# Highway ring ellipse: center (4400, 2250), axis_x 4600, axis_z 3550.
-	var source_2d := Vector2(source.x, source.z)
-	var dx := (source_2d.x - 4400.0) / 4600.0
-	var dz := (source_2d.y - 2250.0) / 3550.0
-	var source_is_inside := (dx * dx + dz * dz) < 1.0
-	
-	if source_is_inside:
-		for i in range(1, approach_resampled.size()):
-			var p := approach_resampled[i]
-			var p2d := Vector2(p.x, p.z)
-			var d_from_center := p2d.distance_to(ring_center)
-			# Find nearest ring vertex distance from center at similar angle
-			var min_d := INF
-			var nearest_ring_2d := Vector2.ZERO
-			for rp in ring:
-				var d := p2d.distance_to(Vector2(rp.x, rp.z))
-				if d < min_d:
-					min_d = d
-					nearest_ring_2d = Vector2(rp.x, rp.z)
-			var ring_vert_dist_from_center := nearest_ring_2d.distance_to(ring_center)
-			if d_from_center < ring_vert_dist_from_center - 0.5:
-				# Push point outward to ring radius + 0.5 m
-				var dir_from_center := (p2d - ring_center).normalized()
-				if dir_from_center.length_squared() < 0.0001:
-					dir_from_center = Vector2(cos(TAU * float(i) / float(approach_resampled.size())), sin(TAU * float(i) / float(approach_resampled.size())))
-				var new_dist := ring_vert_dist_from_center + 0.5
-				var new_p2d := ring_center + dir_from_center * new_dist
-				approach_resampled[i] = Vector3(new_p2d.x, 0.0, new_p2d.y)
+	# Keep the whole approach on the source's side of the highway ellipse, so an
+	# access road can never cut across the ring's carriageway. For each resampled
+	# point past the source, measure the SIGNED distance to the ring ellipse
+	# along that point's own ray: positive outside, negative inside. The
+	# requirement is MERGE_CLEARANCE at the source, growing linearly to
+	# TAPER_START where the approach meets the merge lane, so the lane and the
+	# approach meet at the same offset. A point short of the requirement slides
+	# along its own ray onto the required locus, so the chain keeps its shape
+	# instead of being shoved sideways. Index 0 is the source and stays
+	# untouched: its junction with the sub-network is a hard anchor.
+	var approach_len := approach_resampled.size()
+	for i in range(1, approach_len):
+		var p := approach_resampled[i]
+		var radial := Vector2(p.x, p.z) - ring_center
+		var radial_len := radial.length()
+		if radial_len < 0.0001:
+			continue
+		var ray := radial / radial_len
+		# Distance from the ring centre to the ellipse locus along this ray.
+		var locus := 1.0 / sqrt(pow(ray.x / RING_AXIS_X, 2.0) + pow(ray.y / RING_AXIS_Z, 2.0))
+		var signed_off := radial_len - locus
+		var required := maxf(MERGE_CLEARANCE, TAPER_START * float(i + 1) / float(approach_len))
+		if merge_side * signed_off < required:
+			var want := locus + merge_side * required
+			approach_resampled[i] = Vector3(
+				ring_center.x + ray.x * want,
+				0.0,
+				ring_center.y + ray.y * want)
 	
 	# Now build the full XZ path: approach_resampled + runner_pts[1..]
 	var full_xz: Array[Vector3] = []
@@ -404,13 +422,12 @@ static func _access_ramp(source: Vector3, ring: Array[Vector3], ring_idx: int, b
 		full_xz.append(Vector3(runner_pts[i].x, 0.0, runner_pts[i].z))
 	
 	# Build Y array matching full_xz:
-	# - approach segment: climb to ring Y. For ramps starting INSIDE the highway ring
-	#   (pass, touge), climb AGGRESSIVE (1/3 of approach) then hold at ring Y.
-	#   For ramps starting OUTSIDE (spawn, coast), use original gradual climb (halfway)
-	#   to preserve 3D adjacency geometry with other hub ramps.
+	# - approach segment: climb to ring Y. A ramp whose source is INSIDE the
+	#   highway ring ellipse (pass) climbs AGGRESSIVE (1/3 of the approach) then
+	#   holds at ring Y. A source OUTSIDE (coast, touge, spawn) uses the gradual
+	#   halfway climb, which preserves the 3D adjacency geometry with the hub ramps.
 	# - runner segment: runner_ys[1..] (already at ring Y)
 	var full_ys: Array[float] = []
-	var approach_len: int = approach_resampled.size()
 	var highway_base_y: float = 22.0
 	var min_ring_y: float = INF
 	for y in runner_ys:
@@ -421,8 +438,8 @@ static func _access_ramp(source: Vector3, ring: Array[Vector3], ring_idx: int, b
 	var merge_zone_len: int = 16
 	if approach_len < 16:
 		merge_zone_len = approach_len
-	var climb_end_idx := maxi(approach_len / 3, 1) if source_is_inside else maxi(approach_len / 2, 1)
-	var use_aggressive := source_is_inside
+	var climb_end_idx := maxi(approach_len / 3, 1) if merge_side < 0.0 else maxi(approach_len / 2, 1)
+	var use_aggressive := merge_side < 0.0
 	for i in range(approach_len):
 		if use_aggressive:
 			if i <= climb_end_idx:

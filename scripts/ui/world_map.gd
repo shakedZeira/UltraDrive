@@ -19,6 +19,13 @@ extends Control
 ## terrain_cells() reuses the exact world_to_screen fit as the roads, keeping
 ## everything pixel-aligned. Without a source the composite is skipped and the
 ## map stays roads-only.
+##
+## Road names (the majors only -- see MAJOR_ROAD_IDS): each of the seven labelled
+## roads gets its name drawn along its own line at the arc-length midpoint,
+## tinted like the road it names so an unrevealed road is not stamped as driven,
+## and placed greedily longest-first with a collision pass, because seven
+## readable names beat seven overlapping ones. show_road_labels turns the whole
+## layer off without touching the lines.
 
 const ROAD_COLOR := Color(0.5, 0.62, 0.85, 0.88)
 const UNVISITED_ROAD_COLOR := Color(0.42, 0.44, 0.48, 0.72)
@@ -59,11 +66,62 @@ const INSET := 32.0
 ## pass, rebuilt only when the map reopens, so it stays cheap on any GPU.
 const TERRAIN_CELLS := 64
 
+## Road NAMES on the pause map. The player asked for the majors only, so this is
+## the seven planner ids a driver would actually name after the place they loop
+## or connect: every CLOSED ring/loop (highway-ring, hub-ring, pass-loop,
+## touge-a, touge-b) plus the two main CONNECTORS (hub-pass, hub-coast).
+## Selection rule, for adding or dropping one: a road earns a label if it is a
+## ring/loop or a district-to-district connector -- not if it is a ramp/merge
+## stub onto another road, a dirt shortcut, or a dead-end coastal ribbon. The
+## other twelve ids in the 19-road network stay anonymous, and this list is the
+## only thing place_road_labels() ever offers to the greedy pass.
+const MAJOR_ROAD_IDS: Array[String] = [
+	"hub-ring",
+	"hub-pass",
+	"pass-loop",
+	"highway-ring",
+	"touge-a",
+	"touge-b",
+	"hub-coast",
+]
+## Player-facing names for the roads above. These are READ, so they are spelled
+## for a player ("Mountain Pass Loop") and never derived from the id; an id with
+## no entry here still renders through road_label()'s title-cased fallback rather
+## than as a blank or a raw slug.
+const ROAD_LABELS := {
+	"hub-ring": "Hub Ring",
+	"hub-pass": "Hub Pass Link",
+	"pass-loop": "Mountain Pass Loop",
+	"highway-ring": "Ring Highway",
+	"touge-a": "Touge A",
+	"touge-b": "Touge B",
+	"hub-coast": "Coast Link",
+}
+## Label typography. 14 px is deliberately small: this is a full-screen map where
+## seven names must annotate the network, not compete with it. The outline reuses
+## the road casing colour so a name stays readable over snow, water and the
+## highway ring it may sit on. The font is the theme default (the engine
+## fallback unless the UI theme ships one), so this feature adds no asset.
+const ROAD_LABEL_FONT_SIZE := 14
+const ROAD_LABEL_COLOR := Color(0.93, 0.96, 1.0, 0.95)
+## An unrevealed road draws grey, and its name follows it: a road the player has
+## never driven is not labelled as if they had. The name is still drawn -- the
+## line it names is already on the map unrevealed, so the text spoils nothing.
+const UNVISITED_ROAD_LABEL_COLOR := Color(0.72, 0.75, 0.80, 0.7)
+const ROAD_LABEL_OUTLINE := ROAD_CASING
+## Breathing room (pixels) kept around every label box, so two names that would
+## merely touch still count as colliding and one of them is dropped.
+const ROAD_LABEL_PADDING := 4.0
+## A label whose box would cross the map border is dropped rather than clipped
+## in half against the frame.
+const ROAD_LABEL_EDGE_MARGIN := 2.0
+
 var _dirty := true
 var _fit := {}
 var _paths: Array = []  # visited segments (each a 2-point PackedVector2Array)
 var _grey_paths: Array = []  # unvisited segments
 var _route_path := PackedVector2Array()
+var _road_labels: Array = []  # placed names (each the place_road_labels() entry)
 var _terrain_cells: Array = []  # each {"rect": Rect2, "color": Color}, row-major
 var _poi_entries: Array = []  # each {"screen": Vector2, "poi": Dictionary}
 var _player_screen := Vector2.ZERO
@@ -87,15 +145,19 @@ var show_landmarks: bool = true
 var show_events: bool = true
 var show_collectibles: bool = true
 var show_travel: bool = true
+## Road names are their own gate for the same reason collectibles are: a player
+## who wants the network clean can drop the text without losing the lines.
+var show_road_labels: bool = true
 var region_filter: String = ""
 var _travel_gate: Callable = Callable()
 
 ## AAA-3 filter API: flags keys are "pois" / "landmarks" / "events" /
-## "collectibles" / "travel" (bools, the shipped all-on defaults) plus "region"
-## (String substring on the POI's stage name, "" = any). Only the keys present
-## are touched, so a partial update never silently resets another gate. Marks the
-## map dirty and queues a redraw, so the dot set is rebuilt against the active
-## gates on the next draw pass (headless gates call _rebuild() directly).
+## "collectibles" / "travel" / "road_labels" (bools, the shipped all-on defaults)
+## plus "region" (String substring on the POI's stage name, "" = any). Only the
+## keys present are touched, so a partial update never silently resets another
+## gate. Marks the map dirty and queues a redraw, so the dot set is rebuilt
+## against the active gates on the next draw pass (headless gates call
+## _rebuild() directly).
 func set_category_filters(flags: Dictionary) -> void:
 	if flags.has("pois"):
 		show_pois = bool(flags["pois"])
@@ -107,6 +169,8 @@ func set_category_filters(flags: Dictionary) -> void:
 		show_collectibles = bool(flags["collectibles"])
 	if flags.has("travel"):
 		show_travel = bool(flags["travel"])
+	if flags.has("road_labels"):
+		show_road_labels = bool(flags["road_labels"])
 	if flags.has("region"):
 		region_filter = str(flags["region"])
 	refresh()
@@ -120,6 +184,7 @@ func reset_category_filters() -> void:
 		"events": true,
 		"collectibles": true,
 		"travel": true,
+		"road_labels": true,
 		"region": "",
 	})
 
@@ -213,6 +278,7 @@ func _draw() -> void:
 			_draw_road_path(path, ROAD_COLOR, ROAD_WIDTH)
 	if _route_path.size() >= 2:
 		_draw_road_path(_route_path, ROUTE_COLOR, ROAD_WIDTH + 2.0)
+	_draw_road_labels()
 	for entry in _poi_entries:
 		_draw_poi(entry["screen"], entry["poi"])
 	if _has_player:
@@ -226,6 +292,36 @@ func _draw() -> void:
 func _draw_road_path(path: PackedVector2Array, color: Color, width: float) -> void:
 	draw_polyline(path, ROAD_CASING, width + 2.5)
 	draw_polyline(path, color, width)
+
+## Draws the placed road names (see place_road_labels). Each name is centred on
+## its own road, rotated to that road's screen angle so the text follows the
+## line, and tinted by whether the road under it is revealed -- an unexplored
+## road is named, not stamped as driven. The outline is the road casing colour,
+## which is what keeps a name readable over snow, water and the highway ring.
+## The canvas transform is reset afterwards, so the border and the player marker
+## that draw later are unaffected.
+func _draw_road_labels() -> void:
+	var font := _label_font()
+	if font == null:
+		return
+	for entry in _road_labels:
+		var label: Dictionary = entry
+		var text: String = label["text"]
+		var text_size := label_text_size(font, text)
+		if not _is_measurable(text_size):
+			continue
+		var color: Color = ROAD_LABEL_COLOR if bool(label["revealed"]) else UNVISITED_ROAD_LABEL_COLOR
+		var at: Vector2 = label["screen"]
+		# The draw origin is the BASELINE left, so the box centre plus the ascent
+		# is what puts the glyphs in the middle of their own collision box.
+		var origin := Vector2(-text_size.x * 0.5,
+			-text_size.y * 0.5 + font.get_ascent(ROAD_LABEL_FONT_SIZE))
+		draw_set_transform(at, float(label["angle"]), Vector2.ONE)
+		draw_string_outline(font, origin, text, HORIZONTAL_ALIGNMENT_LEFT, -1,
+			ROAD_LABEL_FONT_SIZE, 4, ROAD_LABEL_OUTLINE)
+		draw_string(font, origin, text, HORIZONTAL_ALIGNMENT_LEFT, -1,
+			ROAD_LABEL_FONT_SIZE, color)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 ## Draws a POI as a small satellite-style pin: dark outline ring around a
 ## zone/tier-coloured fill with a bright core, readable over any terrain tint.
@@ -314,6 +410,251 @@ func _poi_fill_color(poi: Dictionary) -> Color:
 		_:
 			return POI_COLOR
 
+# ---------------------------------------------------------------------------
+# Road names: what to call a road, where to put the name, and which name wins
+# the space when two roads converge.
+# ---------------------------------------------------------------------------
+
+## The name to print for `road_id`: the curated table when it has an entry, else
+## a title-cased rendering of the id itself ("coast-a" -> "Coast A"). The
+## fallback is what makes growing MAJOR_ROAD_IDS safe -- a newly promoted road
+## reads as "Dirt A" until somebody names it properly, and never as a blank.
+static func road_label(road_id: String) -> String:
+	if ROAD_LABELS.has(road_id):
+		return str(ROAD_LABELS[road_id])
+	if road_id.is_empty():
+		return "Unnamed Road"
+	return _title_case(road_id)
+
+## Whether `road_id` is one of the labelled majors (see MAJOR_ROAD_IDS).
+static func is_major_road(road_id: String) -> bool:
+	return MAJOR_ROAD_IDS.has(road_id)
+
+## Title-case fallback rule: split on "-", capitalise each word, rejoin with
+## single spaces. Its own function so the rule is one readable line instead of a
+## loop buried inside a Dictionary lookup.
+static func _title_case(road_id: String) -> String:
+	var words := PackedStringArray()
+	for part in road_id.split("-", false):
+		words.append(part.substr(0, 1).to_upper() + part.substr(1))
+	return " ".join(words)
+
+## The font a map label is measured AND drawn with: the theme default, i.e. the
+## engine fallback font unless the UI theme ships one. Null is a supported answer
+## -- the map then places no labels at all rather than drawing unmeasured text.
+func _label_font() -> Font:
+	var font := get_theme_default_font()
+	if font == null:
+		font = ThemeDB.fallback_font
+	return font
+
+## The single measurement used by BOTH the collision pass and the draw pass, so
+## a placed box can never disagree with the glyphs it was sized for. A null font
+## (or an empty name) measures as zero, which the placement pass reads as "cannot
+## be placed" rather than as a zero-size box that collides with nothing.
+static func label_text_size(font: Font, text: String) -> Vector2:
+	if font == null or text.is_empty():
+		return Vector2.ZERO
+	return font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, ROAD_LABEL_FONT_SIZE)
+
+## Whether a measured size is usable for placement: finite and strictly positive
+## on both axes.
+static func _is_measurable(size: Vector2) -> bool:
+	return is_finite(size.x) and is_finite(size.y) and size.x > 0.0 and size.y > 0.0
+
+## Where a chain's name goes, computed once and used for both the draw and the
+## collision box:
+##   "screen"  - the ARC-LENGTH midpoint projected to screen (not the vertex
+##               midpoint, so a densely sampled corner cannot drag a name into the
+##               corner it happens to be sampled most often at)
+##   "angle"   - the screen-space direction of the segment the midpoint is on
+##   "segment" - that segment's index, so the caller can ask the discovery mask
+##               whether the piece of road UNDER the name has been driven
+##   "length"  - total XZ length, the greedy pass's priority key
+## A chain of one point, or a chain whose vertices all sit on the same spot, has
+## no direction and no length: the name is then unrotated at the first point
+## instead of being thrown at an arbitrary angle.
+static func chain_anchor(points: PackedVector3Array, fit: Dictionary) -> Dictionary:
+	if points.is_empty():
+		return {"screen": Vector2.ZERO, "angle": 0.0, "segment": 0, "length": 0.0}
+	var first := MapRoads.world_to_screen(points[0], fit)
+	if points.size() < 2:
+		return {"screen": first, "angle": 0.0, "segment": 0, "length": 0.0}
+	var steps: Array[float] = []
+	var total := 0.0
+	for i in range(1, points.size()):
+		# XZ metres: Y is the terrain's business, not distance (same convention
+		# as RoadNetwork.point_to_segment_xz).
+		var step := Vector2(points[i].x - points[i - 1].x, points[i].z - points[i - 1].z).length()
+		steps.append(step)
+		total += step
+	if total <= 0.0:
+		return {"screen": first, "angle": 0.0, "segment": 0, "length": 0.0}
+	var walked := 0.0
+	for i in steps.size():
+		var step: float = steps[i]
+		if walked + step >= total * 0.5:
+			var from_screen := MapRoads.world_to_screen(points[i], fit)
+			var to_screen := MapRoads.world_to_screen(points[i + 1], fit)
+			var t := 0.0 if step <= 0.0 else (total * 0.5 - walked) / step
+			return {
+				"screen": from_screen.lerp(to_screen, clampf(t, 0.0, 1.0)),
+				"angle": (to_screen - from_screen).angle(),
+				"segment": i,
+				"length": total,
+			}
+		walked += step
+	return {"screen": first, "angle": 0.0, "segment": 0, "length": total}
+
+## Fold any screen angle into [-90, 90) degrees so a name is never drawn
+## upside-down: a road running right-to-left is labelled along its own line with
+## the text reversed, not turned over.
+static func _upright_angle(angle: float) -> float:
+	return fposmod(angle + PI * 0.5, PI) - PI * 0.5
+
+## The axis-aligned box a label of `text_size`, centred on `center` and rotated
+## by `angle`, actually covers. Rotating grows each axis by the other's extent,
+## so this is exact -- the unrotated box would let two long names on crossing
+## roads pass the collision test and then overlap on screen.
+static func label_box(center: Vector2, text_size: Vector2, angle: float,
+		padding: float = ROAD_LABEL_PADDING) -> Rect2:
+	var half := text_size * 0.5
+	var cos_a := absf(cos(angle))
+	var sin_a := absf(sin(angle))
+	var extent := Vector2(cos_a * half.x + sin_a * half.y,
+		sin_a * half.x + cos_a * half.y) + Vector2.ONE * padding
+	return Rect2(center - extent, extent * 2.0)
+
+## The road names to draw, resolved headlessly from world-space geometry.
+##
+## `roads` and `road_ids` are index-parallel (MapRoads.get_roads /
+## get_road_ids), `fit` is a compute_fit() dictionary, `measure` is a
+## Callable(String) -> Vector2 and `revealed` a
+## Callable(int road_index, int segment) -> bool. Both callables are injected so
+## the placement rules are testable with no canvas, no theme and no font -- and
+## so this function never has to know what a WorldDiscovery is.
+##
+## Greedy, one pass, longest road first: candidates are ordered by chain length
+## (ties by chain index, so the result is stable for a given network) and each
+## name is placed only if its box fits inside `rect` and clears every box already
+## placed. Dropping a name is the correct outcome where roads converge -- seven
+## readable labels beat seven overlapping ones -- and the big ring gets first
+## claim on the space, which is the name a player most needs.
+##
+## Returns one entry per placed name: {"id", "text", "screen", "angle", "box",
+## "revealed", "index", "length"}. Empty when there is nothing to name.
+static func place_road_labels(roads: Array, road_ids: Array, fit: Dictionary,
+		measure: Callable, rect: Rect2, revealed: Callable = Callable()) -> Array:
+	if fit.is_empty() or not measure.is_valid():
+		return []
+	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
+		return []
+	var candidates: Array = []
+	for index in roads.size():
+		if index >= road_ids.size():
+			break
+		var road_id := str(road_ids[index])
+		if not is_major_road(road_id):
+			continue
+		var points := _chain_points(roads[index])
+		# A chain of one point is not a road: there is no length to order it by
+		# and no direction to align a name to.
+		if points.size() < 2:
+			continue
+		var text := road_label(road_id)
+		var text_size: Vector2 = measure.call(text)
+		if not _is_measurable(text_size):
+			continue
+		var anchor := chain_anchor(points, fit)
+		var center: Vector2 = anchor["screen"]
+		var angle := _upright_angle(float(anchor["angle"]))
+		candidates.append({
+			"index": index,
+			"id": road_id,
+			"text": text,
+			"screen": center,
+			"angle": angle,
+			"box": label_box(center, text_size, angle),
+			"length": float(anchor["length"]),
+			"revealed": true if not revealed.is_valid()
+				else bool(revealed.call(index, int(anchor["segment"]))),
+		})
+	candidates.sort_custom(func(a, b):
+		var len_a := float(a["length"])
+		var len_b := float(b["length"])
+		if not is_equal_approx(len_a, len_b):
+			return len_a > len_b
+		return int(a["index"]) < int(b["index"]))
+	var margin := minf(ROAD_LABEL_EDGE_MARGIN, minf(rect.size.x, rect.size.y) * 0.25)
+	var bounds := rect.grow(-margin)
+	var placed: Array = []
+	var boxes: Array = []
+	for candidate in candidates:
+		var entry: Dictionary = candidate
+		var box: Rect2 = entry["box"]
+		if not bounds.encloses(box):
+			continue
+		var collides := false
+		for taken in boxes:
+			if (taken as Rect2).intersects(box):
+				collides = true
+				break
+		if collides:
+			continue
+		placed.append(entry)
+		boxes.append(box)
+	return placed
+
+## A chain as a flat PackedVector3Array, skipping anything that is not a point.
+## A RoadNetwork chain is typed Array[Vector3] so this is a copy; a duck-typed
+## source feeding garbage gets a shorter polyline rather than a cast error.
+static func _chain_points(chain: Variant) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	if not (chain is Array):
+		return out
+	for entry in (chain as Array):
+		if entry is Vector3:
+			var point: Vector3 = entry
+			out.append(point)
+	return out
+
+## The placed road labels for this rebuild, or [] when the gate is off. All the
+## placement work is the static pass above; the map only supplies the two things
+## that need a live node: the font that measures a name and the discovery mask
+## that says whether the road under it has been driven.
+func _place_road_labels(roads: Array, road_ids: Array, draw_size: Vector2) -> Array:
+	var font := _label_font()
+	if font == null:
+		return []
+	var measure := func(text: String) -> Vector2:
+		return label_text_size(font, text)
+	var revealed := func(road_index: int, segment: int) -> bool:
+		return _is_road_revealed(road_index, segment)
+	return place_road_labels(roads, road_ids, _fit, measure,
+		Rect2(Vector2.ZERO, draw_size), revealed)
+
+## Whether the piece of road `segment` of chain `road_index` has been driven. No
+## discovery source, an unknown road, or a mask that does not cover that segment
+## all read as revealed -- the same fallback the road draw pass uses, so a name
+## is never dimmer than the line under it.
+func _is_road_revealed(road_index: int, segment: int) -> bool:
+	if _discovery_source == null or segment < 0:
+		return true
+	var mask: Array[bool] = _discovery_source.segment_visited_mask(road_index)
+	if mask.is_empty() or segment >= mask.size():
+		return true
+	return mask[segment]
+
+## The road ids this rebuild actually managed to name, in draw order. Public so
+## the headless gate can assert the label set -- and the gate behind it -- without
+## reaching into the cached entries.
+func road_label_ids() -> Array[String]:
+	var out: Array[String] = []
+	for entry in _road_labels:
+		var label: Dictionary = entry
+		out.append(str(label["id"]))
+	return out
+
 func _rebuild() -> void:
 	_dirty = false
 	var source := MapRoads.resolve_road_source(self)
@@ -360,14 +701,15 @@ func _rebuild() -> void:
 		_terrain_cells = MapRoads.terrain_cells(_fit, provider, TERRAIN_CELLS, TERRAIN_CELLS)
 	_paths = []
 	_grey_paths = []
-	for road_id in roads.size():
-		var chain: Array = roads[road_id]
+	_road_labels = []
+	for road_index in roads.size():
+		var chain: Array = roads[road_index]
 		var screens := PackedVector2Array()
 		for p in chain:
 			screens.append(MapRoads.world_to_screen(p, _fit))
 		var mask: Array[bool] = []
 		if _discovery_source != null:
-			mask = _discovery_source.segment_visited_mask(road_id)
+			mask = _discovery_source.segment_visited_mask(road_index)
 		if mask.is_empty() or (mask.size() != chain.size() - 1 and mask.size() != chain.size()):
 			# No usable discovery data: draw the whole chain as one visited path.
 			if screens.size() >= 2:
@@ -382,6 +724,12 @@ func _rebuild() -> void:
 				_paths.append(segment)
 			else:
 				_grey_paths.append(segment)
+	# Road NAMES, same pass: the ids come from the same source in the same order
+	# as the chains, so the discovery mask indexed by road_index above is the one
+	# the label tints read. Cached like the rest, so labels appear on open and on
+	# resize without any per-frame work.
+	if show_road_labels:
+		_road_labels = _place_road_labels(roads, MapRoads.get_road_ids(source), size)
 	_route_path = PackedVector2Array()
 	if MapRoads.has_route and with_world:
 		var route := MapRoads.route_polyline(source, player_pos, MapRoads.route_target)
