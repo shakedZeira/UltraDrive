@@ -34,6 +34,27 @@ func _ramp_defs() -> Array[RoadDef]:
 			out.append(def)
 	return out
 
+## Master-plan lookup by human id. Returns the RoadDef itself, or null when the
+## plan has no such road, so callers can assert the road exists and bail before
+## dereferencing instead of indexing a -1 from Array.find() (which returns an
+## int index, not the element, and would silently read defs[-1]).
+func _def_by_id(defs: Array[RoadDef], id: String) -> RoadDef:
+	for def in defs:
+		if def.id == id:
+			return def
+	return null
+
+## Direct children of a TrackBuilder whose node name starts with prefix (the
+## RoadRail/LaneDivider/RailCollision families). Local copy of the helper in
+## test_multi_lane_rails.gd — suites are independent files and must not call
+## into each other's private helpers.
+func _child_named_count(builder: TrackBuilder, prefix: String) -> int:
+	var count := 0
+	for child in builder.get_children():
+		if child.name.begins_with(prefix):
+			count += 1
+	return count
+
 ## Every ramp exists, is open (one-way spur, no closing chord), lands on a
 ## vertex that trivially joins the ring under the LINK_THRESHOLD, and its last
 ## point IS the ring point verbatim (XZ+Y) so RoadGraph registers a zero-dist
@@ -315,16 +336,16 @@ func test_open_world_every_zone_routes_to_and_from_the_ring() -> void:
 ## for it.
 func test_hub_access_ramp_rail_gapped_on_receiving_hub_ring() -> void:
 	var defs := CorridorPlanner.plan(CorridorPlanner.MASTER_SEED)
-	var hub_ring := defs.find(func(d: RoadDef) -> bool: return d.id == "hub-ring")
-	var ramp := defs.find(func(d: RoadDef) -> bool: return d.id == "hub-access-ramp")
+	var hub_ring := _def_by_id(defs, "hub-ring")
+	var ramp := _def_by_id(defs, "hub-access-ramp")
 	assert_that(hub_ring).is_not_null()
 	assert_that(ramp).is_not_null()
 	if hub_ring == null or ramp == null:
 		return
 	assert_that(RoadDef.is_merge_point(ramp.id)).is_true()
 	assert_that(ramp.points.size()).is_greater(2)
-	var first := ramp.points[0]
-	var last := ramp.points[ramp.points.size() - 1]
+	var first: Vector3 = ramp.points[0]
+	var last: Vector3 = ramp.points[ramp.points.size() - 1]
 	assert_float(first.y).is_equal_approx(-0.1, 0.01)
 	assert_float(last.y).is_equal_approx(2.0, 0.01)
 	assert_float(last.x).is_equal_approx(128.0, 0.001)
@@ -348,7 +369,7 @@ func test_hub_access_ramp_rail_gapped_on_receiving_hub_ring() -> void:
 	assert_int(hub_rails_after).is_equal(2)
 	var hub_right_rail := hub_builder.get_node("RoadRailRight") as MeshInstance3D
 	assert_that(hub_right_rail.mesh.get_surface_count()).is_greater(0)
-	var _gap_mat := hub_builder.get_node("RoadRailRight").get_surface_override_material(0)
+	var _gap_mat := hub_right_rail.get_surface_override_material(0)
 	# The on-ramp itself stays rail-free at the merge (no RoadRail children produced).
 	assert_int(ramp_rails_after).is_equal(0)
 
