@@ -1,12 +1,41 @@
 # AGENTS.md — UltraDrive (Godot 4.7.2)
 
-Project knowledge for autonomous agents. Godot project root = this directory
-(`D:\AI Projects\UltraDrive`, res://). Godot binary:
-`D:\Godot\Godot_v4.7.2-stable_win64.exe` (win64 arrows). GDUnit4 addon at
-`addons/gdUnit4`, tests under `tests/` (suite: `tests/suites`).
+Project knowledge for autonomous agents. Godot project root = **this
+directory** (res://) — the checkout path differs per machine, so never
+hardcode it:
+- PC: `D:\AI Projects\UltraDrive`
+- Laptop: `C:\Users\IMOE001\Desktop\Shaked Projects\UltraDrive\UltraDrive`
+
+GDUnit4 addon at `addons/gdUnit4`, tests under `tests/` (suite:
+`tests/suites`).
+
+## GODOT BINARY (never hardcode one drive)
+
+`godot_path.bat` (project root) resolves the engine and exports `GODOT_EXE`.
+It checks, in order: an existing `GODOT_EXE`, then
+`D:\Godot\Godot_v4.7.2-stable_win64.exe` (PC), then
+`C:\Godot\Godot_v4.7.2-stable_win64.exe` (laptop), then the Program Files /
+`%LOCALAPPDATA%\Programs` defaults, then any `Godot_v4.7.2*.exe` under
+`D:\Godot` or `C:\Godot`.
+
+**Always resolve it instead of typing a path** (works on both machines):
+
+```bat
+call godot_path.bat && "%GODOT_EXE%" --headless --import .
+```
+
+`play_game.bat` / `start_game.bat` already do this. If a path was hardcoded
+to one drive, fix it to go through `godot_path.bat` — do NOT just flip it to
+the other drive, that breaks the other machine.
 
 ## FILESYSTEM HYGIENE (MANDATORY)
-- **Only write to `D:\AI Projects\UltraDrive` (the project root).** Do not write anywhere on `C:\` (no temp files, no logs, no scratch). All tool output, logs, and artifacts must stay inside the project directory. This machine has limited C: space; writing there causes failures.
+- **Only write inside the project root** (this directory, whatever drive it
+  is on). All tool output, logs, and artifacts stay in the project folder —
+  no temp files, no scratch, no system temp dir.
+- On the **PC** specifically, that means do not write anywhere on `C:\`: the
+  drive is small and filling it causes failures. This caveat is about that
+  machine's low C: space, not a ban on the C: drive — the laptop's project
+  legitimately lives on `C:\Users\...\Desktop\Shaked Projects\`.
 
 ## VISION BRIDGE (local image analysis)
 
@@ -44,15 +73,22 @@ supported!"), which has nothing to do with your code.
    (project `.gitignore` ignores them). If it does, they're untracked noise —
    never `git add -A`.
 
-2) First-time or Big-Asset import (a real Blender/glb world):
-   `"D:\Godot\Godot_v4.7.2-stable_win64.exe" --headless --import . 2>&1 | findstr /i "SCRIPT ERROR Parse Error Failed to load"`
+2) First-time or Big-Asset import (a real Blender/glb world). Resolve the
+   engine once, then use it (PowerShell — this is what agents should run):
+   ```powershell
+   $godot = (cmd /v:on /c "call godot_path.bat & echo !GODOT_EXE!").Trim()
+   & $godot --headless --import . 2>&1 | findstr /i "SCRIPT ERROR Parse Error Failed to load"
+   ```
+   (cmd equivalent: `call godot_path.bat && "%GODOT_EXE%" --headless --import .`)
    → expect ZERO `SCRIPT ERROR` / `Parse Error` lines (benign `resources still
    in use at exit` and Terrain3D whitelist lines are allowed).
 
 3) GDUnit suite (headless, PRECEDED by step 2 so gdUnit4 has had its
    first-run). IMPORTANT: `--ignoreHeadlessMode` MUST come AFTER the tool-script
    path (before it, the engine bails with exit 103):
-   `"D:\Godot\Godot_v4.7.2-stable_win64.exe" --headless -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd --ignoreHeadlessMode -a res://tests > _gdunit.txt 2>&1`
+   ```powershell
+   & $godot --headless -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd --ignoreHeadlessMode -a res://tests > _gdunit.txt 2>&1
+   ```
    Then `findstr /c:"Overall Summary:" _gdunit.txt`.
    EXPECT: `Overall Summary: 263 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 109 orphans` (263/263 — the 260 baseline plus 3 graphics support-ladder tests: hardware-recommended default preset, scene-env discovery, and preset auto-apply onto a scene tree; 17 orphans are benign).
    GDUnit gotchas: it treats GDScript warnings as errors (e.g. `var x := some_func_returning_Variant()` fails to load) and its vector `is_equal_approx` requires a SAME-TYPE approx arg, not a float (`assert_that(vec).is_equal_approx(vec, Vector2(0.001, 0.001))`).
