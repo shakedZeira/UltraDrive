@@ -5,13 +5,14 @@ extends GdUnitTestSuite
 ## (zero-distance) semantics, route reachability after the open-world bootstrap,
 ## and loop-shape features (clean closed rings, no phantom chord cancellation).
 ##
-## Topology source of truth (ROADS, MATCHED ORDER):
+## Topology source of truth (ROADS, MATCHED ORDER) — 19 corridors:
 ##   0 hub-ring         1 hub-pass (connector)  2 pass-loop
 ##   3 highway-ring     4 hub-coast arterial   5 hub-highway-ramp
 ##   6 touge-a          7 touge-b              8 coast-a
 ##   9 coast-b         10 dirt-a              11 dirt-b
-##  12 pass-highway-ramp  13 coast-highway-ramp 14 touge-highway-ramp
-##  15 spawn-highway-ramp
+##  12 highway-hub-ramp 13 highway-pass-ramp   14 pass-highway-ramp
+##  15 coast-highway-ramp 16 touge-highway-ramp 17 spawn-highway-ramp
+##  18 hub-access-ramp
 
 ## P0 open-world road-plan gate: RoadDef data tables, RoadGraph topology and
 ## hop routing, RoadNetwork integration, the P2 classified-road bootstrap
@@ -371,38 +372,80 @@ func test_open_world_bootstrap_connects_the_classified_network() -> void:
 	if network == null:
 		return
 	var roads := network.get_roads()
-	# The P2 classified network (CorridorPlanner.plan) emits 16 road defs; the
+	# The P2 classified network (CorridorPlanner.plan) emits 19 road defs; the
 	# bootstrap core invariant is that defs 0..2 are hub ring / hub->pass
-	# connector / pass loop, so the growth must never break that prefix.
+	# connector / pass loop, so the growth must never break that prefix. Every
+	# row below is keyed by id, never by a hard-coded plan index, because the
+	# planner appends corridors and a positional expectation silently starts
+	# describing a different road.
 	assert_that(roads.size()).is_greater_equal(3)
 	assert_that(network.get_road_defs().size()).is_equal(roads.size())
+	var defs := network.get_road_defs()
 	var hub: Array[Vector3] = roads[0]
 	# Hub ring point 0 doubles as the connector's first point.
 	assert_that(hub[0]).is_equal_approx(Vector3(238.0, 2.2, 128.0), Vector3(0.001, 0.001, 0.001))
 	var adj := network.get_adjacency()
-	var expected_adjacency := {
-		0: PackedInt32Array([1, 4, 5, 10, 11, 15]),
-		1: PackedInt32Array([0, 2, 3, 4, 5, 10, 11]),
-		2: PackedInt32Array([1, 12]),
-		3: PackedInt32Array([1, 5, 10, 11, 12, 13, 14, 15]),
-		4: PackedInt32Array([0, 1, 5, 9, 10, 11, 13]),
-		5: PackedInt32Array([0, 1, 3, 4, 10, 11, 15]),
-		6: PackedInt32Array([14]),
-		7: PackedInt32Array(),
-		8: PackedInt32Array(),
-		9: PackedInt32Array([4, 13]),
-		10: PackedInt32Array([0, 1, 3, 4, 5, 11, 15]),
-		11: PackedInt32Array([0, 1, 3, 4, 5, 10, 15]),
-		12: PackedInt32Array([2, 3]),
-		13: PackedInt32Array([3, 4, 9]),
-		14: PackedInt32Array([3, 6]),
-		15: PackedInt32Array([0, 3, 5, 10, 11]),
+	var index_by_id := {}
+	for i in defs.size():
+		index_by_id[defs[i].id] = i
+	var expected_neighbours := {
+		"hub-ring": ["hub-pass", "hub-coast", "hub-highway-ramp", "dirt-a", "dirt-b",
+			"highway-hub-ramp", "spawn-highway-ramp", "hub-access-ramp"],
+		"hub-pass": ["hub-ring", "pass-loop", "highway-ring", "hub-coast",
+			"hub-highway-ramp", "dirt-a", "dirt-b"],
+		"pass-loop": ["hub-pass", "highway-pass-ramp", "pass-highway-ramp"],
+		"highway-ring": ["hub-pass", "hub-highway-ramp", "dirt-a", "dirt-b",
+			"highway-hub-ramp", "highway-pass-ramp", "pass-highway-ramp",
+			"coast-highway-ramp", "touge-highway-ramp", "spawn-highway-ramp"],
+		"hub-coast": ["hub-ring", "hub-pass", "hub-highway-ramp", "coast-b", "dirt-a",
+			"dirt-b", "coast-highway-ramp", "hub-access-ramp"],
+		"hub-highway-ramp": ["hub-ring", "hub-pass", "highway-ring", "hub-coast", "dirt-a",
+			"dirt-b", "highway-hub-ramp", "spawn-highway-ramp"],
+		"touge-a": ["touge-highway-ramp"],
+		"touge-b": [],
+		"coast-a": [],
+		"coast-b": ["hub-coast", "coast-highway-ramp"],
+		"dirt-a": ["hub-ring", "hub-pass", "highway-ring", "hub-coast", "hub-highway-ramp",
+			"dirt-b"],
+		"dirt-b": ["hub-ring", "hub-pass", "highway-ring", "hub-coast", "hub-highway-ramp",
+			"dirt-a", "hub-access-ramp"],
+		"highway-hub-ramp": ["hub-ring", "highway-ring", "hub-highway-ramp",
+			"spawn-highway-ramp"],
+		"highway-pass-ramp": ["pass-loop", "highway-ring", "pass-highway-ramp"],
+		"pass-highway-ramp": ["pass-loop", "highway-ring", "highway-pass-ramp"],
+		"coast-highway-ramp": ["highway-ring", "hub-coast", "coast-b"],
+		"touge-highway-ramp": ["highway-ring", "touge-a"],
+		"spawn-highway-ramp": ["hub-ring", "highway-ring", "hub-highway-ramp",
+			"highway-hub-ramp"],
+		# The hub access ramp lands ON the hub ring's north point (ring 72), so
+		# it is flush with the ring (0 m junction) and no longer shares the
+		# spawn anchor with the two access ramps that start there. It now
+		# crosses the northbound roads instead: hub-coast and dirt-b.
+		"hub-access-ramp": ["hub-ring", "hub-coast", "dirt-b"],
 	}
-	for road_id: int in expected_adjacency:
-		assert_that(adj[road_id]).is_equal(expected_adjacency[road_id])
-	# The spawn ramp (15) joins the hub ring (0) and highway ring (3), and shares
-	# the hub basin approaches (5, 10, 11); it does not join the eastern connector (1).
-	assert_that(adj[15]).is_equal(PackedInt32Array([0, 3, 5, 10, 11]))
+	# The plan grew 16 -> 19 with the two return connectors and the hub access
+	# ramp; a partial table would silently stop covering the tail of the plan.
+	assert_int(expected_neighbours.size()).is_equal(defs.size())
+	for road_id: String in expected_neighbours:
+		assert_bool(index_by_id.has(road_id)).is_true()
+		var expected: Array = []
+		for other_id: String in expected_neighbours[road_id]:
+			expected.append(index_by_id[other_id])
+		assert_that(adj[index_by_id[road_id]]).is_equal(PackedInt32Array(expected))
+	# The spawn ramp joins the hub ring (it leaves the hub centre), the highway
+	# ring (it lands on a ring vertex), the shared hub-basin approach
+	# (hub-highway-ramp) and the other road on the same spawn anchor
+	# (highway-hub-ramp); it never joins the eastern hub->pass connector.
+	var spawn_ids: Array[String] = ["hub-ring", "highway-ring", "hub-highway-ramp",
+		"highway-hub-ramp"]
+	var spawn_row: PackedInt32Array = adj[index_by_id["spawn-highway-ramp"]]
+	assert_that(spawn_row.size()).is_equal(spawn_ids.size())
+	for i in spawn_row.size():
+		assert_that(defs[spawn_row[i]].id).is_equal(spawn_ids[i])
+	var spawn_neighbours: Array[String] = []
+	for i in spawn_row:
+		spawn_neighbours.append(defs[i].id)
+	assert_bool(spawn_neighbours.has("hub-pass")).is_false()
 	var junctions := network.get_junctions()
 	var ring_junction: Dictionary = {}
 	var pass_junction: Dictionary = {}
@@ -516,7 +559,9 @@ func test_track_builder_banking_lowers_right_edge_on_right_turn() -> void:
 	add_child(banked)
 	_track(banked)
 	banked.build_track(right_turn, false, def)
-	assert_that(banked.get_child_count()).is_equal(4)
+	# ARTERIAL is rail-enabled (RoadDef.ROADS_WITH_RAILS), so build_track adds
+	# RoadRailRight/Left on top of surface + 2 edges + CollisionBody = 6.
+	assert_int(banked.get_child_count()).is_equal(6)
 	if banked.get_child_count() < 4:
 		return
 	var apex_center := right_turn[1]

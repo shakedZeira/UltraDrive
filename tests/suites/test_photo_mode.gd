@@ -395,7 +395,8 @@ func test_world_map_draws_every_speed_trap_in_the_shared_family_red() -> void:
 ## Hiding the CALENDAR must not hide a gameplay target: collectibles carry their
 ## own always-on category, so events-off drops the time attacks while every
 ## landmark and all eight traps survive. Only the explicit collectibles gate
-## removes them, and the shipped reset brings them back.
+## removes them -- and because that gate is its own flag, it leaves the
+## calendar alone -- and the shipped reset brings them back.
 func test_world_map_keeps_speed_traps_when_the_events_layer_is_hidden() -> void:
 	var root := _new_root()
 	var world_map := _new_world_map(root)
@@ -409,7 +410,12 @@ func test_world_map_keeps_speed_traps_when_the_events_layer_is_hidden() -> void:
 	for trap_id in trap_ids:
 		assert_array(ids).contains([trap_id])
 
-	world_map.set_category_filters({"collectibles": false})
+	# The collectibles gate is its OWN flag, so hiding the family must not take
+	# the calendar with it. set_category_filters is a PARTIAL update by design
+	# (reset_category_filters is the all-on reset), so the events layer this test
+	# hid in the block above is switched back on in the same call: with it still
+	# hidden the time-attack assertion below would only restate the events gate.
+	world_map.set_category_filters({"events": true, "collectibles": false})
 	world_map.call("_rebuild")
 	ids = world_map.poi_entry_ids()
 	for trap_id in trap_ids:
@@ -421,3 +427,40 @@ func test_world_map_keeps_speed_traps_when_the_events_layer_is_hidden() -> void:
 	ids = world_map.poi_entry_ids()
 	for trap_id in trap_ids:
 		assert_array(ids).contains([trap_id])
+
+# ---------------------------------------------------------------------------
+# POI identity: a drawn dot must be able to name itself.
+# ---------------------------------------------------------------------------
+
+## The map resolves the POI it is drawing from the id INSIDE the entry --
+## poi_entry_ids(), the collectible family palette and the claimed dimming all
+## read poi["id"], because the draw pass holds entries, not keys. The base
+## landmarks and the event markers never carried one (only the collectibles did,
+## from Collectibles._entry), so those dots reached the map as empty ids: named
+## by nobody, addressable by no id-keyed gate, and indistinguishable from each
+## other. The registry stamps each key into its own entry, which is what makes
+## every dot addressable again -- pinned here for all three families at once.
+func test_every_drawn_poi_carries_its_own_registry_id() -> void:
+	var root := _new_root()
+	var world_map := _new_world_map(root)
+	world_map.call("_rebuild")
+	var ids: Array[String] = world_map.poi_entry_ids()
+
+	# One dot per registered POI, each under its own name, and never twice.
+	assert_that(ids.size()).is_equal(POIRegistry.get_poi_ids().size())
+	var drawn := {}
+	for poi_id in ids:
+		assert_that(poi_id).is_not_empty()
+		assert_that(drawn.has(poi_id)).is_false()
+		drawn[poi_id] = true
+	for poi_id in POIRegistry.get_poi_ids():
+		assert_that(drawn.has(str(poi_id))).is_true()
+
+	# The two families that regressed are named explicitly.
+	assert_array(ids).contains(["festival_hub"])
+	assert_array(ids).contains(["time_attack_0"])
+	# And the entry alone classifies: the map's fast path and the entry agree.
+	for entry in (world_map.get("_poi_entries") as Array):
+		var poi: Dictionary = (entry as Dictionary)["poi"]
+		var poi_id := str(poi.get("id", ""))
+		assert_that(POIRegistry.category_of(poi)).is_equal(POIRegistry.category_of(poi, poi_id))

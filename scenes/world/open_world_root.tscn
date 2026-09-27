@@ -108,11 +108,11 @@ script = ExtResource("9_net")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3800, 14, 3200)
 
 [node name="PlayerSpawn" type="Marker3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 238, 2.2, 128)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 128, 2.2, 128)
 
 [node name="PlayerCar" parent="." instance=ExtResource("3_car")]
 unique_name_in_owner = true
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 238, 2.2, 128)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 128, 2.2, 128)
 
 [node name="ChaseCamera" type="Node3D" parent="."]
 script = ExtResource("4_chase")
@@ -125,7 +125,7 @@ target = NodePath("%PlayerCar")
 chase_camera_path = NodePath("../ChaseCamera")
 hood_camera_path = NodePath("../HoodCamera")
 cockpit_camera_path = NodePath("../CockpitCamera")
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 238, 4.7, 134)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 128, 4.7, 134)
 
 [node name="HoodCamera" type="Node3D" parent="."]
 script = ExtResource("18_hood")

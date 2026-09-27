@@ -74,7 +74,7 @@ func recompute_rails() -> void:
         var pts := _roads[road_id]
         var N := pts.size()
         
-        # Simple overlap detection: for each junction, gap rails on both roads
+        # Simple overlap detection: for each junction, gap the rails of this road
         # where they're close (within merge distance)
         for junction: Dictionary in junctions:
             var road_a := int(junction["road_a"])
@@ -84,48 +84,26 @@ func recompute_rails() -> void:
                 var other_id := road_b if road_a == road_id else road_a
                 if other_id >= 0 and other_id < _road_defs.size():
                     var other_def := _road_defs[other_id]
-                    if other_def.rails_enabled() and other_id < _builders.size():
-                        var other_pts := _roads[other_id]
-                        var other_N := other_pts.size()
-                        
-                        # Find closest point indices on both roads
+                    # Tier table only, NOT the merge veto: a merge-point road has
+                    # no rails of its own, but the receiving road's rail still has
+                    # to be cleared where the merge lands on it.
+                    if RoadDef.has_rails(other_def.tier) and other_id < _builders.size():
+                        # Closest point index on THIS road at the junction.
                         var idx_a := _find_closest_point_index(pts, point)
-                        var idx_b := _find_closest_point_index(other_pts, point)
-                        
-                        # Gap ~14 points (≈168m) on both roads around the junction,
-                        # unless a merge-point policy disables rails at the merge.
+
+                        # Gap ~14 points (≈168m) of this road's rail around the
+                        # junction. The geometry always comes from this road's own
+                        # points: a gap built from the OTHER road's coordinates
+                        # describes a different arc length, so it would be cut in
+                        # the wrong place (and the merge side would keep its
+                        # rails). The merge side needs no gap of its own -
+                        # RoadDef.rails_enabled() is merge-gated, so the loop above
+                        # already skipped it and it has no rail to clear.
                         const MERGE_POINTS := 14
-                        
-                        # If either road is a merge point, only gap rails on the other road
-                        # so the merge side stays open while the receiving road still clears its rail.
-                        var this_is_merge := RoadDef.is_merge_point(def.id)
-                        var other_is_merge := other_id >= 0 and other_id < _road_defs.size() and RoadDef.is_merge_point(_road_defs[other_id].id)
-                        
-                        if this_is_merge and not other_is_merge:
-                            # Gap the receiving side only.
-                            if other_N >= MERGE_POINTS:
-                                var other_start: Vector3 = other_pts[other_N - MERGE_POINTS]
-                                var other_end: Vector3 = other_pts[other_N - 1]
-                                gaps.append({"start": other_start, "end": other_end})
-                        elif other_is_merge and not this_is_merge:
-                            # Gap this side only.
-                            var start_idx := (idx_a - MERGE_POINTS) % N
-                            if start_idx < 0:
-                                start_idx += N
-                            var start_point: Vector3 = pts[start_idx]
-                            var end_point: Vector3 = pts[idx_a]
-                            gaps.append({"start": start_point, "end": end_point})
-                        else:
-                            # Standard case: gap both sides around the junction.
-                            # Gap on this road
-                            var start_idx := (idx_a - MERGE_POINTS) % N
-                            if start_idx < 0:
-                                start_idx += N
-                            var start_point: Vector3 = pts[start_idx]
-                            var end_point: Vector3 = pts[idx_a]
-                            gaps.append({"start": start_point, "end": end_point})
-                        
-                        
+                        var start_idx := (idx_a - MERGE_POINTS) % N
+                        if start_idx < 0:
+                            start_idx += N
+                        gaps.append({"start": pts[start_idx], "end": pts[idx_a]})
         _builders[road_id].configure_rails(gaps)
 
 func _find_closest_point_index(points: Array[Vector3], target: Vector3) -> int:

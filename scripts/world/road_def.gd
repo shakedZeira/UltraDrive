@@ -39,9 +39,10 @@ const ROADS_WITH_RAILS := {
 
 ## Merge-point policy: ramps and connectors that start at or land on other roads
 ## intentionally disable rails at the merge so the merge side stays open. Specific
-## merge points (e.g. the hub-access ramp starting at the hub-ring center (128, -0.1, 81.8)
-## and landing on the hub ring at (128, ~2, 128)) are treated the same way; the receiving
-## road only has its rail cleared at the merge zone rather than both sides.
+## merge points (e.g. the hub-access ramp leaving the spawn basin at
+## (128, -0.1, 81.8) and landing on the hub ring's north point (128, 2.2, 18))
+## are treated the same way; the receiving road only has its rail cleared at the
+## merge zone rather than both sides.
 static func is_merge_point(id: String) -> bool:
 	return id == "hub-access-ramp"
 
@@ -102,8 +103,15 @@ func lane_count() -> int:
 static func has_rails(tier: int) -> bool:
 	return bool(ROADS_WITH_RAILS.get(tier, false))
 
+## Whether this road carries rails at all: the tier table AND the merge-point
+## veto. A merge point emits no rail meshes, which is what keeps the merge side
+## of the junction open. Consumers that need the UN-GATED answer (is this a rail
+## TIER road, so does it take part in junction rail gaps at all?) ask
+## has_rails(tier) instead - RoadNetwork.recompute_rails does exactly that for
+## the other side of a junction, so a merge point still makes the receiving road
+## clear its rail.
 func rails_enabled() -> bool:
-	return has_rails(tier)
+	return has_rails(tier) and not is_merge_point(id)
 
 ## Default surface per tier.
 static func default_surface(t: int) -> int:
