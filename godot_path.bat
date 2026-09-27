@@ -34,7 +34,14 @@ if not defined GODOT_EXE (
 )
 
 :resolved
-endlocal & set "GODOT_EXE=%GODOT_EXE%" & exit /b 0
+REM  Derive the CONSOLE-subsystem twin. The GUI binary is a WINDOWS_GUI PE: under
+REM  PowerShell's & operator it detaches immediately, does not wait and does not
+REM  attach stdout, so a headless run silently no-ops and reports a FALSE GREEN
+REM  (observed: import probe "passed" in 8 ms, _gdunit.txt written as 0 bytes).
+REM  Always use %GODOT_EXE_CONSOLE% for --headless / redirected runs.
+set "GODOT_EXE_CONSOLE=%GODOT_EXE:win64.exe=win64_console.exe%"
+if not exist "%GODOT_EXE_CONSOLE%" set "GODOT_EXE_CONSOLE=%GODOT_EXE%"
+endlocal & set "GODOT_EXE=%GODOT_EXE%" & set "GODOT_EXE_CONSOLE=%GODOT_EXE_CONSOLE%" & exit /b 0
 
 REM --- try <full path> : set GODOT_EXE if the file exists ---------------------
 :try
