@@ -31,6 +31,71 @@ const HIGHWAY_BANKING := 0.35
 ## pass ring formula so the whole 3-road bootstrap is reproducible headless.
 const PASS_ZONE_POS := Vector3(3800.0, 14.0, 3200.0)
 
+## Extra metres of ring-parallel merge lane the spawn ramp runs before its
+## taper starts. Every access ramp gets the standard 14-vertex (~1.5 km) taper;
+## the spawn ramp comes off the hub basin at a crawl, so it needs a longer
+## constant-offset run to reach highway speed on ring grade.
+const SPAWN_MERGE_RUN_M := 200.0
+
+## The canonical player-facing name of EVERY corridor, keyed by id. This is the
+## single source of truth: the pause map labels roads from RoadDef.name (via
+## MapRoads.get_road_names), so a name added here shows up on the map without
+## touching any UI code.
+##
+## Naming rules, so the set reads as one system rather than 19 inventions:
+##   - The qualifier is what the road actually CONNECTS or what tier it is.
+##     No invented flavour, no unverified geography.
+##   - "<X> Link"     two networks joined by an arterial you drive end to end.
+##   - "<X> On-Ramp"  leaves a sub-network and merges onto the highway ring.
+##   - "<X> Return"   the reverse: leaves the ring for somewhere else.
+##   - Loop/Ring/On-Ramp keep the road's shape or role, matching the curated
+##     majors that were here first.
+## Every id plan() emits MUST appear here. test_all_planned_roads_are_named
+## fails loudly when a new corridor is added without one.
+##
+## coast-a / coast-b are the two arms of the SAME shoreline -- both wrap the same
+## side of the sea, so a north/south split would be a fabrication. What actually
+## separates them is east/west, and that is what they are named for: measured at
+## MASTER_SEED against the sea centre (8200,-3400), coast-a spans x 5620..7745 and
+## coast-b spans x 7972..9703 -- disjoint ranges.
+const ROAD_NAMES := {
+	# -- the seven curated majors (names predate this table; keep them verbatim)
+	"hub-ring": "Hub Ring",
+	"hub-pass": "Hub Pass Link",
+	"pass-loop": "Mountain Pass Loop",
+	"highway-ring": "Ring Highway",
+	"hub-coast": "Coast Link",
+	"touge-a": "Touge A",
+	"touge-b": "Touge B",
+	# -- links
+	"hub-highway-ramp": "Hub On-Ramp",
+	# -- touge loops and the shoreline arms
+	"coast-a": "West Shore Road",
+	"coast-b": "East Shore Road",
+	# -- dirt cut-throughs
+	"dirt-a": "Dirt Cut A",
+	"dirt-b": "Dirt Cut B",
+	# -- return connectors (ring -> sub-network)
+	"highway-hub-ramp": "Highway Return",
+	"highway-pass-ramp": "Pass Return",
+	# -- access ramps (sub-network -> ring)
+	"pass-highway-ramp": "Pass On-Ramp",
+	"coast-highway-ramp": "Coast On-Ramp",
+	"touge-highway-ramp": "Touge On-Ramp",
+	"spawn-highway-ramp": "Spawn On-Ramp",
+	# -- the spawn basin climb
+	"hub-access-ramp": "Spawn Basin Ramp",
+}
+
+## Applies the canonical name for `def.id` in place. An id with no table entry is
+## left with an empty name rather than a fabricated one -- RoadDef
+## .display_name() still yields something printable, and the naming test reports
+## the omission by id.
+static func _apply_name(def: RoadDef) -> void:
+	var lookup: Dictionary = ROAD_NAMES
+	if lookup.has(def.id):
+		def.name = str(lookup[def.id])
+
 const _KILO := 1000.0
 
 ## Static entry point of the fixed P2a contract.
@@ -130,21 +195,30 @@ static func plan(master_seed: int, height_provider: Callable = Callable(), tier_
 	#    through the hub. Each lands flush on a fixed ring anchor (XZ-identical
 	#    vertex, Y from the ring point) so RoadGraph registers a zero-distance
 	#    junction, exactly like the hub on-ramp (defs[5]) and dirt cuts.
-	defs.append(RoadDef.make(RoadDef.Tier.ARTERIAL,
+	#    Each also runs its merge lane PARALLEL to the ring, so the side facing
+	#    the carriageway is a wall across the join: every access ramp keeps BOTH
+	#    rails and instead suppresses the carriageway-facing side PER INDEX over
+	#    the alongside stretch (_with_merge_rail_open), which is the only way to
+	#    stay open at both the approach and the merge lane.
+	defs.append(_with_merge_rail_open(RoadDef.make(RoadDef.Tier.ARTERIAL,
 		_access_ramp(pass_pts[12], ring, 65, Vector2(0.0, 350.0)),
-		"pass-highway-ramp", false, _width_for(RoadDef.Tier.ARTERIAL, tier_defaults)))
-	defs.append(RoadDef.make(RoadDef.Tier.ARTERIAL,
+		"pass-highway-ramp", false, _width_for(RoadDef.Tier.ARTERIAL, tier_defaults)), ring))
+	defs.append(_with_merge_rail_open(RoadDef.make(RoadDef.Tier.ARTERIAL,
 		_access_ramp(coast_b[0], ring, 174, Vector2(-320.0, 220.0)),
-		"coast-highway-ramp", false, _width_for(RoadDef.Tier.ARTERIAL, tier_defaults)))
+		"coast-highway-ramp", false, _width_for(RoadDef.Tier.ARTERIAL, tier_defaults)), ring))
 	# Descent off a massif dome: alpine TOUGE tier (driveable ceiling 300, still
 	# asphalt) because the taper from the touge-loop altitude to the ring's ~22 m
 	# would exceed the ARTERIAL 120 m band.
-	defs.append(RoadDef.make(RoadDef.Tier.TOUGE,
+	defs.append(_with_merge_rail_open(RoadDef.make(RoadDef.Tier.TOUGE,
 		_access_ramp(touge_a[0], ring, 24, Vector2(-258.0, 153.0)),
-		"touge-highway-ramp", false, _width_for(RoadDef.Tier.TOUGE, tier_defaults)))
-	defs.append(RoadDef.make(RoadDef.Tier.ARTERIAL,
-		_access_ramp(Vector3(128.0, 2.2, 128.0), ring, 110, Vector2(60.0, -16.0)),
-		"spawn-highway-ramp", false, _width_for(RoadDef.Tier.ARTERIAL, tier_defaults)))
+		"touge-highway-ramp", false, _width_for(RoadDef.Tier.TOUGE, tier_defaults)), ring))
+	# The spawn ramp runs the LONGEST merge lane: it comes off the hub basin and
+	# then parallels the ring for an extra SPAWN_MERGE_RUN_M before its taper
+	# starts, so the player gets a full on-ramp's worth of ring grade to build
+	# speed on instead of dropping straight into a 1.5 km taper.
+	defs.append(_with_merge_rail_open(RoadDef.make(RoadDef.Tier.ARTERIAL,
+		_access_ramp(Vector3(128.0, 2.2, 128.0), ring, 96, Vector2(60.0, -16.0), SPAWN_MERGE_RUN_M),
+		"spawn-highway-ramp", false, _width_for(RoadDef.Tier.ARTERIAL, tier_defaults)), ring))
 
 	# -- HUB ACCESS RAMP: climbs out of the spawn basin at a low crown Y (-0.1),
 	# 46 m out from the hub centre (clear of the r40 spawn plateau), and lands
@@ -159,7 +233,104 @@ static func plan(master_seed: int, height_provider: Callable = Callable(), tier_
 	defs.append(RoadDef.make(RoadDef.Tier.ARTERIAL,
 		_open_chain(hub_access_control),
 		"hub-access-ramp", false, _width_for(RoadDef.Tier.ARTERIAL, tier_defaults)))
+	# Names are applied in ONE pass here rather than at 19 call sites: the table
+	# stays the only place a name is written, and a corridor appended above
+	# without one is reported by id instead of silently rendering blank.
+	_align_shared_spawn_anchor(defs)
+	for def in defs:
+		_apply_name(def)
 	return defs
+
+## Over the last RETURN_ANCHOR_MATCH_M of `highway-hub-ramp` before it reaches
+## the spawn anchor, blend its Y onto `spawn-highway-ramp`'s.
+##
+## Both roads share the anchor (128, 2.2, 128) and leave/arrive it within a few
+## degrees of each other, so for the first ~70 m their 10 m-wide roadbeds
+## OVERLAP in plan view -- measured centreline separation 1.97 m per 12 m step,
+## well inside the 10.5 m overlap threshold. They did not agree in Y there: the
+## return ramp descends from the ring at ~3.8% while the spawn ramp leaves at
+## ~1.75%, so the return ramp's mesh floated up to 1.22 m ABOVE the spawn ramp's
+## carriageway. That higher mesh is a step lying across the on-ramp's left half
+## right where the player starts driving, and the conformed terrain bridges to it,
+## so it is what strands a car leaving the spawn.
+##
+## Note the fix is on the HIGHER road: spawn-highway-ramp is already the lower of
+## the pair at every shared point, so lowering IT would only widen the step.
+## Blending by arc length measured back from the shared anchor (rather than by
+## index) keeps the two profiles registered regardless of how many points each
+## resampling step produced.
+const RETURN_ANCHOR_MATCH_M := 165.0
+## Arc length over which the two roadbeds are genuinely on top of each other.
+## The centreline separation grows 1.97 m per 12 m step out of the shared anchor,
+## so the 10.5 m overlap threshold is crossed at ~64 m; 75 m covers it with
+## margin. The weight is held at a flat 1.0 across this stretch -- the roadbeds
+## are literally the same surface here, so any residual is a step you can see and
+## snag a wheel on -- and only then eased back to 0 so the return ramp recovers
+## its own steeper descent without a kink.
+const RETURN_ANCHOR_FLUSH_M := 75.0
+
+static func _align_shared_spawn_anchor(defs: Array[RoadDef]) -> void:
+	var ret := _def_by_id(defs, "highway-hub-ramp")
+	var spawn := _def_by_id(defs, "spawn-highway-ramp")
+	if ret == null or spawn == null:
+		return
+	var spawn_ref := _arc_from_anchor(spawn.points, false)
+	if spawn_ref.is_empty():
+		return
+	var n := ret.points.size()
+	var dists := _arc_from_anchor(ret.points, true)
+	for i in n:
+		var s: float = dists[i]
+		if s <= 0.0 or s >= RETURN_ANCHOR_MATCH_M:
+			continue
+		var w := 1.0
+		if s > RETURN_ANCHOR_FLUSH_M:
+			w = 1.0 - (s - RETURN_ANCHOR_FLUSH_M) / (RETURN_ANCHOR_MATCH_M - RETURN_ANCHOR_FLUSH_M)
+		var target := _y_at_arc(spawn_ref, spawn.points, s)
+		if is_nan(target):
+			continue
+		var p: Vector3 = ret.points[i]
+		p.y = lerpf(p.y, target, w)
+		ret.points[i] = p
+
+## Cumulative 3D arc length for every point, measured from the END of the chain
+## when `from_end`, otherwise from the start. Returns [] for a chain too short to
+## sample.
+static func _arc_from_anchor(points: Array[Vector3], from_end: bool) -> Array[float]:
+	var n := points.size()
+	var out: Array[float] = []
+	if n < 2:
+		return out
+	out.resize(n)
+	out[0] = 0.0
+	for i in range(1, n):
+		out[i] = out[i - 1] + points[i].distance_to(points[i - 1])
+	if not from_end:
+		return out
+	var total: float = out[n - 1]
+	for i in n:
+		out[i] = total - out[i]
+	return out
+
+## Y at a given arc distance along a chain whose arc lengths were measured from
+## its START (the spawn ramp leaves the anchor, so its table is forward). NaN when
+## `s` falls outside the chain.
+static func _y_at_arc(arcs: Array[float], points: Array[Vector3], s: float) -> float:
+	var n := points.size()
+	if n < 2 or s < 0.0 or s > float(arcs[n - 1]):
+		return NAN
+	for i in range(1, n):
+		if s <= float(arcs[i]):
+			var span := float(arcs[i]) - float(arcs[i - 1])
+			var t := 0.0 if span <= 0.0 else (s - float(arcs[i - 1])) / span
+			return lerpf(points[i - 1].y, points[i].y, t)
+	return points[n - 1].y
+
+static func _def_by_id(defs: Array[RoadDef], id: String) -> RoadDef:
+	for d in defs:
+		if d.id == id:
+			return d
+	return null
 
 ## Drivable length of a corridor in metres (sum of 3D segment lengths).
 static func chain_length_m(points: Array[Vector3]) -> float:
@@ -231,14 +402,157 @@ static func _connector_points(end: Vector3) -> Array[Vector3]:
 # New-class builders.
 # ---------------------------------------------------------------------------
 
+## The perimeter highway's footprint. Shared by the ring builder and by every
+## access-ramp measurement (merge side, keep-out clearance, rail side) so the
+## ramp logic can never measure against a different ellipse than the one the
+## ring was sampled from.
+const RING_CENTER := Vector2(4400.0, 2250.0)
+const RING_AXIS_X := 4600.0
+const RING_AXIS_Z := 3550.0
+
+## Which side of the highway ring an access ramp's merge lane is held on:
+## -1.0 when `source` sits INSIDE the ellipse, +1.0 when it sits outside.
+## Resolved RELATIVE TO THE SOURCE, not "away from the ring centre": a ramp
+## whose source is inside (the pass loop) has to run its lane on the inside,
+## otherwise its approach would have to cross the carriageway to reach it. A
+## source outside (coast / touge / spawn) keeps the lane outside. This is the
+## single test every access-ramp side decision is made from, so the lane, the
+## keep-out and the rail mask can never disagree about which side they are on.
+static func _merge_side_for(source: Vector3) -> float:
+	var src_nx := (source.x - RING_CENTER.x) / RING_AXIS_X
+	var src_nz := (source.z - RING_CENTER.y) / RING_AXIS_Z
+	return -1.0 if (src_nx * src_nx + src_nz * src_nz) < 1.0 else 1.0
+
+## How close (in XZ, metres) a ramp point must be to the ring centreline before
+## it counts as running ALONGSIDE the carriageway, and therefore before the rail
+## on the ring-facing side has to go. Measured on the shipped plan: the
+## alongside stretch sits 17-24 m out (that is MERGE_CLEARANCE plus the taper),
+## while the first point clear of the carriageway is 63 m away and the ramp
+## source is 440 m away. 40 m therefore separates the two populations with a wide
+## margin on both sides, so this does not depend on a knife-edge threshold.
+const MERGE_BAND_M := 40.0
+
+## XZ projection of `p` onto the ring polyline: {"d": distance to the
+## centreline, "x"/"z": the projected point}. Brute force over the ring's 192
+## vertices; the planner already does comparable per-point ring work to build the
+## ramp, and this runs once per ramp at plan time, not per frame.
+static func _ring_station(ring: Array[Vector3], p: Vector3) -> Dictionary:
+	var best_d := INF
+	var best_x := 0.0
+	var best_z := 0.0
+	var n := ring.size()
+	for i in n:
+		var a := ring[i]
+		var b := ring[(i + 1) % n]
+		var dx := b.x - a.x
+		var dz := b.z - a.z
+		var len2 := dx * dx + dz * dz
+		var t := 0.0 if len2 <= 0.0 else clampf(((p.x - a.x) * dx + (p.z - a.z) * dz) / len2, 0.0, 1.0)
+		var qx := a.x + dx * t
+		var qz := a.z + dz * t
+		var d := Vector2(qx - p.x, qz - p.z).length()
+		if d < best_d:
+			best_d = d
+			best_x = qx
+			best_z = qz
+	return {"d": best_d, "x": best_x, "z": best_z}
+
+## The raw geometric answer: which side the ring lies on at chain index `i`, or
+## NONE when this point is not alongside the ring, or when the question is
+## undefined -- a point sitting exactly ON the carriageway has no direction to
+## it. Travel order matches TrackBuilder exactly: right = forward x UP, which in
+## XZ is (-forward.z, forward.x).
+static func _ring_facing_side(points: Array[Vector3], i: int, ring: Array[Vector3]) -> int:
+	var n := points.size()
+	if n < 2 or i < 0 or i >= n:
+		return RoadDef.RailSide.NONE
+	var st := _ring_station(ring, points[i])
+	if float(st["d"]) > MERGE_BAND_M:
+		return RoadDef.RailSide.NONE
+	var prev := points[maxi(i - 1, 0)]
+	var next := points[mini(i + 1, n - 1)]
+	var fwd := Vector2(next.x - prev.x, next.z - prev.z)
+	if fwd.length_squared() < 0.000001:
+		return RoadDef.RailSide.NONE
+	fwd = fwd.normalized()
+	var right := Vector2(-fwd.y, fwd.x)
+	var to_ring := Vector2(float(st["x"]) - points[i].x, float(st["z"]) - points[i].z)
+	if to_ring.length_squared() < 0.000001:
+		return RoadDef.RailSide.NONE
+	to_ring = to_ring.normalized()
+	return RoadDef.RailSide.RIGHT if right.dot(to_ring) > 0.0 else RoadDef.RailSide.LEFT
+
+## The open side at chain index `i`, resolving the undeterminable case by looking
+## BACK a few indices for the last alongside point that did answer.
+##
+## This matters at the landing: a ramp lands ON a ring vertex, so its final point
+## is at distance ~0 and the direction to the ring is undefined. Returning NONE
+## there would leave a rail stub sitting exactly across the merge the whole
+## suppression exists to open. The merge continues in the same sense as the
+## approach, so the nearest determinable neighbour is the right answer.
+static func _open_rail_side_at(points: Array[Vector3], i: int, ring: Array[Vector3]) -> int:
+	var direct := _ring_facing_side(points, i, ring)
+	if direct != RoadDef.RailSide.NONE:
+		return direct
+	# Only inherit when THIS point is genuinely alongside (the merge lane reaches
+	# the carriageway), never when it has simply left the band.
+	if float(_ring_station(ring, points[i])["d"]) > MERGE_BAND_M:
+		return RoadDef.RailSide.NONE
+	for j in range(i - 1, maxi(i - 5, -1), -1):
+		var inherited := _ring_facing_side(points, j, ring)
+		if inherited != RoadDef.RailSide.NONE:
+			return inherited
+	return RoadDef.RailSide.NONE
+
+## Per-index rail suppression for an access ramp: over every stretch that runs
+## alongside the carriageway, open whichever side actually faces the ring. The
+## road keeps BOTH rails everywhere else, so the field side is always guarded.
+## Adjacent indices with the same open side collapse into one range.
+static func _access_rail_open_ranges(points: Array[Vector3], ring: Array[Vector3]) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var n := points.size()
+	var run_from := -1
+	var run_side := RoadDef.RailSide.NONE
+	for i in n:
+		var side := _open_rail_side_at(points, i, ring)
+		if side != run_side:
+			if run_side != RoadDef.RailSide.NONE and run_from >= 0:
+				out.append({"from": run_from, "to": i - 1, "side": run_side})
+			run_side = side
+			run_from = i if side != RoadDef.RailSide.NONE else -1
+	if run_side != RoadDef.RailSide.NONE and run_from >= 0:
+		out.append({"from": run_from, "to": n - 1, "side": run_side})
+	return out
+
+## Give an access ramp both rails plus the per-index suppression ranges that open
+## whichever side faces the carriageway. Keeping `rail_sides` at BOTH (rather than
+## masking one side off for the whole road) is what lets the field side stay
+## railed along the ENTIRE ramp while the carriageway side is open everywhere it
+## actually runs alongside the highway -- including the merge lane, where the
+## carriageway is on the opposite side to the approach.
+static func _with_merge_rail_open(def: RoadDef, ring: Array[Vector3]) -> RoadDef:
+	def.rail_sides = RoadDef.RailSide.BOTH
+	def.rail_open_ranges = _access_rail_open_ranges(def.points, ring)
+	return def
+
+## Unit XZ vector pointing away from the ring centre at ring vertex `idx`. The
+## ring is an ellipse sampled by parametric angle, so this is exact for it.
+static func _ring_outward(ring: Array[Vector3], idx: int) -> Vector2:
+	var rp2d := Vector2(ring[idx].x, ring[idx].z)
+	var to_center := RING_CENTER - rp2d
+	if to_center.length_squared() > 0.0001:
+		return -to_center.normalized()
+	var ang := TAU * float(idx) / float(ring.size())
+	return Vector2(cos(ang), sin(ang))
+
 ## Perimeter highway: a closed long-arc ellipse around the footprint
 ## (hub+pass inside, the P1 alpine domes outside, and keeping > 400 m clear of
 ## the P1 sea interior). Y is a gentle two-cycle bank (22 +/- 16) so the ring
 ## never drops below the driveable band. Seed-dependent Y phasing only.
 static func _highway_ring_points(rng: RandomNumberGenerator) -> Array[Vector3]:
-	const CENTER := Vector2(4400.0, 2250.0)
-	const AXIS_X := 4600.0
-	const AXIS_Z := 3550.0
+	const CENTER := RING_CENTER
+	const AXIS_X := RING_AXIS_X
+	const AXIS_Z := RING_AXIS_Z
 	const N := 192
 	var phase := rng.randf_range(0.0, TAU)
 	var pts: Array[Vector3] = []
@@ -309,7 +623,11 @@ static func _ramp_arterial(ring: Array[Vector3]) -> Array[Vector3]:
 ## (coast / touge / spawn) keeps it outside.
 ## The endpoint is the ring point verbatim (XZ and Y) so RoadGraph registers
 ## the ramp<->ring junction at zero distance.
-static func _access_ramp(source: Vector3, ring: Array[Vector3], ring_idx: int, bulge: Vector2) -> Array[Vector3]:
+## `runner_extra_m` grows the parallel merge lane further back along the ring
+## before the taper starts, for a ramp that needs a longer run beside the
+## highway; 0.0 leaves the geometry below byte-identical.
+static func _access_ramp(source: Vector3, ring: Array[Vector3], ring_idx: int, bulge: Vector2, \
+		runner_extra_m: float = 0.0) -> Array[Vector3]:
 	var ring_end := ring[ring_idx]
 	var N := ring.size()
 	
@@ -317,44 +635,80 @@ static func _access_ramp(source: Vector3, ring: Array[Vector3], ring_idx: int, b
 	# each offset off the ring by a taper that starts at TAPER_START and shrinks
 	# to 0 at ring[ring_idx]. Ring vertices are ~134 m apart (N=192 on the
 	# 4600x3550 ellipse), so this parallels the highway for ~1.9 km.
-	# The side is resolved RELATIVE TO THE SOURCE, not "away from the ring
-	# centre": a ramp whose source sits INSIDE the ellipse (pass) has to run its
-	# lane on the inside, otherwise its approach would have to cross the
-	# carriageway to reach it. A source outside (coast / spawn) keeps the lane
-	# outside. TAPER_START exceeds MERGE_CLEARANCE so the two roadbeds never
+	# The side is _merge_side_for(source) (see there): the lane is held on the
+	# source's own side of the ring, so no access road ever crosses the
+	# carriageway. TAPER_START exceeds MERGE_CLEARANCE so the two roadbeds never
 	# overlap: the ring is 24 m wide (12 m half) and this ramp 10 m (5 m half).
 	const RUNNER_COUNT := 14
 	const TAPER_START := 24.0
 	const MERGE_CLEARANCE := 17.0
-	const RING_AXIS_X := 4600.0
-	const RING_AXIS_Z := 3550.0
+	# Belt-and-braces bound on the extra-run walk below. The walk always either
+	# consumes metres or breaks, but a planner that could spin forever would hang
+	# every test that plans a corridor, so it is capped as well.
+	const MAX_EXTRA_STEPS := 64
 	var runner_pts: Array[Vector3] = []
 	var runner_ys: Array[float] = []
-	var ring_center := Vector2(4400.0, 2250.0)
+	var ring_center := RING_CENTER
 
-	# -1.0 when the source is inside the ring ellipse, +1.0 when it is outside.
-	var src_nx := (source.x - ring_center.x) / RING_AXIS_X
-	var src_nz := (source.z - ring_center.y) / RING_AXIS_Z
-	var merge_side := -1.0 if (src_nx * src_nx + src_nz * src_nz) < 1.0 else 1.0
+	var merge_side := _merge_side_for(source)
 	
 	for k in range(RUNNER_COUNT, -1, -1):
 		var idx := (ring_idx - k) % N
 		if idx < 0:
 			idx += N
 		var rp := ring[idx]
-		var rp2d := Vector2(rp.x, rp.z)
-		var to_center := ring_center - rp2d
-		var outward: Vector2
-		if to_center.length_squared() > 0.0001:
-			outward = -to_center.normalized()
-		else:
-			var ang := TAU * float(idx) / float(N)
-			outward = Vector2(cos(ang), sin(ang))
+		var outward := _ring_outward(ring, idx)
 		var taper := TAPER_START * float(k) / float(RUNNER_COUNT) * merge_side
-		var offset_x := outward.x * taper
-		var offset_z := outward.y * taper
-		runner_pts.append(Vector3(rp.x + offset_x, rp.y, rp.z + offset_z))
+		runner_pts.append(Vector3(rp.x + outward.x * taper, rp.y, rp.z + outward.y * taper))
 		runner_ys.append(rp.y)
+	
+	# Extra parallel run: keep walking BACK along the ring from the runner's
+	# outer end, holding the offset at TAPER_START, until runner_extra_m of XZ
+	# arc is used up. The ring is CLOSED, so the walk simply continues past
+	# ring[ring_idx - RUNNER_COUNT]; the taper above and the landing are
+	# untouched, and because every existing taper is TAPER_START * k/14 the
+	# series just gains a constant-offset prefix. The last step is usually a
+	# PARTIAL ring segment, so the lane gains exactly runner_extra_m of length
+	# instead of rounding up to a whole vertex.
+	var extra_pts: Array[Vector3] = []
+	var extra_ys: Array[float] = []
+	var extra_idx := (ring_idx - RUNNER_COUNT) % N
+	if extra_idx < 0:
+		extra_idx += N
+	var extra_left := runner_extra_m
+	var extra_steps := 0
+	while extra_left > 0.0 and extra_steps < MAX_EXTRA_STEPS:
+		extra_steps += 1
+		var prev_idx := (extra_idx - 1 + N) % N
+		var a := ring[extra_idx]
+		var b := ring[prev_idx]
+		var seg_xz := Vector2(b.x - a.x, b.z - a.z).length()
+		if seg_xz <= 0.0:
+			break
+		var t := 1.0 if seg_xz <= extra_left else extra_left / seg_xz
+		# Interpolate the ring position (XZ AND Y, so the lane stays at ring
+		# grade across the partial step) then push it off the ring by the same
+		# outward radial the taper uses, at this vertex's angle.
+		var rp := a.lerp(b, t)
+		var outward := _ring_outward(ring, extra_idx)
+		var offset := TAPER_START * merge_side
+		extra_pts.append(Vector3(rp.x + outward.x * offset, rp.y, rp.z + outward.y * offset))
+		extra_ys.append(rp.y)
+		extra_idx = prev_idx
+		extra_left -= minf(seg_xz, extra_left)
+	
+	if not extra_pts.is_empty():
+		# Collected innermost-first; the lane travels outward-to-inward, so flip.
+		extra_pts.reverse()
+		extra_ys.reverse()
+		var merged_pts: Array[Vector3] = []
+		var merged_ys: Array[float] = []
+		merged_pts.append_array(extra_pts)
+		merged_pts.append_array(runner_pts)
+		merged_ys.append_array(extra_ys)
+		merged_ys.append_array(runner_ys)
+		runner_pts = merged_pts
+		runner_ys = merged_ys
 	
 	# Build the approach control points: source -> bulged mid -> runner[0]
 	# The bulge is tuned per ramp; the keep-out below then holds the resampled

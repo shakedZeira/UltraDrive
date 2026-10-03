@@ -183,6 +183,32 @@ static func get_road_ids(source: Object) -> Array:
 			ids[index] = typed.id
 	return ids
 
+## Player-facing road names, one per chain, in the SAME order and under the SAME
+## index-parity contract as get_road_ids() / get_roads(): entry i names chain i.
+## This is the curated name off RoadDef.name (CorridorPlanner.ROAD_NAMES), which
+## is the single source of truth -- so a name added to the planner reaches the map
+## with no UI change.
+##
+## Falls back to UNKNOWN_ROAD_ID (""), NOT to RoadDef.display_name(): a
+## tree-walked source that implements get_roads() alone has no defs to read a
+## name from, and the consumer must be able to SEE that it has no name rather
+## than receive a value that looks authored. Blank and aligned, like get_road_ids.
+static func get_road_names(source: Object) -> Array:
+	var chains := _road_chains(source)
+	var defs := _road_defs(source)
+	var names: Array = []
+	names.resize(chains.size())
+	for index in chains.size():
+		names[index] = UNKNOWN_ROAD_ID
+		if index >= defs.size():
+			continue
+		var def = defs[index]
+		if not (def is RoadDef):
+			continue
+		var typed: RoadDef = def
+		names[index] = typed.name
+	return names
+
 ## The source's RoadDef list when it exposes one, else []. Duck-typed on purpose
 ## (no cast to RoadNetwork): resolve_road_source() may hand back any node with a
 ## get_roads() method, and a map must not care which of the two shapes it got.

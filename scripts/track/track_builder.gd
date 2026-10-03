@@ -78,7 +78,7 @@ func build_track(points: Array[Vector3], closed: bool = true, def: RoadDef = nul
     var surface: int = def.surface if def != null else RoadDef.Surface.ASPHALT
     var tier: int = def.tier if def != null else RoadDef.Tier.ARTERIAL
     var banking: float = def.banking if def != null else 0.0
-    var rails_enabled: bool = def.rails_enabled() if def != null else false
+    var rails_enabled: bool = def.rail_side_count() > 0 if def != null else false
 
     var road_mesh := _build_mesh(points, false, closed, width, banking, 0.0)
     var mesh_instance := MeshInstance3D.new()
@@ -144,7 +144,7 @@ func build_track(points: Array[Vector3], closed: bool = true, def: RoadDef = nul
 func configure_rails(gaps: Array) -> void:
     if gaps.is_empty() or _track_points.size() < 3 or _track_def == null:
         return
-    if not _track_def.rails_enabled():
+    if _track_def.rail_side_count() == 0:
         return
     _remove_rail_children()
     _build_rails(_track_points, _track_closed, _track_def.banking, _track_def.width, gaps, true)
@@ -157,6 +157,33 @@ func _remove_rail_children() -> void:
             remove_child(child)
             child.free()
 
+## The per-side rail mask of the road being built. _track_def is assigned by
+## build_track (and already live when configure_rails calls back in), so both
+## entry points read the SAME mask -- a road that drops one side drops it on the
+## initial build and on every later gap recompute.
+func _rail_mask() -> int:
+    if _track_def == null:
+        return RoadDef.RailSide.NONE
+    return _track_def.rail_sides_mask()
+
+## Whether slot `index` (0 = RIGHT = the +cross side, 1 = LEFT) is built.
+func _rail_slot_enabled(index: int) -> bool:
+    return (_rail_mask() & rail_side_bit(index)) != 0
+
+## The mask bit a rail slot corresponds to. Slot order is fixed and matches
+## rail_names/rail_offsets below.
+static func rail_side_bit(index: int) -> int:
+    return RoadDef.RailSide.RIGHT if index == 0 else RoadDef.RailSide.LEFT
+
+## The road's own chain-index suppression ranges for rail slot `index`
+## (0 = RIGHT, 1 = LEFT), or [] when it declares none. _track_def is read exactly
+## like _rail_mask() reads it, so a range added after the initial build only takes
+## effect on the next configure_rails() rebuild.
+func _rail_open_ranges_for_slot(index: int) -> Array:
+    if _track_def == null:
+        return []
+    return _track_def.rail_open_ranges_for(rail_side_bit(index))
+
 func _build_rails(points: Array[Vector3], closed: bool, banking: float, width: float, gaps: Array, add_collision: bool) -> void:
     var rail_offsets: Array[float] = [
         width * 0.5 + RAIL_GAP,
@@ -168,7 +195,14 @@ func _build_rails(points: Array[Vector3], closed: bool, banking: float, width: f
     var rail_physics_material := PhysicsMaterial.new()
     rail_physics_material.friction = 0.2
     for edge in range(rail_offsets.size()):
-        var rail_mesh := _build_rail_mesh(points, rail_offsets[edge], closed, banking, gaps)
+        if not _rail_slot_enabled(edge):
+            continue
+        # Per-side suppression ranges, in the same chain-index space _rail_open_ranges
+        # uses. Empty for every road that has not opted in, so the common path is
+        # unchanged. Passed alongside the junction `gaps` (which cut BOTH sides)
+        # because these cut only the one side they name.
+        var open_ranges := _rail_open_ranges_for_slot(edge)
+        var rail_mesh := _build_rail_mesh(points, rail_offsets[edge], closed, banking, gaps, open_ranges)
         var rail_instance := MeshInstance3D.new()
         rail_instance.name = rail_names[edge]
         rail_instance.mesh = rail_mesh
@@ -360,7 +394,7 @@ func _build_dashed_edge_mesh(points: Array[Vector3], offset: float, width: float
     mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
     return mesh
 
-func _build_rail_mesh(points: Array[Vector3], offset: float, closed: bool, banking: float, rail_gaps: Array = []) -> ArrayMesh:
+func _build_rail_mesh(points: Array[Vector3], offset: float, closed: bool, banking: float, rail_gaps: Array = [], open_ranges: Array = []) -> ArrayMesh:
     var n := points.size()
     var vertices := PackedVector3Array()
     var indices := PackedInt32Array()
@@ -392,6 +426,27 @@ func _build_rail_mesh(points: Array[Vector3], offset: float, closed: bool, banki
             # Legacy single-point gap: use radius around the point
             var gap_dist := _find_nearest_arc_distance(points, arc_distances, total_distance, gap, closed)
             gap_ranges.append([gap_dist - RAIL_GAP_RADIUS, gap_dist + RAIL_GAP_RADIUS])
+    
+    # Per-side open ranges arrive as chain-index [from, to] pairs. Convert them to
+    # the same arc-distance space as the junction gaps so ONE skip test serves both.
+    # The range spans [arc[from], arc[to]] plus the segment that STARTS at `to`,
+    # matching the inclusive-end behaviour of the junction gaps above.
+    for r in open_ranges:
+        var from_i: int = clampi(int(r[0]), 0, n - 1)
+        var to_i: int = clampi(int(r[1]), 0, n - 1)
+        if to_i < from_i:
+            var swap := from_i
+            from_i = to_i
+            to_i = swap
+        var start_d: float = arc_distances[from_i]
+        var end_d: float = arc_distances[to_i]
+        if closed and to_i == 0 and from_i > 0:
+            end_d += total_distance
+        elif to_i < n - 1:
+            end_d = (arc_distances[to_i] + arc_distances[to_i + 1]) * 0.5
+        else:
+            end_d = total_distance
+        gap_ranges.append([start_d, end_d])
     
     for i in range(n):
         var frame := _frame(points, i, closed, banking)

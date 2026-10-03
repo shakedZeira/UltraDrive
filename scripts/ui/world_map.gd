@@ -20,12 +20,13 @@ extends Control
 ## everything pixel-aligned. Without a source the composite is skipped and the
 ## map stays roads-only.
 ##
-## Road names (the majors only -- see MAJOR_ROAD_IDS): each of the seven labelled
-## roads gets its name drawn along its own line at the arc-length midpoint,
-## tinted like the road it names so an unrevealed road is not stamped as driven,
-## and placed greedily longest-first with a collision pass, because seven
-## readable names beat seven overlapping ones. show_road_labels turns the whole
-## layer off without touching the lines.
+## Road names (every named road -- see ROAD_LABELS): each road gets its name drawn
+## along its own line at the arc-length midpoint, tinted like the road it names so
+## an unrevealed road is not stamped as driven, and placed greedily longest-first
+## with a collision pass, because readable names beat overlapping ones. Text comes
+## from the curated RoadDef.name (CorridorPlanner.ROAD_NAMES) with road_label() as
+## the fallback. show_road_labels turns the whole layer off without touching the
+## lines.
 
 const ROAD_COLOR := Color(0.5, 0.62, 0.85, 0.88)
 const UNVISITED_ROAD_COLOR := Color(0.42, 0.44, 0.48, 0.72)
@@ -66,15 +67,22 @@ const INSET := 32.0
 ## pass, rebuilt only when the map reopens, so it stays cheap on any GPU.
 const TERRAIN_CELLS := 64
 
-## Road NAMES on the pause map. The player asked for the majors only, so this is
-## the seven planner ids a driver would actually name after the place they loop
-## or connect: every CLOSED ring/loop (highway-ring, hub-ring, pass-loop,
-## touge-a, touge-b) plus the two main CONNECTORS (hub-pass, hub-coast).
-## Selection rule, for adding or dropping one: a road earns a label if it is a
-## ring/loop or a district-to-district connector -- not if it is a ramp/merge
-## stub onto another road, a dirt shortcut, or a dead-end coastal ribbon. The
-## other twelve ids in the 19-road network stay anonymous, and this list is the
-## only thing place_road_labels() ever offers to the greedy pass.
+## Road NAMES on the pause map. EVERY named road is a candidate now: the seven
+## curated majors plus the ramps, returns, shoreline ribbons and dirt cuts that
+## used to stay anonymous.
+##
+## Selection rule (the old one was "a ring/loop or a district connector, never a
+## ramp stub, a dirt cut or a coastal dead-end") is GONE, and deliberately so:
+## those twelve roads are the ones a player asks "what was that called?" about,
+## and every corridor now carries a curated name (CorridorPlanner.ROAD_NAMES) so
+## there is nothing to hide. What keeps the map readable at 19 labels is NOT a
+## whitelist -- it is the existing greedy longest-first pass plus its collision
+## test, so where roads converge the longest names win the space and the rest are
+## simply not drawn. read _place_road_labels() before adding a label by hand.
+##
+## ROAD_LABELS remains the FALLBACK table for a road whose defs carry no name
+## (a scene-authored or test-stubbed RoadDef with an empty `name`), which is why
+## its seven entries are still the authoritative spelling for those ids.
 const MAJOR_ROAD_IDS: Array[String] = [
 	"hub-ring",
 	"hub-pass",
@@ -416,19 +424,21 @@ func _poi_fill_color(poi: Dictionary) -> Color:
 # ---------------------------------------------------------------------------
 
 ## The name to print for `road_id`: the curated table when it has an entry, else
-## a title-cased rendering of the id itself ("coast-a" -> "Coast A"). The
-## fallback is what makes growing MAJOR_ROAD_IDS safe -- a newly promoted road
-## reads as "Dirt A" until somebody names it properly, and never as a blank.
+## a title-cased rendering of the id itself ("dirt-c" -> "Dirt C").
+##
+## This is the FALLBACK path. In the running game the primary source is the
+## curated name on the RoadDef itself (RoadDef.name, from
+## CorridorPlanner.ROAD_NAMES) -- see _road_label_candidates(), which prefers it.
+## ROAD_LABELS still matters for roads whose defs carry no name (scene-authored
+## or test-stubbed defs) and for nothing else; the table's seven entries are the
+## same seven strings the planner now names those ids with, so the two paths agree
+## and this table is what keeps them agreeing.
 static func road_label(road_id: String) -> String:
 	if ROAD_LABELS.has(road_id):
 		return str(ROAD_LABELS[road_id])
 	if road_id.is_empty():
 		return "Unnamed Road"
 	return _title_case(road_id)
-
-## Whether `road_id` is one of the labelled majors (see MAJOR_ROAD_IDS).
-static func is_major_road(road_id: String) -> bool:
-	return MAJOR_ROAD_IDS.has(road_id)
 
 ## Title-case fallback rule: split on "-", capitalise each word, rejoin with
 ## single spaces. Its own function so the rule is one readable line instead of a
@@ -534,17 +544,25 @@ static func label_box(center: Vector2, text_size: Vector2, angle: float,
 ## the placement rules are testable with no canvas, no theme and no font -- and
 ## so this function never has to know what a WorldDiscovery is.
 ##
-## Greedy, one pass, longest road first: candidates are ordered by chain length
-## (ties by chain index, so the result is stable for a given network) and each
-## name is placed only if its box fits inside `rect` and clears every box already
-## placed. Dropping a name is the correct outcome where roads converge -- seven
-## readable labels beat seven overlapping ones -- and the big ring gets first
-## claim on the space, which is the name a player most needs.
+## Greedy, one pass: candidates are ordered by CURATED MAJOR first, then by chain
+## length (ties by chain index, so the result is stable for a given network), and
+## each name is placed only if its box fits inside `rect` and clears every box
+## already placed. Dropping a name is the correct outcome where roads converge --
+## readable labels beat overlapping ones. The two-tier order matters now that all
+## nineteen roads are candidates: ranking on length alone handed the compact
+## Mountain Pass Loop's slot to a long access ramp, which is precisely backwards,
+## so the seven majors keep the claim they had when they were the only candidates.
 ##
 ## Returns one entry per placed name: {"id", "text", "screen", "angle", "box",
 ## "revealed", "index", "length"}. Empty when there is nothing to name.
+##
+## `road_names` is optional and index-aligned with `roads` exactly like
+## `road_ids` (MapRoads.get_road_names): where it has a non-empty entry that
+## curated name wins, otherwise the text falls back to road_label(road_id). Pass
+## [] to get the pure id-derived naming.
 static func place_road_labels(roads: Array, road_ids: Array, fit: Dictionary,
-		measure: Callable, rect: Rect2, revealed: Callable = Callable()) -> Array:
+		measure: Callable, rect: Rect2, revealed: Callable = Callable(),
+		road_names: Array = []) -> Array:
 	if fit.is_empty() or not measure.is_valid():
 		return []
 	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
@@ -554,14 +572,19 @@ static func place_road_labels(roads: Array, road_ids: Array, fit: Dictionary,
 		if index >= road_ids.size():
 			break
 		var road_id := str(road_ids[index])
-		if not is_major_road(road_id):
-			continue
 		var points := _chain_points(roads[index])
 		# A chain of one point is not a road: there is no length to order it by
 		# and no direction to align a name to.
 		if points.size() < 2:
 			continue
+		# Curated RoadDef.name first, id-derived fallback second. Every planned
+		# corridor is named now, so the fallback only serves scene-authored or
+		# stubbed defs that leave `name` empty.
 		var text := road_label(road_id)
+		if index < road_names.size():
+			var curated := str(road_names[index])
+			if not curated.is_empty():
+				text = curated
 		var text_size: Vector2 = measure.call(text)
 		if not _is_measurable(text_size):
 			continue
@@ -571,6 +594,13 @@ static func place_road_labels(roads: Array, road_ids: Array, fit: Dictionary,
 		candidates.append({
 			"index": index,
 			"id": road_id,
+			# Curated majors (ROAD_LABELS) claim space BEFORE the twelve roads that
+			# joined the candidate pool later. Ranking purely on length let a long
+			# access ramp outrank the compact Mountain Pass Loop, which is the one
+			# name a player most needs on the pass approach -- so the original
+			# "majors first" intent is now an explicit sort key instead of an
+			# accident of the whitelist being the only candidate list.
+			"curated": MAJOR_ROAD_IDS.has(road_id),
 			"text": text,
 			"screen": center,
 			"angle": angle,
@@ -580,6 +610,13 @@ static func place_road_labels(roads: Array, road_ids: Array, fit: Dictionary,
 				else bool(revealed.call(index, int(anchor["segment"]))),
 		})
 	candidates.sort_custom(func(a, b):
+		# Curated majors first (see the "curated" key), then longest road, then
+		# stable index order. The length tiebreak is what used to decide
+		# everything on its own.
+		var cur_a := bool(a["curated"])
+		var cur_b := bool(b["curated"])
+		if cur_a != cur_b:
+			return cur_a
 		var len_a := float(a["length"])
 		var len_b := float(b["length"])
 		if not is_equal_approx(len_a, len_b):
@@ -622,7 +659,8 @@ static func _chain_points(chain: Variant) -> PackedVector3Array:
 ## placement work is the static pass above; the map only supplies the two things
 ## that need a live node: the font that measures a name and the discovery mask
 ## that says whether the road under it has been driven.
-func _place_road_labels(roads: Array, road_ids: Array, draw_size: Vector2) -> Array:
+func _place_road_labels(roads: Array, road_ids: Array, draw_size: Vector2,
+		road_names: Array = []) -> Array:
 	var font := _label_font()
 	if font == null:
 		return []
@@ -631,7 +669,7 @@ func _place_road_labels(roads: Array, road_ids: Array, draw_size: Vector2) -> Ar
 	var revealed := func(road_index: int, segment: int) -> bool:
 		return _is_road_revealed(road_index, segment)
 	return place_road_labels(roads, road_ids, _fit, measure,
-		Rect2(Vector2.ZERO, draw_size), revealed)
+		Rect2(Vector2.ZERO, draw_size), revealed, road_names)
 
 ## Whether the piece of road `segment` of chain `road_index` has been driven. No
 ## discovery source, an unknown road, or a mask that does not cover that segment
@@ -653,6 +691,18 @@ func road_label_ids() -> Array[String]:
 	for entry in _road_labels:
 		var label: Dictionary = entry
 		out.append(str(label["id"]))
+	return out
+
+## The label strings this rebuild actually drew, in draw order. Public so the
+## headless gate can assert WHICH name reached the map -- road_label_ids() only
+## says which roads were named, and the whole point of curated RoadDef.name is
+## that the drawn text is the curated one ("Spawn On-Ramp"), not an id-derived
+## guess.
+func road_label_texts() -> Array[String]:
+	var out: Array[String] = []
+	for entry in _road_labels:
+		var label: Dictionary = entry
+		out.append(str(label["text"]))
 	return out
 
 func _rebuild() -> void:
@@ -724,12 +774,16 @@ func _rebuild() -> void:
 				_paths.append(segment)
 			else:
 				_grey_paths.append(segment)
-	# Road NAMES, same pass: the ids come from the same source in the same order
-	# as the chains, so the discovery mask indexed by road_index above is the one
-	# the label tints read. Cached like the rest, so labels appear on open and on
-	# resize without any per-frame work.
+	# Road NAMES, same pass: the ids AND the curated names come from the same
+	# source in the same order as the chains (both index-aligned with `roads`, so
+	# the discovery mask indexed by road_index above is the one the label tints
+	# read). Names come from RoadDef.name via MapRoads.get_road_names, so every
+	# planned corridor is a candidate -- not just the old seven majors -- and the
+	# greedy pass in place_road_labels() decides which actually fit. Cached like
+	# the rest, so labels appear on open and on resize without any per-frame work.
 	if show_road_labels:
-		_road_labels = _place_road_labels(roads, MapRoads.get_road_ids(source), size)
+		_road_labels = _place_road_labels(roads, MapRoads.get_road_ids(source), size,
+			MapRoads.get_road_names(source))
 	_route_path = PackedVector2Array()
 	if MapRoads.has_route and with_world:
 		var route := MapRoads.route_polyline(source, player_pos, MapRoads.route_target)

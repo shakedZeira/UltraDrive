@@ -244,9 +244,13 @@ func test_ramps_avoid_sea_interior_and_stay_driveable() -> void:
 			assert_float(p.y).is_greater_equal(-8.0)
 			assert_float(p.y).is_less_equal(ceiling)
 
-## Ramp merge-lane geometry: the final ~14 points (the "runner") run parallel to
-## the highway ring at the ring's Y, offset clear of the carriageway, with the
-## offset tapering monotonically to 0 at ring[ring_idx]. The lane sits on the
+## Ramp merge-lane geometry: the chain's tail (the "runner") runs parallel to the
+## highway ring at the ring's Y, offset clear of the carriageway, with the offset
+## tapering monotonically to 0 at ring[ring_idx]. Its length is not fixed: the tail
+## is a whole-number-of-ring-segments constant-offset run plus a 14-point taper,
+## so a ramp given an extra run prepends ring-segments to it (spawn does, see
+## `test_spawn_merge_run_adds_its_length_and_nothing_else`). This test therefore
+## finds the run's outer end by step length instead of assuming 14 points. The lane sits on the
 ## RAMP'S OWN SIDE of the ring ellipse — outside for a source outside it
 ## (coast / touge / spawn), inside for the pass ramp, whose source is inside —
 ## because holding the lane outside would force that ramp's approach to cross
@@ -269,9 +273,9 @@ func test_ramp_merge_lane_runs_parallel_and_at_grade() -> void:
 		assert_that(n).is_greater_equal(18)  # enough points for approach + 14 runner pts + junction
 		var side := _merge_side(ramp)
 		
-		# The last 14 points should be the runner (14 runner pts, excluding approach end)
-		# Verify the runner runs clear of the ring on the ramp's own side
-		# and the offset shrinks monotonically to 0.
+		# The tapering tail is always the last 14 points (any extra constant-offset
+		# run is prepended before it). Verify the runner runs clear of the ring on
+		# the ramp's own side and the offset shrinks monotonically to 0.
 		var runner_start_idx := n - 14
 		var prev_offset := -1.0
 		var merge_lane_length := 0.0
@@ -588,6 +592,64 @@ func test_highway_rail_gapped_across_merge_lane() -> void:
 	var gap_end: Vector3 = builder._rail_gaps[0]["end"]
 	assert_float(gap_start.distance_to(start_point)).is_less_equal(0.001)
 	assert_float(gap_end.distance_to(end_point)).is_less_equal(0.001)
+
+## Access road approach XZ stays clear of the highway carriageway until the
+## The spawn on-ramp and the highway return connector share the anchor
+## (128, 2.2, 128) and leave/arrive it within a few degrees, so for the first
+## ~64 m their 10 m roadbeds OVERLAP in plan view (measured centreline separation
+## 1.97 m per 12 m step). They used to disagree in Y there: the return ramp
+## descends from the ring at ~3.8% while the spawn ramp leaves at ~1.75%, putting
+## the return ramp's mesh up to 1.22 m ABOVE the on-ramp's carriageway. That
+## higher mesh is a step lying across the on-ramp's left half exactly where the
+## player starts driving.
+##
+## Asserted as a flush pair over the overlap, sampled by arc length from the
+## shared anchor rather than by index (the two chains resample differently). The
+## fix lands on the HIGHER road on purpose: spawn-highway-ramp is already the
+## lower of the two at every shared point, so lowering it would widen the step.
+func test_spawn_anchor_roadbeds_are_flush_where_they_overlap() -> void:
+	var defs := CorridorPlanner.plan(CorridorPlanner.MASTER_SEED)
+	var ret := _def_by_id(defs, "highway-hub-ramp")
+	var spawn := _def_by_id(defs, "spawn-highway-ramp")
+	assert_that(ret).is_not_null()
+	assert_that(spawn).is_not_null()
+	if ret == null or spawn == null:
+		return
+	# The shared anchor must be the same vertex on both roads, or the pairing
+	# below is measuring the wrong ends of the two chains.
+	assert_float(ret.points[ret.points.size() - 1].distance_to(spawn.points[0])).is_less(0.001)
+
+	# Pair the two profiles by arc length from the anchor. Note the return ramp's
+	# arcs are measured from its END, so its arc values DECREASE with index:
+	# take the largest agreeing arc, not the last one written.
+	var spawn_ref := CorridorPlanner._arc_from_anchor(spawn.points, false)
+	var ret_dists := CorridorPlanner._arc_from_anchor(ret.points, true)
+	var flush_m := -1.0
+	var diverged_m := -1.0
+	for i in ret.points.size():
+		var s: float = ret_dists[i]
+		if s > 400.0:
+			continue
+		var target := CorridorPlanner._y_at_arc(spawn_ref, spawn.points, s)
+		if is_nan(target):
+			continue
+		var diff: float = absf(ret.points[i].y - target)
+		if diff < 0.05:
+			flush_m = maxf(flush_m, s)
+		elif diff > 0.5 and diverged_m < 0.0:
+			diverged_m = s
+	# Two 10 m roadbeds whose centrelines separate at ~0.16 m per metre of travel
+	# overlap for roughly 60 m, so the flush has to cover that whole stretch or the
+	# return ramp's mesh is a step lying across the on-ramp.
+	assert_float(flush_m).override_failure_message(
+		"roadbeds only agree within 0.05 m out to %.1f m from the anchor; the overlap reaches ~60 m"
+		% flush_m).is_greater_equal(60.0)
+	# The match must be bounded, not a global coincidence: the two roads serve
+	# different places and can only share a profile near the anchor. A flush that
+	# ran all the way along would mean the alignment had swallowed the return ramp.
+	assert_float(flush_m).is_less(CorridorPlanner.RETURN_ANCHOR_MATCH_M)
+	assert_float(diverged_m).override_failure_message(
+		"the two roadbeds never diverge past 0.5 m; the anchor match looks global").is_greater(0.0)
 
 ## Access road approach XZ stays clear of the highway carriageway until the
 ## merge, and never crosses it.

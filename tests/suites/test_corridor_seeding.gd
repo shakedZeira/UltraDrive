@@ -17,6 +17,19 @@ extends GdUnitTestSuite
 ##   hub-access-ramp.
 const ROAD_COUNT := 19
 
+## The seven names that predate ROAD_NAMES, pinned verbatim: they are the game's
+## existing voice and were the only labelled roads on the pause map until the
+## other twelve were named too.
+const CURATED_NAMES := {
+	"hub-ring": "Hub Ring",
+	"hub-pass": "Hub Pass Link",
+	"pass-loop": "Mountain Pass Loop",
+	"highway-ring": "Ring Highway",
+	"hub-coast": "Coast Link",
+	"touge-a": "Touge A",
+	"touge-b": "Touge B",
+}
+
 # Highway-ring ellipse, the same locus CorridorPlanner._access_ramp measures its
 # merge clearance against. A raw radial compare against the nearest ring VERTEX
 # cannot express it: the ring is an ellipse, and the pass ramp's source sits
@@ -383,6 +396,181 @@ func test_access_ramp_no_self_intersection() -> void:
 					if first_cross.is_empty():
 						first_cross = "ramp segment %d vs ring segment %d" % [i, j]
 		assert_int(crossings).append_failure_message("%s: %s" % [ramp_id, first_cross]).is_equal(0)
+
+# ---------------------------------------------------------------------------
+# Road names: every corridor is named, and the names are curated text.
+# ---------------------------------------------------------------------------
+
+## Every planned road carries a name, and the table has no entry for an id the
+## planner stopped emitting. This is the "a new corridor without a name must be
+## LOUD" guard -- without it, adding a road silently renders a blank label.
+func test_all_planned_roads_are_named() -> void:
+	var defs: Array[RoadDef] = CorridorPlanner.plan(CorridorPlanner.MASTER_SEED)
+	var table: Dictionary = CorridorPlanner.ROAD_NAMES
+	var named := 0
+	for def in defs:
+		var message := "road '%s' (index %d) has no curated name" % [def.id, defs.find(def)]
+		assert_that(def.name).append_failure_message(message).is_not_empty()
+		assert_that(def.name).append_failure_message(message).is_equal(str(def.name.strip_edges()))
+		assert_that(table.has(def.id)).append_failure_message(message).is_true()
+		named += 1
+	assert_int(named).is_equal(ROAD_COUNT)
+	# No dead entries: the table describes exactly the shipped network.
+	assert_int(table.size()).is_equal(ROAD_COUNT)
+
+## Names are unique -- two roads sharing a label is unresolvable on the map.
+func test_road_names_are_unique() -> void:
+	var defs: Array[RoadDef] = CorridorPlanner.plan(CorridorPlanner.MASTER_SEED)
+	var seen := {}
+	for def in defs:
+		var name := def.display_name()
+		assert_bool(seen.has(name)).append_failure_message(
+			"duplicate road name '%s' on '%s'" % [name, def.id]).is_false()
+		seen[name] = def.id
+
+## The seven pre-existing names are pinned verbatim: a rename is a deliberate
+## edit, not a silent diff.
+func test_curated_road_names_are_preserved_verbatim() -> void:
+	var defs: Array[RoadDef] = CorridorPlanner.plan(CorridorPlanner.MASTER_SEED)
+	for road_id in CURATED_NAMES:
+		var expected: String = str(CURATED_NAMES[road_id])
+		var def := _def_by_id(defs, str(road_id))
+		assert_that(def).is_not_null()
+		if def == null:
+			continue
+		assert_that(def.name).is_equal(expected)
+		assert_that(def.display_name()).is_equal(expected)
+
+## The twelve that used to be anonymous are now named -- ramps, dirt cuts and the
+## two shoreline arms. Named after what they CONNECT or what tier they are.
+func test_the_twelve_previously_anonymous_roads_are_named() -> void:
+	var defs: Array[RoadDef] = CorridorPlanner.plan(CorridorPlanner.MASTER_SEED)
+	var expected := {
+		"hub-highway-ramp": "Hub On-Ramp",
+		"highway-hub-ramp": "Highway Return",
+		"highway-pass-ramp": "Pass Return",
+		"pass-highway-ramp": "Pass On-Ramp",
+		"coast-highway-ramp": "Coast On-Ramp",
+		"touge-highway-ramp": "Touge On-Ramp",
+		"spawn-highway-ramp": "Spawn On-Ramp",
+		"hub-access-ramp": "Spawn Basin Ramp",
+		"coast-a": "West Shore Road",
+		"coast-b": "East Shore Road",
+		"dirt-a": "Dirt Cut A",
+		"dirt-b": "Dirt Cut B",
+	}
+	assert_int(expected.size()).is_equal(12)
+	for road_id in expected:
+		var def := _def_by_id(defs, str(road_id))
+		assert_that(def).is_not_null()
+		if def == null:
+			continue
+		assert_that(def.name).is_equal(str(expected[road_id]))
+
+## coast-a / coast-b are named for the axis that actually separates them. Both arms
+## wrap the SAME side of the sea, so a north/south split would be a fabrication --
+## they are separated east/west, and this asserts the geometry that justifies the
+## naming rather than trusting the strings above.
+##
+## Measured at MASTER_SEED against the sea centre (8200,-3400): coast-a runs x
+## 5620..7745, coast-b x 7972..9703 -- disjoint, no overlap. Both mean z values
+## (-1669, -924) are SOUTH of sea.y (-3400), i.e. the same side.
+func test_coast_arms_are_named_for_the_axis_that_separates_them() -> void:
+	var defs: Array[RoadDef] = CorridorPlanner.plan(CorridorPlanner.MASTER_SEED)
+	var sea := TerrainBaker.BIOME_SEA_CENTER
+	var a := _def_by_id(defs, "coast-a")
+	var b := _def_by_id(defs, "coast-b")
+	assert_that(a).is_not_null()
+	assert_that(b).is_not_null()
+	if a == null or b == null:
+		return
+	var mid_a := _mean_xz(a.points)
+	var mid_b := _mean_xz(b.points)
+	# Same side of the sea centre: neither arm is a "far shore" of the other.
+	assert_bool(mid_a.y > sea.y).is_true()
+	assert_bool(mid_b.y > sea.y).is_true()
+	# West vs east, which is the real difference.
+	assert_bool(mid_a.x < sea.x).is_true()
+	assert_bool(mid_b.x > sea.x).is_true()
+	# The arms must not overlap in x, or "west"/"east" would be an ordering, not
+	# a separation.
+	assert_bool(_max_x(a.points) < _min_x(b.points)).is_true()
+	assert_that(a.name).is_equal("West Shore Road")
+	assert_that(b.name).is_equal("East Shore Road")
+
+## display_name() never returns empty for a consumer that draws the string: a
+## named road reads its name, an unnamed one falls back to its id, and a def with
+## neither still says something.
+func test_road_def_display_name_never_blank() -> void:
+	var named := RoadDef.make(RoadDef.Tier.ARTERIAL, [], "coast-a", false, 10.0)
+	named.name = "West Shore Road"
+	assert_that(named.display_name()).is_equal("West Shore Road")
+	var slug_only := RoadDef.make(RoadDef.Tier.ARTERIAL, [], "coast-a", false, 10.0)
+	assert_that(slug_only.display_name()).is_equal("coast-a")
+	var anonymous := RoadDef.make(RoadDef.Tier.ARTERIAL, [], "", false, 10.0)
+	assert_that(anonymous.display_name()).is_equal("Unnamed Road")
+
+## MapRoads.get_road_names() is index-aligned with get_roads() and reads the
+## curated name, which is what lets the pause map label all nineteen roads.
+func test_map_roads_get_road_names_matches_the_planned_network() -> void:
+	var defs: Array[RoadDef] = CorridorPlanner.plan(CorridorPlanner.MASTER_SEED)
+	var network := RoadNetwork.new()
+	add_child(network)
+	for def in defs:
+		network.add_road_def(def)
+	var roads := MapRoads.get_roads(network)
+	var ids := MapRoads.get_road_ids(network)
+	var names := MapRoads.get_road_names(network)
+	assert_int(names.size()).is_equal(roads.size())
+	assert_int(names.size()).is_equal(defs.size())
+	for index in defs.size():
+		assert_that(str(ids[index])).is_equal(defs[index].id)
+		assert_that(str(names[index])).is_equal(defs[index].name)
+		assert_that(str(names[index])).is_equal(defs[index].display_name())
+	network.free()
+
+## A source that only exposes get_roads() has no defs to read a name from, so the
+## accessor returns blanks ALIGNED to the chains -- not a crash, not a shifted
+## array, and not an invented id-derived guess.
+func test_map_roads_get_road_names_duck_typed_source_is_blank_and_aligned() -> void:
+	var ring: Array[Vector3] = [Vector3.ZERO, Vector3(100.0, 0.0, 0.0)]
+	var spur: Array[Vector3] = [Vector3(0.0, 0.0, 50.0), Vector3(50.0, 0.0, 90.0)]
+	var stub := GDScript.new()
+	stub.source_code = "extends Node\n\nvar chains: Array = []\n\nfunc get_roads() -> Array:\n\treturn chains\n"
+	stub.reload()
+	var source := Node.new()
+	source.name = "DuckRoads"
+	source.set_script(stub)
+	source.set("chains", [ring, spur] as Array)
+	add_child(source)
+	var roads := MapRoads.get_roads(source)
+	var names := MapRoads.get_road_names(source)
+	assert_int(roads.size()).is_equal(2)
+	assert_int(names.size()).is_equal(2)
+	for name in names:
+		assert_that(str(name)).is_equal(MapRoads.UNKNOWN_ROAD_ID)
+	source.free()
+
+## Mean XZ of a chain, for the coast-axis geometry assertion.
+func _mean_xz(points: Array[Vector3]) -> Vector2:
+	if points.is_empty():
+		return Vector2.ZERO
+	var sum := Vector2.ZERO
+	for p in points:
+		sum += Vector2(p.x, p.z)
+	return sum / float(points.size())
+
+func _min_x(points: Array[Vector3]) -> float:
+	var out := INF
+	for p in points:
+		out = minf(out, p.x)
+	return out
+
+func _max_x(points: Array[Vector3]) -> float:
+	var out := -INF
+	for p in points:
+		out = maxf(out, p.x)
+	return out
 
 func _segments_intersect_xz(a1: Vector3, a2: Vector3, b1: Vector3, b2: Vector3) -> bool:
 	var p := Vector2(a1.x, a1.z)

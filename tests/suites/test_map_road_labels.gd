@@ -43,6 +43,15 @@ func _planner_road_ids() -> Dictionary:
 		out[def.id] = true
 	return out
 
+## The curated name the planner puts on the def for `road_id` -- i.e. what the map
+## draws via MapRoads.get_road_names(). "" when the planner has no name for it,
+## which is a failure the caller asserts on rather than papering over.
+func _planner_road_name(road_id: String) -> String:
+	for def in CorridorPlanner.plan(CorridorPlanner.MASTER_SEED):
+		if def.id == road_id:
+			return def.display_name()
+	return ""
+
 ## A WorldMap over a real RoadNetwork carrying the FULL planned network, so the
 ## label set is the one the open world actually produces. _rebuild() only
 ## collects roads (and names) when a road source exists, which is what keeps the
@@ -83,28 +92,42 @@ func _fixed_measure(size: Vector2) -> Callable:
 # The curated set: real ids, real names, no blanks.
 # ---------------------------------------------------------------------------
 
-## Every curated id is a road the planner really emits, every table id is curated
-## (the table cannot drift into naming a road nobody labels), and none of them is
-## a ramp -- the whole point of "majors only" is that a merge stub is not a place.
+## Every curated id is a road the planner really emits, and every table id is
+## curated (the table cannot drift into naming a road nobody labels).
+##
+## This suite used to ALSO pin the "majors only" policy: exactly seven ids, none
+## of them a "-ramp", and the other twelve anonymous. That policy is deliberately
+## gone -- all nineteen corridors are named now (CorridorPlanner.ROAD_NAMES), so
+## the assertions are about agreement between the two naming sources, not about a
+## whitelist. The shipped names themselves are still pinned below.
 func test_curated_major_roads_are_real_planner_ids_and_are_labelled() -> void:
 	var planned := _planner_road_ids()
 	assert_array(WorldMap.MAJOR_ROAD_IDS).has_size(7)
 	for road_id in WorldMap.MAJOR_ROAD_IDS:
 		assert_that(planned.has(road_id)).is_true()
 		assert_that(WorldMap.ROAD_LABELS.has(road_id)).is_true()
-		assert_that(WorldMap.is_major_road(road_id)).is_true()
 		assert_that(WorldMap.road_label(road_id)).is_not_empty()
-		# The selection rule: a ring/loop or a district connector, never a ramp
-		# onto another road.
-		assert_that(road_id.ends_with("-ramp")).is_false()
 	for table_id in WorldMap.ROAD_LABELS:
 		assert_array(WorldMap.MAJOR_ROAD_IDS).contains([str(table_id)])
 
-	# The unlabelled majority stays anonymous: the twelve ids that are not
-	# curated are exactly the ramps, dirt cuts and dead-end coast ribbons.
+	# The table and the planner must AGREE on the seven, so a road reads the same
+	# whether its label came from RoadDef.name or from the fallback table.
+	for road_id in WorldMap.MAJOR_ROAD_IDS:
+		assert_that(WorldMap.road_label(road_id)).is_equal(_planner_road_name(str(road_id)))
+
+	# The twelve roads outside the table are the ramps, dirt cuts and shoreline
+	# ribbons -- the ones that used to stay anonymous. They now carry a curated
+	# name on the def itself, so they are named WITHOUT a ROAD_LABELS entry.
+	var named_outside_table := 0
 	for road_id in planned:
-		if not WorldMap.is_major_road(str(road_id)):
-			assert_that(WorldMap.ROAD_LABELS.has(str(road_id))).is_false()
+		if WorldMap.MAJOR_ROAD_IDS.has(str(road_id)):
+			continue
+		assert_that(WorldMap.ROAD_LABELS.has(str(road_id))).is_false()
+		var def_name := _planner_road_name(str(road_id))
+		assert_that(def_name).is_not_empty()
+		assert_that(def_name).is_equal(str(def_name.strip_edges()))
+		named_outside_table += 1
+	assert_int(named_outside_table).is_equal(12)
 
 ## The shipped names are player-facing text, pinned here so a rename is a
 ## deliberate edit rather than a silent diff.
@@ -193,16 +216,22 @@ func test_get_road_ids_handles_a_duck_typed_fallback_source() -> void:
 	for road_id in ids:
 		assert_that(str(road_id)).is_equal(MapRoads.UNKNOWN_ROAD_ID)
 
-	# A blank id is not a major road, so an unnamed network simply has no labels.
-	assert_that(WorldMap.is_major_road(MapRoads.UNKNOWN_ROAD_ID)).is_false()
+	# Names follow the SAME index-parity contract and fall back to blank (NOT to
+	# an id-derived guess) when the source has no defs to read a name from.
+	var names := MapRoads.get_road_names(stub)
+	assert_that(names.size()).is_equal(roads.size())
+	for road_name in names:
+		assert_that(str(road_name)).is_equal(MapRoads.UNKNOWN_ROAD_ID)
 
-	# Null source and an object without the road API: both accessors agree, and
-	# neither throws.
+	# Null source and an object without the road API: every accessor agrees, and
+	# none throws.
 	assert_that(MapRoads.get_road_ids(null).is_empty()).is_true()
 	assert_that(MapRoads.get_roads(null).is_empty()).is_true()
+	assert_that(MapRoads.get_road_names(null).is_empty()).is_true()
 	var plain := RefCounted.new()
 	assert_that(MapRoads.get_road_ids(plain).is_empty()).is_true()
 	assert_that(MapRoads.get_roads(plain).is_empty()).is_true()
+	assert_that(MapRoads.get_road_names(plain).is_empty()).is_true()
 
 ## The full planned network, through the real accessor: 19 chains, 19 ids, every
 ## id matching its own RoadDef.
@@ -464,11 +493,42 @@ func test_world_map_road_label_gate_follows_partial_filter_updates() -> void:
 	var labelled := world_map.road_label_ids()
 	assert_that(labelled.is_empty()).is_false()
 	assert_int(labelled.size()).is_greater_equal(1)
-	assert_int(labelled.size()).is_less_equal(WorldMap.MAJOR_ROAD_IDS.size())
+	# No whitelist any more: every label is drawn from a NAMED road, and the
+	# count is bounded by the network, not by MAJOR_ROAD_IDS. The greedy
+	# longest-first pass still drops names that would collide, so this is an
+	# upper bound, not a floor.
+	assert_int(labelled.size()).is_less_equal(19)
 	var pois_before := world_map.poi_entry_ids().size()
 	for road_id in labelled:
-		assert_array(WorldMap.MAJOR_ROAD_IDS).contains([road_id])
-		assert_that(WorldMap.road_label(road_id)).is_not_empty()
+		# Whatever got placed is a real planned road with a curated name -- the
+		# twelve non-major roads (ramps, cuts, shore ribbons) are candidates too.
+		assert_that(_planner_road_name(str(road_id))).is_not_empty()
+
+	# The whole point of the change: the set is no longer capped at the seven
+	# majors. Collision drops can shrink it, so assert on what did get drawn --
+	# including at least one road that used to be anonymous -- rather than on a
+	# count the greedy pass controls.
+	var texts := world_map.road_label_texts()
+	assert_that(texts.size()).is_equal(labelled.size())
+	var drawn := {}
+	for text in texts:
+		drawn[str(text)] = true
+	# All seven curated majors draw: they sort ahead of everything else, so the
+	# twelve newly-named roads can only take space the majors left over. This is
+	# the invariant that broke when the pass was ranked on length alone.
+	for major_id in WorldMap.MAJOR_ROAD_IDS:
+		var major_text := WorldMap.road_label(str(major_id))
+		assert_bool(drawn.has(major_text)).append_failure_message(
+			"curated major not drawn; drew %s" % str(texts)).is_true()
+	# And more than the seven now fit -- the point of naming the other twelve.
+	assert_int(texts.size()).is_greater(WorldMap.MAJOR_ROAD_IDS.size())
+	# A road that has no ROAD_LABELS entry can ONLY appear if the def's curated
+	# name is being used, so this one assertion covers the new data path.
+	var from_def := 0
+	for road_id in labelled:
+		if not WorldMap.ROAD_LABELS.has(str(road_id)):
+			from_def += 1
+	assert_bool(from_def > 0).is_true()
 
 	# Partial update: only the road-label key is present.
 	world_map.set_category_filters({"road_labels": false})
