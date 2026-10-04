@@ -9,7 +9,17 @@ Everything here is copy-paste verified on the PC (`D:\AI Projects\UltraDrive`).
 ## 0. The two rules that cause every failure
 
 1. **The Bash tool runs `cmd.exe`, not bash.** No `head`, `tail`, `cat`, `grep`,
-   `ls`, `wc`, `sed`, `awk`, `xargs`, `tail -f`. See the table in `AGENTS.md`.
+   `ls`, `wc`, `sed`, `awk`, `xargs`, `tail -f`. Use **`tools\pick.bat`**, which
+   works identically on both machines:
+
+   ```
+   tools\pick.bat tail 40 reports\parallel\logs\shard_4.log
+   tools\pick.bat grep "FAILED" "D:\AI Projects\UltraDrive\reports\parallel\logs\*.log"
+   tools\pick.bat grep "Overall Summary" reports\parallel\logs
+   ```
+
+   `grep` prints `file:lineno:text`, takes a file/glob/directory, and exits 1
+   when nothing matches. Full list in `AGENTS.md`.
 2. **Use `%GODOT_EXE_CONSOLE%`, never the GUI binary.**
    `Godot_v4.7.2-stable_win64.exe` is a WINDOWS_GUI-subsystem PE: it detaches,
    does not wait, does not attach stdout, and reports success while doing

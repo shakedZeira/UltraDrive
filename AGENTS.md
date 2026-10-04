@@ -9,6 +9,56 @@ hardcode it:
 GDUnit4 addon at `addons/gdUnit4`, tests under `tests/` (suite:
 `tests/suites`).
 
+## READ FIRST — THE `head`/`tail`/`grep` TRAP (top of file on purpose)
+
+**The `bash` tool in this project is NOT bash.** It is **cmd.exe** on the PC and
+**PowerShell 5.1** on the laptop. `head`, `tail`, `cat`, `grep`, `ls`, `wc`,
+`sed`, `awk`, `xargs` and `tail -f` **do not exist** and there is no `&&` after
+a pipe.
+
+**Use `tools\pick.bat` instead. It is the same on both machines:**
+
+```
+tools\pick.bat head 40 _gdunit.txt
+tools\pick.bat tail 40 _gdunit.txt
+tools\pick.bat grep "FAILED" "D:\AI Projects\UltraDrive\reports\parallel\logs\*.log"
+tools\pick.bat grep "Overall Summary" reports\parallel\logs
+tools\pick.bat lines AGENTS.md
+tools\pick.bat find test_perf_gate.gd tests
+tools\pick.bat ls tools
+tools\pick.bat debug grep -n "pat" file      <- dumps arg parsing
+```
+
+Notes that matter:
+- `grep` prints **`file:lineno:text`**, and its `<path>` may be a **file, a
+  glob, or a directory** (searched recursively). `grep` and `find` exit `1`
+  when nothing matches, so absence is detectable rather than silent.
+- Common POSIX flags are absorbed, not rejected: `-n`, `-r`, `-e` are no-ops
+  (those behaviours are always on), `-i` works, and `head -20` == `head 20`.
+  An **unknown flag is a hard error**, never a silent mis-binding.
+- Patterns may start with `-`. Avoid `|`, `<`, `>`, `&` inside a pattern —
+  cmd.exe eats them before the script ever sees them.
+- If you would have written `sed -i`, use the `edit` tool. If you would have
+  written `cat`, use the `read` tool.
+
+**Never type a POSIX pipeline into the `bash` tool.** If a sub-agent starts
+emitting `head -20`/`grep -rn`/`ls -la`, that is the bug this section exists to
+stop: it burns a whole run on `head is not recognized`. Two further notes so
+you do not repeat it:
+
+- `findstr` silently reports `Cannot open <basename>` for a **relative** path.
+  Always pass **absolute** paths, or use `pick`.
+- **Do not add a `param()` block to `tools\pick.ps1`.** `powershell -File
+  script.ps1 -n grep f.txt` tries to bind `-n` as a *named parameter* of that
+  block and dies with "A parameter cannot be found that matches parameter name
+  'n'". That is fatal here because grep patterns so often start with a dash,
+  which is why argv is parsed manually out of `$args`. Read the header comment
+  in `tools/pick.ps1` before touching it — it records that and two other traps
+  that were each hit for real.
+
+The long-form shell rules (PowerShell vs cmd, the `py` launcher, `findstr`
+recipes, Godot invocation) are further down under `## SHELL IS cmd.exe ...`.
+
 ## GODOT BINARY (never hardcode one drive)
 
 `godot_path.bat` (project root) resolves the engine and exports `GODOT_EXE`.
@@ -74,13 +124,17 @@ the WindowsApps Store stubs that do nothing. The working interpreter is
 
 | Instead of | Use |
 |---|---|
-| `head -n 20 f` / `tail -n 20 f` | `powershell -NoProfile -Command "Get-Content f -TotalCount 20"` / `... -Tail 20` |
-| `cat f` | `type f` (cmd) or `Get-Content f` |
-| `grep -n "pat" f` / `grep -rn` | `findstr /n /c:"pat" f` / `findstr /s /n /c:"pat" *.gd` |
-| `ls` / `ls -la` | `dir` / `dir /a` |
-| `wc -l f` | `find /v /c "" f` |
+| **anything POSIX** | **`tools\pick.bat ...`** — see the top section |
+| `head -n 20 f` / `tail -n 20 f` | `tools\pick.bat head 20 f` / `tools\pick.bat tail 20 f` |
+| `cat f` | the `read` tool, or `tools\pick.bat lines f` |
+| `grep -n "pat" f` / `grep -rn` | `tools\pick.bat grep "pat" <abs path or glob>` |
+| `ls` / `ls -la` | `tools\pick.bat ls [dir]` / `... ls [dir] a` |
+| `wc -l f` | `tools\pick.bat lines f` |
 | `sed -i` / `awk` | the `edit` tool — do not shell out |
-| `find . -name x` | `dir /s /b x` or `Get-ChildItem -Recurse -Filter x` |
+| `find . -name x` | `tools\pick.bat find x [dir]` |
+
+`findstr` remains available for one-off cases, but it is the second choice, not
+the first: it silently no-ops on relative paths and has no exit-code contract.
 
 **Paths:** always pass the `workdir` parameter instead of `cd`. `cd /d "..." &&
 cmd` chains have proven unreliable here, and `findstr` silently reports
