@@ -52,6 +52,8 @@
 $ErrorActionPreference = 'Stop'
 
 $ignoreCase = $false
+$countOnly = $false
+$invert = $false
 $cmd = ''
 $tail = @()
 
@@ -74,20 +76,37 @@ foreach ($raw in $tail) {
     if ($cmd -ne 'help' -and -not $seenPositional -and
         $arg.StartsWith('-') -and $arg.Length -gt 1 -and
         -not ($arg -match '^-\d+$')) {
-        # if/elseif, not switch: `continue` inside a switch nested in a loop
-        # does not reliably mean "next argument" in PowerShell.
-        if ($arg -eq '-i' -or $arg -eq '--ignore-case') {
-            $ignoreCase = $true
+        # Bundled POSIX short flags are the common form (`grep -rn`,
+        # `ls -la`), so expand `-abc` into -a -b -c before validating.
+        $flags = @($arg)
+        if ($arg -match '^-[A-Za-z]{2,}$') {
+            $flags = @()
+            foreach ($ch in $arg.Substring(1).ToCharArray()) {
+                $flags += ('-' + $ch)
+            }
         }
-        elseif ($arg -eq '-n' -or $arg -eq '--line-number' -or
-                $arg -eq '-r' -or $arg -eq '--recursive' -or
-                $arg -eq '-e' -or $arg -eq '-a') {
-            # no-op: line numbers, recursion and GNU -e are always on
-        }
-        else {
-            Write-Error (("unsupported flag '{0}' -- pick accepts -n -i -r " +
-                          "-e -a; pick head/tail also accept -<count>") -f $arg)
-            exit 2
+        foreach ($f in $flags) {
+            if ($f -eq '-i' -or $f -eq '--ignore-case') {
+                $ignoreCase = $true
+            }
+            elseif ($f -eq '-c' -or $f -eq '--count') {
+                $countOnly = $true
+            }
+            elseif ($f -eq '-v' -or $f -eq '--invert-match') {
+                $invert = $true
+            }
+            elseif ($f -eq '-n' -or $f -eq '--line-number' -or
+                    $f -eq '-r' -or $f -eq '--recursive' -or
+                    $f -eq '-e' -or $f -eq '-a' -or
+                    $f -eq '-l' -or $f -eq '--long') {
+                # no-op: line numbers, recursion, GNU -e and ls -l are always on
+            }
+            else {
+                Write-Error (("unsupported flag '{0}' -- pick accepts -n -i -r " +
+                              "-c -v -e -a -l, and bundled forms such as -rn " +
+                              "and -la; head/tail also accept -<count>") -f $f)
+                exit 2
+            }
         }
     }
     else {
@@ -118,17 +137,38 @@ function Get-RealDir([string]$Path) {
     return $Path
 }
 
+# Lines from <file>, or from STDIN when no file is given.
+# The stdin branch is not a nicety: the single most common failure in this
+# project is a POSIX pipeline such as `... | findstr "x" | head -n 10`,
+# where head/tail/grep/wc filter a PIPE rather than a named file. Without
+# this, that reflex fails on the missing file argument.
+function Read-Lines([string]$File) {
+    if ($File) { return @(Get-Content -LiteralPath $File) }
+    $raw = [Console]::In.ReadToEnd()
+    if ($null -eq $raw -or $raw.Length -eq 0) { return @() }
+    $split = @($raw -split "\r?\n")
+    # A trailing newline yields one empty final element; drop it so line
+    # counts match what wc -l would say.
+    if ($split.Count -gt 0 -and $split[-1] -eq '') {
+        $split = $split[0..($split.Count - 2)]
+    }
+    return $split
+}
+
 function Show-Usage {
     @"
 pick <command> [args]     portable head/tail/grep/ls for a Windows shell
 
   head  <n> <file>            first <n> lines            (default n=20)
   tail  <n> <file>            last <n> lines             (default n=20)
+  cat   <file>                whole file
   grep  <pattern> <path>      matching lines as
                               file:lineno:text; <path> may be a
                               glob ('reports\parallel\*.log') or a
                               directory (searched recursively).
                               Exit 1 when nothing matches.
+                              -i ignore case, -c count only,
+                              -v invert (lines that do NOT match).
   lines <file>                line count
   find  <name> [dir]          recursive file-name search, absolute
                               paths out. Exit 1 when nothing matches.
@@ -164,18 +204,39 @@ try {
         else {
             $file = $first
         }
-        $file = Get-RealFile $file
+        # No file argument means "filter stdin", so `... | head -n 10` works.
+        $lines = Read-Lines $file
         if ($cmd -eq 'head') {
-            Get-Content -LiteralPath $file -TotalCount $n
+            $lines | Select-Object -First $n
         } else {
-            Get-Content -LiteralPath $file -Tail $n
+            if ($n -lt 1) { $n = 1 }
+            $lines | Select-Object -Last $n
         }
     }
     elseif ($cmd -eq 'grep') {
         $pattern = Pos 0
         $path = Pos 1
         if ($pattern -eq '') { throw 'usage: pick grep <pattern> <path>' }
-        if ($path -eq '')    { throw 'usage: pick grep <pattern> <path>' }
+        $caseSensitive = -not $ignoreCase
+        # No path argument means "filter stdin", so `cmd | grep pat` works.
+        # The filename column becomes '-' to keep the file:lineno:text shape.
+        if ($path -eq '') {
+            $stdinLines = Read-Lines ''
+            $shown = 0
+            $ln = 0
+            foreach ($line in $stdinLines) {
+                $ln++
+                $hit = if ($ignoreCase) { $line -match $pattern }
+                       else { $line -cmatch $pattern }
+                if ($hit -eq $invert) { continue }
+                $shown++
+                if ($countOnly) { continue }
+                Write-Output ('{0}:{1}:{2}' -f '-', $ln, $line)
+            }
+            if ($countOnly) { Write-Output $shown }
+            if ($shown -eq 0) { exit 1 }
+            exit 0
+        }
         if (-not (Test-Path -Path $path)) { throw "no such path: $path" }
         $caseSensitive = -not $ignoreCase
         # Three path shapes, one code path. A directory is searched
@@ -196,16 +257,44 @@ try {
             $targets = @((Get-RealFile $path))
         }
         if ($targets.Count -eq 0) { exit 1 }
+        if ($invert) {
+            # Line-level invert, per file, preserving file:lineno:text shape.
+            # Uses the file's own lines rather than Select-String matches so
+            # the output shape matches the non-inverted form exactly.
+            $op = if ($ignoreCase) { '-notmatch' } else { '-cnotmatch' }
+            $shown = 0
+            foreach ($t in $targets) {
+                $ln = 0
+                foreach ($line in (Get-Content -LiteralPath $t)) {
+                    $ln++
+                    if ($line -notmatch $pattern) {
+                        if (-not $countOnly) {
+                            Write-Output ('{0}:{1}:{2}' -f $t, $ln, $line)
+                        }
+                        $shown++
+                    }
+                }
+            }
+            if ($countOnly) { Write-Output $shown }
+            if ($shown -eq 0) { exit 1 }
+            exit 0
+        }
         $hits = @(Select-String -Path $targets -Pattern $pattern `
                                 -CaseSensitive:$caseSensitive)
         if ($hits.Count -eq 0) { exit 1 }
+        if ($countOnly) {
+            Write-Output $hits.Count
+            exit 0
+        }
         foreach ($h in $hits) {
             '{0}:{1}:{2}' -f $h.Filename, $h.LineNumber, $h.Line
         }
     }
+    elseif ($cmd -eq 'cat') {
+        Read-Lines (Pos 0)
+    }
     elseif ($cmd -eq 'lines') {
-        $file = Get-RealFile (Pos 0)
-        Write-Output ((Get-Content -LiteralPath $file | Measure-Object).Count)
+        Write-Output (Read-Lines (Pos 0)).Count
     }
     elseif ($cmd -eq 'find') {
         $name = Pos 0

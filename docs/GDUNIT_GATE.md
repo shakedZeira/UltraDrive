@@ -20,6 +20,15 @@ Everything here is copy-paste verified on the PC (`D:\AI Projects\UltraDrive`).
 
    `grep` prints `file:lineno:text`, takes a file/glob/directory, and exits 1
    when nothing matches. Full list in `AGENTS.md`.
+
+   As a **floor, not a target**, the bare POSIX names are also shimmed in the
+   project root (`head.bat`, `tail.bat`, `cat.bat`, `grep.bat`, `ls.bat`,
+   `wc.bat` forward to `tools\pick.ps1`, and cmd.exe finds them in the current
+   directory before `PATH`). So `head -n 20 f`, `grep -rn pat scripts`,
+   `ls -la tools`, `wc -l f` and `type f | head -n 10` all **work** from the
+   project root, including piping stdin. A slip costs a second instead of
+   burning a whole gate run — but reach for `tools\pick.bat` in anything you
+   intend to keep.
 2. **Use `%GODOT_EXE_CONSOLE%`, never the GUI binary.**
    `Godot_v4.7.2-stable_win64.exe` is a WINDOWS_GUI-subsystem PE: it detaches,
    does not wait, does not attach stdout, and reports success while doing

@@ -33,13 +33,39 @@ Notes that matter:
 - `grep` prints **`file:lineno:text`**, and its `<path>` may be a **file, a
   glob, or a directory** (searched recursively). `grep` and `find` exit `1`
   when nothing matches, so absence is detectable rather than silent.
-- Common POSIX flags are absorbed, not rejected: `-n`, `-r`, `-e` are no-ops
-  (those behaviours are always on), `-i` works, and `head -20` == `head 20`.
-  An **unknown flag is a hard error**, never a silent mis-binding.
+- Common POSIX flags are absorbed, not rejected: `-n`, `-r`, `-e`, `-a`, `-l`
+  are no-ops (those behaviours are always on), `-i` and `-v` work, and
+  `head -20` == `head 20`. Bundled short flags are expanded, so `-rn` and
+  `-la` work. An **unknown flag is a hard error**, never a silent mis-binding.
 - Patterns may start with `-`. Avoid `|`, `<`, `>`, `&` inside a pattern —
   cmd.exe eats them before the script ever sees them.
 - If you would have written `sed -i`, use the `edit` tool. If you would have
   written `cat`, use the `read` tool.
+
+### The bare POSIX names also work now (root-level shims)
+
+`head.bat`, `tail.bat`, `cat.bat`, `grep.bat`, `ls.bat` and `wc.bat` sit in
+the **project root** and forward to `tools\pick.ps1`. cmd.exe searches the
+current directory before `PATH`, so from the project root the muscle-memory
+spellings succeed instead of dying:
+
+```
+head -n 20 AGENTS.md          tail -n 20 AGENTS.md
+grep -rn "pattern" scripts     grep -c "x" file
+ls -la tools                   wc -l AGENTS.md
+type x.log | head -n 10        type x.log | grep "Overall"
+type x.log | wc -l
+```
+
+**They filter STDIN when given no file argument**, which is the case that kept
+failing in practice (`... | findstr "shard_" | head -n 10`). Stdin lines are
+reported as `-:lineno:text`. Exit codes propagate: `0` match, `1` no match /
+missing file.
+
+**This is a floor, not a target.** A green `head` does not excuse writing a
+POSIX pipeline in the first place — the shims exist so a slip costs a second
+instead of a whole run. Reach for `tools\pick.bat`, or the `read`/`grep`/`glob`
+tools, in anything you intend to keep.
 
 **Never type a POSIX pipeline into the `bash` tool.** If a sub-agent starts
 emitting `head -20`/`grep -rn`/`ls -la`, that is the bug this section exists to
