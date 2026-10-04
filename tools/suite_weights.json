@@ -1,0 +1,787 @@
+{
+  "schema": 1,
+  "generated_at": "2026-10-04T07:11:12",
+  "source": "reports/parallel",
+  "unit_seconds": 0.05,
+  "xml_files": [
+    "reports/parallel/shard_1/report_1/results.xml",
+    "reports/parallel/shard_2/report_1/results.xml",
+    "reports/parallel/shard_3/report_1/results.xml",
+    "reports/parallel/shard_4/report_1/results.xml"
+  ],
+  "shards": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "totals": {
+    "suites": 95,
+    "time_s": 648.6,
+    "tests": 1018,
+    "measured": 95,
+    "fell_back_to_count": 0
+  },
+  "suites": {
+    "tests/suites/test_audio_feel_layers.gd": {
+      "time_s": 0.889,
+      "tests": 14,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_best_lap_records.gd": {
+      "time_s": 0.327,
+      "tests": 18,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_brake_stop_holds_first.gd": {
+      "time_s": 0.188,
+      "tests": 8,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_building_placement.gd": {
+      "time_s": 0.267,
+      "tests": 3,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_camera_math.gd": {
+      "time_s": 0.128,
+      "tests": 8,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_camera_settings.gd": {
+      "time_s": 0.263,
+      "tests": 11,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_car_audio.gd": {
+      "time_s": 0.388,
+      "tests": 18,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_car_default_setup.gd": {
+      "time_s": 0.213,
+      "tests": 11,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_car_paint_materials.gd": {
+      "time_s": 0.21,
+      "tests": 7,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_car_sound_profiles.gd": {
+      "time_s": 0.48,
+      "tests": 20,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_car_visuals.gd": {
+      "time_s": 0.431,
+      "tests": 17,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_career_economy.gd": {
+      "time_s": 0.999,
+      "tests": 14,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_cc0_cars.gd": {
+      "time_s": 0.255,
+      "tests": 6,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_chase_camera.gd": {
+      "time_s": 0.066,
+      "tests": 4,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_cockpit_camera.gd": {
+      "time_s": 0.358,
+      "tests": 8,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_cockpit_hud.gd": {
+      "time_s": 0.817,
+      "tests": 9,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_cockpit_interior.gd": {
+      "time_s": 0.35,
+      "tests": 11,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_cockpit_visibility.gd": {
+      "time_s": 0.241,
+      "tests": 6,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_collectibles.gd": {
+      "time_s": 13.54,
+      "tests": 44,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_corridor_seeding.gd": {
+      "time_s": 6.341,
+      "tests": 19,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_discovery.gd": {
+      "time_s": 0.128,
+      "tests": 9,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_drive_feel.gd": {
+      "time_s": 0.99,
+      "tests": 19,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_engine_audio.gd": {
+      "time_s": 0.894,
+      "tests": 55,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_environment_lighting.gd": {
+      "time_s": 0.121,
+      "tests": 6,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_event_placement.gd": {
+      "time_s": 3.826,
+      "tests": 9,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_event_rewards.gd": {
+      "time_s": 5.741,
+      "tests": 15,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_firstperson_look.gd": {
+      "time_s": 0.142,
+      "tests": 8,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_foliage_models.gd": {
+      "time_s": 0.129,
+      "tests": 1,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_full_world_height.gd": {
+      "time_s": 1.126,
+      "tests": 7,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_garage_tuning.gd": {
+      "time_s": 0.371,
+      "tests": 8,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_gps_route_follow.gd": {
+      "time_s": 0.331,
+      "tests": 10,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_ground_latch.gd": {
+      "time_s": 3.186,
+      "tests": 2,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_hardening.gd": {
+      "time_s": 0.374,
+      "tests": 10,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_highspeed_stability.gd": {
+      "time_s": 0.161,
+      "tests": 9,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_highway_access.gd": {
+      "time_s": 74.929,
+      "tests": 12,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_hood_camera.gd": {
+      "time_s": 0.152,
+      "tests": 5,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_hud_contrast.gd": {
+      "time_s": 0.144,
+      "tests": 3,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_hud_gauge.gd": {
+      "time_s": 3.776,
+      "tests": 5,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_input_curves.gd": {
+      "time_s": 0.13,
+      "tests": 9,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_longitudinal_traction.gd": {
+      "time_s": 2.208,
+      "tests": 19,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_low_speed_reverse_handling.gd": {
+      "time_s": 1.545,
+      "tests": 15,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_manual_transmission_default.gd": {
+      "time_s": 0.329,
+      "tests": 15,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_map_road_labels.gd": {
+      "time_s": 11.07,
+      "tests": 14,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_map_route.gd": {
+      "time_s": 0.217,
+      "tests": 6,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_multi_lane_rails.gd": {
+      "time_s": 36.452,
+      "tests": 16,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_night_headlights.gd": {
+      "time_s": 0.303,
+      "tests": 23,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_open_world_hud.gd": {
+      "time_s": 39.897,
+      "tests": 6,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_perf_gate.gd": {
+      "time_s": 52.793,
+      "tests": 3,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_photo_free_roam_diag.gd": {
+      "time_s": 38.743,
+      "tests": 1,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_photo_mode.gd": {
+      "time_s": 1.777,
+      "tests": 12,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_photo_mode_controller.gd": {
+      "time_s": 0.101,
+      "tests": 6,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_player_marker.gd": {
+      "time_s": 0.292,
+      "tests": 7,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_profile_slots.gd": {
+      "time_s": 0.46,
+      "tests": 11,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_prop_roadside_placement.gd": {
+      "time_s": 0.172,
+      "tests": 5,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_quality_ladder.gd": {
+      "time_s": 0.105,
+      "tests": 7,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_race_countdown.gd": {
+      "time_s": 0.392,
+      "tests": 11,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_race_loop.gd": {
+      "time_s": 0.4,
+      "tests": 14,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_race_results.gd": {
+      "time_s": 0.526,
+      "tests": 8,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_reflection_probes.gd": {
+      "time_s": 0.196,
+      "tests": 8,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_regional_climate.gd": {
+      "time_s": 0.344,
+      "tests": 16,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_release_engine_brake.gd": {
+      "time_s": 0.084,
+      "tests": 5,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_replay_recorder.gd": {
+      "time_s": 0.667,
+      "tests": 10,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_rival_ai.gd": {
+      "time_s": 0.244,
+      "tests": 13,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_rival_personalities.gd": {
+      "time_s": 0.296,
+      "tests": 8,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_road_graph.gd": {
+      "time_s": 46.321,
+      "tests": 25,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_session_stats.gd": {
+      "time_s": 0.171,
+      "tests": 10,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_settings_presets.gd": {
+      "time_s": 0.249,
+      "tests": 14,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_speed_trap_visuals.gd": {
+      "time_s": 8.116,
+      "tests": 14,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_starter_car_visual.gd": {
+      "time_s": 0.145,
+      "tests": 6,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_streaming_dressing.gd": {
+      "time_s": 26.903,
+      "tests": 11,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_surface_grip.gd": {
+      "time_s": 0.683,
+      "tests": 23,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_terrain_biomes.gd": {
+      "time_s": 11.088,
+      "tests": 6,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_terrain_seeder_streaming.gd": {
+      "time_s": 2.667,
+      "tests": 7,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_throttle_release_vehicle.gd": {
+      "time_s": 0.087,
+      "tests": 6,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_track_props.gd": {
+      "time_s": 0.158,
+      "tests": 3,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_traction_hud.gd": {
+      "time_s": 0.507,
+      "tests": 19,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_traffic_driving.gd": {
+      "time_s": 0.866,
+      "tests": 16,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_transmission_modes.gd": {
+      "time_s": 0.264,
+      "tests": 13,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_vehicle_fx.gd": {
+      "time_s": 0.279,
+      "tests": 13,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_weather_fx_bootstrap.gd": {
+      "time_s": 0.117,
+      "tests": 4,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_weather_sun.gd": {
+      "time_s": 0.165,
+      "tests": 8,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_weather_vfx.gd": {
+      "time_s": 0.377,
+      "tests": 25,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_world_map_features.gd": {
+      "time_s": 0.066,
+      "tests": 4,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/suites/test_world_map_terrain.gd": {
+      "time_s": 0.236,
+      "tests": 9,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/test_dressing_road_clearance.gd": {
+      "time_s": 0.731,
+      "tests": 5,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/test_input_mapping.gd": {
+      "time_s": 0.062,
+      "tests": 5,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/test_mountain_pass_zone.gd": {
+      "time_s": 69.225,
+      "tests": 3,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/test_open_world.gd": {
+      "time_s": 149.853,
+      "tests": 5,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/test_prop_scatterer.gd": {
+      "time_s": 0.129,
+      "tests": 3,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/test_race_logic.gd": {
+      "time_s": 0.04,
+      "tests": 2,
+      "shards": [
+        4
+      ],
+      "observations": 1
+    },
+    "tests/test_save_manager.gd": {
+      "time_s": 0.044,
+      "tests": 3,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/test_terrain_baker.gd": {
+      "time_s": 4.751,
+      "tests": 8,
+      "shards": [
+        3
+      ],
+      "observations": 1
+    },
+    "tests/test_track_system.gd": {
+      "time_s": 10.616,
+      "tests": 7,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    },
+    "tests/test_traffic_spawner.gd": {
+      "time_s": 0.275,
+      "tests": 2,
+      "shards": [
+        1
+      ],
+      "observations": 1
+    },
+    "tests/test_vehicle_physics.gd": {
+      "time_s": 0.394,
+      "tests": 22,
+      "shards": [
+        2
+      ],
+      "observations": 1
+    }
+  }
+}

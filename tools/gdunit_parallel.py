@@ -46,24 +46,60 @@ that autoload/save_manager.gd would otherwise cause (13 suites write
 every byte off C:, which the un-overridden default would not. Pass
 ``--no-isolate-user-data`` to fall back to serializing CONTENDED_SUITES into one
 trailing shard.
+
+Measured durations (P1 items 2/3/4 of the plan):
+
+* ``--write-weights`` reads the highest ``report_<N>/results.xml`` of every
+  ``<reports-root>/shard_*`` dir and writes ``tools/suite_weights.json``
+  (schema version 1), keyed ``<package>/<name>.gd`` so the keys are exactly the
+  discovered suite paths. A suite seen in more than one shard's XML has its
+  time SUMMED and the shards recorded. No Godot process is launched.
+* That file is then the shard WEIGHT source (``--weights-file`` to point
+  elsewhere): one weight = ``WEIGHT_UNIT_SECONDS`` of measured ``time``. A
+  missing/corrupt file, or a suite with no entry, falls back to its
+  ``func test_`` count with a one-line notice -- never a crash. Because shard
+  membership is a function of the weights, every CI job must use the same
+  ``-j`` AND the same committed weights file.
+* ``--merge-only`` merges per-shard XML that already exist (CI matrix
+  artifacts) through the normal merge/summary code path, launching neither
+  Godot nor the import probe, and still applies the false-green rules.
+* ``--max-jobs N`` clamps ``-j`` from above (the 4 GB VRAM cap).
+* Shards are driven with ``subprocess.Popen`` plus a shared abort event, not
+  bare ``subprocess.run``: a shard that exits 105 (SCRIPT ERRORS) or blows
+  ``--timeout`` trips the event and every other running shard terminates its
+  Godot child promptly. Test FAILURES (exit 100) never trip it. Aborted shards
+  are excluded from the merge and force a non-zero exit.
 """
 
 from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
 # --- CONTENTION ---
+# --- CONTENTION ---
+# Wall-clock BENCHMARKS that must not be measured on a contended CPU. gdUnit
+# runs suites sequentially inside a shard, but 4 concurrent Godot processes
+# saturate every core, so a frame-budget assert measures contention rather than
+# code. Measured: with test_perf_gate.gd inside a parallel shard it reported
+# 152-248 ms against its 16.7 ms contract (vs ~24 ms on an idle box). These run
+# alone in the serialized shard, after every parallel shard has finished.
+SERIAL_SUITES: set[str] = {
+    "test_perf_gate",
+}
+
 # Suites that write user://saves/slot_N.json (directly or via autoload
 # SaveManager / GameState setters / Garage / BestLapRecords). Only consulted when
 # --no-isolate-user-data is given; with the default per-shard APPDATA redirect
@@ -117,12 +153,25 @@ SERIALIZED_SHARD = 0
 STALE_XML_SLACK_SECONDS = 120.0
 RULE = "=" * 78
 
+WEIGHTS_SCHEMA = 1
+DEFAULT_WEIGHTS_FILE = "tools/suite_weights.json"
+WEIGHT_UNIT_SECONDS = 0.05
+WEIGHT_SOURCE_MEASURED = "measured"
+WEIGHT_SOURCE_COUNT = "count"
+WEIGHT_SOURCE_MIXED = "mixed"
+MONITOR_POLL_SECONDS = 0.25
+KILL_GRACE_SECONDS = 5.0
+SHARD_DIR_RE = re.compile(r"^shard_(\d+)$")
 
-@dataclass(frozen=True)
+
+@dataclass
 class Suite:
     name: str
     rel_path: str
     weight: int
+    test_count: int = 0
+    time_s: float = 0.0
+    weight_source: str = WEIGHT_SOURCE_COUNT
 
     @property
     def stem(self) -> str:
@@ -130,7 +179,7 @@ class Suite:
 
     @property
     def res_path(self) -> str:
-        return "res://" + self.rel_path.replace("\\", "/")
+        return "res://" + self.rel_path
 
     @property
     def contended(self) -> bool:
@@ -154,6 +203,23 @@ class Shard:
     @property
     def mode(self) -> str:
         return "serialized" if self.serialized else "parallel"
+
+    @property
+    def weight_source(self) -> str:
+        sources = {suite.weight_source for suite in self.suites}
+        if len(sources) == 1:
+            return next(iter(sources))
+        if not sources:
+            return WEIGHT_SOURCE_COUNT
+        return WEIGHT_SOURCE_MIXED
+
+    @property
+    def test_count(self) -> int:
+        return sum(suite.test_count for suite in self.suites)
+
+    @property
+    def time_s(self) -> float:
+        return sum(suite.time_s for suite in self.suites)
 
 
 @dataclass
@@ -180,6 +246,8 @@ class ShardResult:
     weight: int
     ran: bool = False
     timed_out: bool = False
+    aborted: bool = False
+    abort_reason: str = ""
     exit_code: int | None = None
     wall_seconds: float = 0.0
     counts: JunitCounts = field(default_factory=JunitCounts)
@@ -197,12 +265,17 @@ class ShardResult:
         return len(self.suite_names)
 
     def status(self) -> str:
+        if self.aborted:
+            return f"aborted ({self.abort_reason})" if self.abort_reason else "aborted"
         if not self.ran:
             return "skipped: no suites"
         if self.false_green:
             return "!! FALSE GREEN"
         if self.timed_out:
             return "TIMEOUT"
+        failed = self.counts.failures + self.counts.errors
+        if failed > 0:
+            return f"RED ({self.counts.failures} fail / {self.counts.errors} err)"
         if self.exit_code == GDUNIT_EXIT_ORPHANS:
             return "ok (orphans warn)"
         return "ok"
@@ -240,14 +313,199 @@ def discover_suites(tests_dir: Path) -> list[Suite]:
         count = len(TEST_FUNC_RE.findall(text))
         if count < 1:
             continue
-        rel_path = path.relative_to(PROJECT_ROOT)
+        rel_path = path.relative_to(PROJECT_ROOT).as_posix()
         weight = count
         override = STATIC_WEIGHTS.get(path.name, STATIC_WEIGHTS.get(path.stem))
         if override is not None and override > 0:
             weight = int(override)
-        suites.append(Suite(name=path.name, rel_path=str(rel_path), weight=weight))
+        suites.append(Suite(name=path.name, rel_path=rel_path, weight=weight,
+                            test_count=count, time_s=0.0,
+                            weight_source=WEIGHT_SOURCE_COUNT))
     suites.sort(key=lambda suite: (-suite.weight, suite.name))
     return suites
+
+
+def resolve_weights_path(value: str) -> Path:
+    candidate = Path(value).expanduser()
+    if not candidate.is_absolute():
+        candidate = PROJECT_ROOT / candidate
+    return candidate.resolve()
+
+
+def load_measured_weights(weights_path: Path) -> tuple[dict[str, dict], str]:
+    if not weights_path.is_file():
+        return {}, (f"no weights file at {weights_path}; sharding on func test_ "
+                    "counts")
+    try:
+        raw = json.loads(weights_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return {}, f"weights file {weights_path} is unreadable ({exc}); sharding on func test_ counts"
+    if not isinstance(raw, dict) or not isinstance(raw.get("suites"), dict) \
+            or not raw["suites"]:
+        return {}, f"weights file {weights_path} has no 'suites' object; sharding on func test_ counts"
+    cleaned: dict[str, dict] = {}
+    for key, entry in raw["suites"].items():
+        if not isinstance(entry, dict):
+            continue
+        try:
+            time_s = float(entry.get("time_s", 0.0))
+        except (TypeError, ValueError):
+            continue
+        if time_s <= 0.0:
+            continue
+        cleaned[str(key).replace("\\", "/")] = entry
+    if not cleaned:
+        return {}, f"weights file {weights_path} has no positive time_s entries; sharding on func test_ counts"
+    return cleaned, f"loaded {len(cleaned)} measured duration(s) from {weights_path}"
+
+
+def weights_digest(weights_path: Path) -> str:
+    try:
+        payload = weights_path.read_bytes()
+    except OSError:
+        return "-"
+    if not payload:
+        return "-"
+    return hashlib.sha1(payload).hexdigest()[:12]
+
+
+def apply_measured_weights(suites: list[Suite],
+                           measured: dict[str, dict]) -> tuple[int, int]:
+    matched = 0
+    for suite in suites:
+        entry = measured.get(suite.rel_path) or measured.get(suite.name)
+        if entry is None:
+            continue
+        matched += 1
+        suite.time_s = float(entry.get("time_s", 0.0))
+        reported = _entry_test_count(entry)
+        if reported > 0:
+            suite.test_count = reported
+        suite.weight = max(1, int(round(suite.time_s / WEIGHT_UNIT_SECONDS)))
+        suite.weight_source = WEIGHT_SOURCE_MEASURED
+    return matched, len(suites) - matched
+
+
+def _entry_test_count(entry: dict) -> int:
+    try:
+        return int(float(entry.get("tests", 0) or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def shard_index_from_dir(shard_dir: Path) -> int | None:
+    found = SHARD_DIR_RE.match(shard_dir.name)
+    return int(found.group(1)) if found else None
+
+
+def list_shard_dirs(reports_root: Path) -> list[Path]:
+    return sorted((path for path in reports_root.glob("shard_*") if path.is_dir()),
+                  key=lambda path: (shard_index_from_dir(path) or 0, path.name))
+
+
+def suite_key_from_element(element: ET.Element) -> str:
+    name = (element.get("name") or "").strip()
+    if not name:
+        return ""
+    if not name.endswith(".gd"):
+        name += ".gd"
+    package = (element.get("package") or "").strip().strip("/")
+    return f"{package}/{name}" if package else name
+
+
+def collect_measured_durations(reports_root: Path) -> tuple[list[Path], dict[str, dict]]:
+    sources: list[Path] = []
+    merged: dict[str, dict] = {}
+    for shard_dir in list_shard_dirs(reports_root):
+        results_xml = find_results_xml(shard_dir)
+        if results_xml is None:
+            continue
+        sources.append(results_xml)
+        index = shard_index_from_dir(shard_dir)
+        try:
+            root = ET.parse(results_xml).getroot()
+        except (OSError, ET.ParseError):
+            continue
+        for element in root:
+            if element.tag != "testsuite":
+                continue
+            key = suite_key_from_element(element)
+            if not key:
+                continue
+            entry = merged.setdefault(key, {"time_s": 0.0, "tests": 0,
+                                            "shards": [], "observations": 0})
+            entry["time_s"] += _float_attr(element, "time")
+            entry["tests"] += _int_attr(element, "tests")
+            if index is not None and index not in entry["shards"]:
+                entry["shards"].append(index)
+            entry["observations"] += 1
+    return sources, merged
+
+
+def rel_to_project(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(PROJECT_ROOT).as_posix()
+    except (OSError, ValueError):
+        return str(path)
+
+
+def build_weights_payload(reports_root: Path, sources: list[Path],
+                          measured: dict[str, dict], suites: list[Suite]) -> dict:
+    entries: dict[str, dict] = {}
+    for key in sorted(measured):
+        raw = measured[key]
+        entries[key] = {
+            "time_s": round(float(raw["time_s"]), 3),
+            "tests": _entry_test_count(raw),
+            "shards": sorted(raw.get("shards", [])),
+            "observations": int(raw.get("observations", 0)),
+        }
+    measured_keys = set(entries)
+    fallen_back = sorted(suite.rel_path for suite in suites
+                         if suite.rel_path not in measured_keys)
+    return {
+        "schema": WEIGHTS_SCHEMA,
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "source": rel_to_project(reports_root),
+        "unit_seconds": WEIGHT_UNIT_SECONDS,
+        "xml_files": [rel_to_project(source) for source in sources],
+        "shards": sorted({index for entry in entries.values() for index in entry["shards"]}),
+        "totals": {
+            "suites": len(entries),
+            "time_s": round(sum(entry["time_s"] for entry in entries.values()), 3),
+            "tests": sum(entry["tests"] for entry in entries.values()),
+            "measured": len(entries),
+            "fell_back_to_count": len(fallen_back),
+        },
+        "suites": entries,
+    }
+
+
+def write_weights_file(weights_path: Path, payload: dict) -> None:
+    weights_path.parent.mkdir(parents=True, exist_ok=True)
+    weights_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def report_measured_weights(reports_root: Path, weights_path: Path,
+                            suites: list[Suite]) -> int:
+    print("--- WRITE WEIGHTS ---")
+    sources, measured = collect_measured_durations(reports_root)
+    if not sources:
+        print(f"!! no {rel_to_project(reports_root) or reports_root}/shard_*/report_*/results.xml "
+              "to read; nothing was written")
+        return EXIT_PROBLEM
+    payload = build_weights_payload(reports_root, sources, measured, suites)
+    write_weights_file(weights_path, payload)
+    totals = payload["totals"]
+    print(f"  weights file : {weights_path}")
+    print(f"  xml sources  : {len(sources)}  {', '.join(rel_to_project(s) for s in sources)}")
+    print(f"  shards       : {payload['shards']}")
+    print(f"  measured     : {totals['measured']} suite(s) got a measured duration "
+          f"({totals['time_s']:.1f}s over {totals['tests']} test cases)")
+    print(f"  fell back    : {totals['fell_back_to_count']} discovered suite(s) had no "
+          "entry and keep their func test_ count")
+    print(f"  sha1         : {weights_digest(weights_path)}")
+    return EXIT_OK
 
 
 def warn_static_weight_drift(suites: list[Suite]) -> None:
@@ -283,24 +541,22 @@ def select_only(suites: list[Suite], spec: str) -> list[Suite]:
 
 def build_shards(suites: list[Suite], jobs: int,
                  isolate_user_data: bool) -> list[Shard]:
-    if isolate_user_data:
-        pool = list(suites)
-    else:
-        contended = [suite for suite in suites if suite.contended]
-        pool = [suite for suite in suites if not suite.contended]
+    pool = list(suites)
+    serial: list[Suite] = [suite for suite in suites if suite.stem in SERIAL_SUITES]
+    if not isolate_user_data:
+        serial += [suite for suite in suites if suite.contended]
+    serial_stems = {suite.stem for suite in serial}
+    pool = [suite for suite in suites if suite.stem not in serial_stems]
     ordered = sorted(pool, key=lambda suite: (-suite.weight, suite.name))
     shards: list[Shard] = [Shard(index=index) for index in range(1, jobs + 1)]
     for suite in ordered:
         lightest = min(shards, key=lambda shard: (shard.weight, shard.index))
         lightest.suites.append(suite)
     shards = [shard for shard in shards if shard.suites]
-    if not isolate_user_data:
-        contended = [suite for suite in suites if suite.contended]
-        serialized = Shard(index=SERIALIZED_SHARD, serialized=True)
-        serialized.suites = sorted(contended,
-                                   key=lambda suite: (-suite.weight, suite.name))
-        if serialized.suites:
-            shards.append(serialized)
+    serialized = Shard(index=SERIALIZED_SHARD, serialized=True)
+    serialized.suites = sorted(serial, key=lambda suite: (-suite.weight, suite.name))
+    if serialized.suites:
+        shards.append(serialized)
     return sorted(shards, key=lambda shard: shard.index)
 
 
@@ -430,14 +686,97 @@ def build_shard_command(shard: Shard, godot: Path, report_base: Path,
     return command
 
 
+class AbortRegistry:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._procs: dict[int, subprocess.Popen] = {}
+        self._tripped_by: dict[int, str] = {}
+        self.event = threading.Event()
+
+    def register(self, index: int, proc: subprocess.Popen) -> bool:
+        with self._lock:
+            self._procs[index] = proc
+            tripped = self.event.is_set()
+        if tripped:
+            print(f"[shard {index}] abort already signalled before launch; "
+                  "terminating immediately", flush=True)
+            terminate_process(proc)
+        return tripped
+
+    def unregister(self, index: int) -> None:
+        with self._lock:
+            self._procs.pop(index, None)
+
+    def trip(self, index: int, reason: str) -> None:
+        with self._lock:
+            first = not self.event.is_set()
+            self._tripped_by.setdefault(index, reason)
+            peers = [proc for peer, proc in self._procs.items() if peer != index]
+        if not first:
+            return
+        self.event.set()
+        print(f"[shard {index}] !! {reason} -> aborting {len(peers)} running peer "
+              f"shard(s)", flush=True)
+        for proc in peers:
+            terminate_process(proc)
+
+    def tripped_by(self) -> dict[int, str]:
+        with self._lock:
+            return dict(self._tripped_by)
+
+
+def terminate_process(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    try:
+        proc.terminate()
+    except OSError:
+        return
+
+
+def kill_process(proc: subprocess.Popen) -> None:
+    terminate_process(proc)
+    deadline = time.monotonic() + KILL_GRACE_SECONDS
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            return
+        time.sleep(MONITOR_POLL_SECONDS)
+    try:
+        proc.kill()
+    except OSError:
+        return
+    try:
+        proc.wait(timeout=KILL_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def drain_stream(stream: object, sink: list[str]) -> None:
+    if stream is None:
+        return
+    try:
+        for chunk in iter(stream.readline, ""):
+            sink.append(chunk)
+    except (OSError, ValueError):
+        pass
+    finally:
+        try:
+            stream.close()
+        except OSError:
+            pass
+
+
 def run_shard(shard: Shard, godot: Path, reports_root: Path,
               continue_on_failure: bool, timeout: float,
-              user_data_root: Path | None = None) -> ShardResult:
+              user_data_root: Path | None = None,
+              registry: AbortRegistry | None = None) -> ShardResult:
     result = ShardResult(index=shard.index, serialized=shard.serialized,
                          suite_names=[suite.name for suite in shard.suites],
                          weight=shard.weight)
     if not shard.suites:
         return result
+    if registry is None:
+        registry = AbortRegistry()
     shard_dir = reports_root / f"shard_{shard.index}"
     logs_dir = reports_root / "logs"
     log_path = logs_dir / f"shard_{shard.index}.log"
@@ -448,25 +787,69 @@ def run_shard(shard: Shard, godot: Path, reports_root: Path,
     env = build_shard_env(shard_user_data_dir(user_data_root, shard.index))
     command = build_shard_command(shard, godot, shard_dir, continue_on_failure)
     started = time.time()
+    source_text = (f"weights {shard.weight} ({shard.weight_source}), "
+                   f"tests {shard.test_count}")
     print(f"[shard {shard.index}] launch ({shard.mode}) {result.suites_run} suites, "
-          f"est {result.weight} tests", flush=True)
+          f"est {source_text}", flush=True)
     timed_out = False
+    aborted = False
+    proc: subprocess.Popen | None = None
+    chunks: list[str] = []
     try:
-        completed = subprocess.run(command, cwd=str(PROJECT_ROOT),
-                                   stdout=subprocess.PIPE,
-                                   stderr=subprocess.STDOUT,
-                                   encoding="utf-8", errors="replace",
-                                   timeout=timeout, env=env)
-        output = completed.stdout or ""
-        exit_code: int | None = completed.returncode
-    except subprocess.TimeoutExpired as exc:
-        output = _as_text(exc.stdout)
-        exit_code = None
-        timed_out = True
+        proc = subprocess.Popen(command, cwd=str(PROJECT_ROOT),
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                encoding="utf-8", errors="replace", env=env)
     except OSError as exc:
         output = f"orchestrator could not launch Godot: {exc}"
-        exit_code = None
+        log_path.write_text(output, encoding="utf-8", errors="replace")
+        result.ran = True
+        result.exit_code = None
+        result.wall_seconds = time.time() - started
+        result.false_green_reasons = detect_false_green(result, output)
+        result.false_green = bool(result.false_green_reasons)
+        print(f"[shard {shard.index}] done in {result.wall_seconds:.1f}s exit=None "
+              f"status={result.status()}", flush=True)
+        registry.trip(shard.index, f"could not launch Godot: {exc}")
+        return result
+    registry.register(shard.index, proc)
+    reader = threading.Thread(target=drain_stream, args=(proc.stdout, chunks),
+                              daemon=True)
+    reader.start()
+    deadline = (time.monotonic() + timeout) if timeout and timeout > 0 else None
+    while proc.poll() is None:
+        if registry.event.is_set() and not aborted:
+            aborted = True
+            result.abort_reason = "peer script error"
+            print(f"[shard {shard.index}] !! aborting: peer shard signalled a "
+                  "script error; killing Godot", flush=True)
+            kill_process(proc)
+            continue
+        if deadline is not None and not timed_out and time.monotonic() > deadline:
+            timed_out = True
+            print(f"[shard {shard.index}] !! exceeded --timeout {timeout:.0f}s; "
+                  "killing Godot", flush=True)
+            registry.trip(shard.index, f"TIMEOUT after {timeout:.0f}s")
+            kill_process(proc)
+            continue
+        time.sleep(MONITOR_POLL_SECONDS)
+    reader.join(timeout=KILL_GRACE_SECONDS)
+    registry.unregister(shard.index)
+    output = "".join(chunks)
+    exit_code: int | None = proc.returncode
     wall = time.time() - started
+    if aborted:
+        output += ("\n[orchestrator] shard terminated because a peer shard reported "
+                   "a script error (exit 105) or timed out; results discarded\n")
+        log_path.write_text(output, encoding="utf-8", errors="replace")
+        result.ran = True
+        result.aborted = True
+        result.exit_code = exit_code
+        result.wall_seconds = wall
+        print(f"[shard {shard.index}] done in {wall:.1f}s exit={exit_code} "
+              f"status={result.status()}", flush=True)
+        return result
+    if timed_out:
+        registry.trip(shard.index, f"TIMEOUT after {timeout:.0f}s")
     results_xml = None if timed_out else find_results_xml(shard_dir)
     if results_xml is not None and not _xml_is_fresh(results_xml, started):
         output += ("\n[orchestrator] results.xml predates this shard's launch, "
@@ -480,6 +863,8 @@ def run_shard(shard: Shard, godot: Path, reports_root: Path,
     if results_xml is not None:
         result.results_xml = str(results_xml)
         result.counts = parse_junit(results_xml)
+    if exit_code == GDUNIT_EXIT_SCRIPT_ERRORS:
+        registry.trip(shard.index, f"exit {GDUNIT_EXIT_SCRIPT_ERRORS} (script errors)")
     result.false_green_reasons = detect_false_green(result, output)
     result.false_green = bool(result.false_green_reasons)
     print(f"[shard {shard.index}] done in {wall:.1f}s exit={exit_code} "
@@ -521,10 +906,10 @@ def detect_false_green(result: ShardResult, output: str) -> list[str]:
     if exit_code not in GDUNIT_CLEAN_EXITS:
         if exit_code is None:
             reasons.append("process produced no exit code")
-        elif exit_code == GDUNIT_EXIT_FAILURES \
-                and result.counts.failures == 0 and result.counts.errors == 0:
-            reasons.append("exit 100 but the XML shows 0 failures and 0 errors "
-                           "(bad CLI arguments, not real results)")
+        elif exit_code == GDUNIT_EXIT_FAILURES:
+            if result.counts.failures == 0 and result.counts.errors == 0:
+                reasons.append("exit 100 but the XML shows 0 failures and 0 errors "
+                               "(bad CLI arguments, not real results)")
         elif exit_code in (GDUNIT_EXIT_HEADLESS, GDUNIT_EXIT_SCRIPT_ERRORS):
             reasons.append(f"environment error: exit {exit_code} "
                            + ("(headless guard tripped)" if exit_code == GDUNIT_EXIT_HEADLESS
@@ -584,16 +969,25 @@ def wrap_names(names: list[str], indent: str, width: int = 76) -> list[str]:
     return lines
 
 
-def print_plan(shards: list[Shard], suites: list[Suite]) -> None:
+def print_plan(shards: list[Shard], suites: list[Suite], weights_path: Path,
+               measured: bool, matched: int) -> None:
+    source = (f"measured durations from {rel_to_project(weights_path)} "
+              f"({matched}/{len(suites)} suites)"
+              if measured else f"func test_ counts ({matched}/{len(suites)} matched)")
     print("--- SHARD PLAN ---")
+    print(f"weights      : {source}")
+    if measured:
+        print(f"unit         : 1 weight = {WEIGHT_UNIT_SECONDS}s of measured time")
+        print(f"sha1         : {weights_digest(weights_path)}")
     for shard in shards:
-        tag = f"shard {shard.index}"
-        print(f"{tag}  [{shard.mode}]  {shard.suites_run} suites  "
-              f"est {shard.weight} tests")
+        print(f"shard {shard.index}  [{shard.mode}]  {shard.suites_run} suites  "
+              f"weight {shard.weight}  src {shard.weight_source}  "
+              f"tests {shard.test_count}  measured {shard.time_s:.1f}s")
         for line in wrap_names([s.name for s in shard.suites], "      "):
             print(line)
-    print(f"TOTAL  {len(suites)} suites  est {sum(s.weight for s in suites)} tests  "
-          f"in {len(shards)} shard(s)")
+    print(f"TOTAL  {len(suites)} suites  weight {sum(s.weight for s in suites)}  "
+          f"tests {sum(s.test_count for s in suites)}  "
+          f"measured {sum(s.time_s for s in suites):.1f}s  in {len(shards)} shard(s)")
 
 
 def print_results(results: list[ShardResult], totals: JunitCounts,
@@ -612,13 +1006,14 @@ def print_results(results: list[ShardResult], totals: JunitCounts,
               f"{result.counts.errors:>6}{exit_text:>7}  {result.status()}")
     false_greens = [r for r in results if r.false_green]
     timeouts = [r for r in results if r.timed_out]
+    aborted = [r for r in results if r.aborted]
     print("-" * len(header))
     print(f"OVERALL  {len(results)} shard(s)  tests {totals.tests}  "
           f"failures {totals.failures}  errors {totals.errors}  "
           f"skipped {totals.skipped}  xml-time {totals.time:.1f}s  "
           f"wall {wall_seconds:.1f}s")
     print(f"         false greens {len(false_greens)}  timeouts {len(timeouts)}  "
-          f"source XMLs merged {sources}")
+          f"aborted {len(aborted)}  source XMLs merged {sources}")
     print(f"MERGED   {merged_xml}")
     print(f"SUMMARY  {summary_json}")
 
@@ -626,7 +1021,9 @@ def print_results(results: list[ShardResult], totals: JunitCounts,
 def build_summary(results: list[ShardResult], totals: JunitCounts,
                   wall_seconds: float, sources: int, merged_xml: Path,
                   summary_json: Path, exit_code: int,
-                  godot: Path, version: str, probe: dict) -> dict:
+                  godot: str, version: str, probe: dict,
+                  weights_path: Path | None = None,
+                  aborted_by: dict[int, str] | None = None) -> dict:
     return {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "godot": str(godot),
@@ -644,6 +1041,9 @@ def build_summary(results: list[ShardResult], totals: JunitCounts,
         },
         "false_greens": len([r for r in results if r.false_green]),
         "timeouts": len([r for r in results if r.timed_out]),
+        "aborted": len([r for r in results if r.aborted]),
+        "aborted_by": aborted_by or {},
+        "weights_file": rel_to_project(weights_path) if weights_path else None,
         "exit_code": exit_code,
         "import_probe": probe,
         "shards": [
@@ -657,6 +1057,8 @@ def build_summary(results: list[ShardResult], totals: JunitCounts,
                 "wall_seconds": round(result.wall_seconds, 1),
                 "exit_code": result.exit_code,
                 "timed_out": result.timed_out,
+                "aborted": result.aborted,
+                "abort_reason": result.abort_reason,
                 "tests": result.counts.tests,
                 "failures": result.counts.failures,
                 "errors": result.counts.errors,
@@ -673,6 +1075,137 @@ def build_summary(results: list[ShardResult], totals: JunitCounts,
     }
 
 
+def finalize(results: list[ShardResult], reports_root: Path, wall_seconds: float,
+             godot: str, version: str, probe: dict, timeout: float,
+             weights_path: Path | None = None,
+             aborted_by: dict[int, str] | None = None,
+             user_data_isolation: str | None = None) -> int:
+    results.sort(key=lambda result: result.index)
+    sources: list[Path] = []
+    for result in results:
+        if result.aborted or not result.results_xml:
+            continue
+        sources.append(Path(result.results_xml))
+    merged_xml = reports_root / "merged-results.xml"
+    totals, suite_nodes = merge_junit(sources, merged_xml)
+    summary_json = reports_root / "summary.json"
+
+    false_greens = [result for result in results if result.false_green]
+    timed_out = [result for result in results if result.timed_out]
+    aborted = [result for result in results if result.aborted]
+    for result in false_greens:
+        print(RULE)
+        print(f" !! FALSE GREEN  shard {result.index} ({result.mode})")
+        print(f"    log        : {result.log_path}")
+        print(f"    exit code  : {result.exit_code}")
+        print(f"    xml        : {result.results_xml}")
+        for reason in result.false_green_reasons:
+            print(f"    reason     : {reason}")
+        print(RULE)
+    for result in results:
+        if result.timed_out:
+            print(f"!! shard {result.index} TIMED OUT after "
+                  f"{result.wall_seconds:.0f}s (--timeout {timeout:.0f}); "
+                  "it was killed and its results are untrustworthy")
+    for result in aborted:
+        print(f"!! shard {result.index} ABORTED ({result.abort_reason}) after "
+              f"{result.wall_seconds:.0f}s; its XML is excluded from the merge and "
+              "the run cannot pass")
+
+    print_results(results, totals, wall_seconds, len(sources), merged_xml,
+                  summary_json)
+    print(f"         merged <testsuite> nodes {suite_nodes}")
+
+    if false_greens or timed_out or aborted or totals.tests == 0 or suite_nodes == 0:
+        exit_code = EXIT_PROBLEM
+    elif totals.failures > 0 or totals.errors > 0:
+        exit_code = EXIT_TEST_FAILURES
+    else:
+        exit_code = EXIT_OK
+
+    summary = build_summary(results, totals, wall_seconds, len(sources),
+                            merged_xml, summary_json, exit_code, godot, version,
+                            probe, weights_path, aborted_by)
+    if user_data_isolation is not None:
+        summary["user_data_isolation"] = user_data_isolation
+    summary_json.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    print(f"EXIT {exit_code}"
+          + ("" if exit_code == EXIT_OK else
+             "  (1 = test failures, 2 = false green / environment problem)"))
+    return exit_code
+
+
+def run_merge_only(reports_root: Path, timeout: float,
+                   weights_path: Path | None) -> int:
+    started = time.time()
+    logs_dir = reports_root / "logs"
+    results: list[ShardResult] = []
+    for shard_dir in list_shard_dirs(reports_root):
+        results_xml = find_results_xml(shard_dir)
+        if results_xml is None:
+            print(f"!! {shard_dir.name}: no report_<N>/results.xml, skipping")
+            continue
+        index = shard_index_from_dir(shard_dir)
+        if index is None:
+            index = len(results)
+        log_path = logs_dir / f"shard_{index}.log"
+        output = ""
+        if log_path.is_file():
+            try:
+                output = log_path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                output = ""
+        counts = parse_junit(results_xml)
+        names = _suite_names_from_xml(results_xml)
+        result = ShardResult(index=index, serialized=index == SERIALIZED_SHARD,
+                             suite_names=names,
+                             weight=sum(max(1, int(round(suite.time_s / WEIGHT_UNIT_SECONDS)))
+                                        for suite in _suites_from_xml(results_xml)),
+                             ran=True, exit_code=None,
+                             counts=counts, results_xml=str(results_xml),
+                             log_path=str(log_path))
+        if counts.failures > 0 or counts.errors > 0:
+            result.exit_code = GDUNIT_EXIT_FAILURES
+        else:
+            result.exit_code = GDUNIT_EXIT_SUCCESS
+        result.false_green_reasons = detect_false_green(result, output)
+        result.false_green = bool(result.false_green_reasons)
+        results.append(result)
+    if not results:
+        print(f"!! --merge-only found no {rel_to_project(reports_root)}/shard_*/"
+              "report_*/results.xml to merge")
+        return EXIT_PROBLEM
+    print(f"--- MERGE ONLY: {len(results)} existing shard XML(s), no Godot "
+          "process was launched ---")
+    probe = {"ran": False, "reason": "--merge-only: no import probe ran"}
+    return finalize(results, reports_root, time.time() - started,
+                    "(not resolved: --merge-only)", "n/a", probe, timeout,
+                    weights_path)
+
+
+def _suites_from_xml(results_xml: Path) -> list[Suite]:
+    suites: list[Suite] = []
+    try:
+        root = ET.parse(results_xml).getroot()
+    except (OSError, ET.ParseError):
+        return suites
+    for element in root:
+        if element.tag != "testsuite":
+            continue
+        key = suite_key_from_element(element)
+        time_s = _float_attr(element, "time")
+        suites.append(Suite(name=key.rsplit("/", 1)[-1], rel_path=key,
+                            weight=max(1, int(round(time_s / WEIGHT_UNIT_SECONDS))),
+                            test_count=_int_attr(element, "tests"),
+                            time_s=time_s,
+                            weight_source=WEIGHT_SOURCE_MEASURED))
+    return suites
+
+
+def _suite_names_from_xml(results_xml: Path) -> list[str]:
+    return [suite.name for suite in _suites_from_xml(results_xml)]
+
+
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="gdunit_parallel",
@@ -685,6 +1218,21 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
                         help="run ONLY this shard index (for a CI matrix)")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the shard plan and exit without launching Godot")
+    parser.add_argument("--write-weights", action="store_true",
+                        help="regenerate the weights file from the measured "
+                             "per-suite times in the existing shard results.xml "
+                             "files, then exit (no Godot process)")
+    parser.add_argument("--weights-file", default=DEFAULT_WEIGHTS_FILE,
+                        help="measured-duration weights, default "
+                             f"{DEFAULT_WEIGHTS_FILE} (relative to the project "
+                             "root); a missing or corrupt file falls back to "
+                             "func test_ counts")
+    parser.add_argument("--max-jobs", type=int, default=None,
+                        help="clamp -j from above, e.g. 4 on a 4 GB GTX 970")
+    parser.add_argument("--merge-only", action="store_true",
+                        help="merge the existing shard results.xml files "
+                             "(CI matrix artifacts) and print the final summary "
+                             "without launching Godot or the import probe")
     parser.add_argument("--only", default=None,
                         help="comma-separated suite filenames to run (smoke subset)")
     parser.add_argument("--reports-root", default=DEFAULT_REPORTS_ROOT,
@@ -738,13 +1286,26 @@ def main(argv: list[str] | None = None) -> int:
     print(f" tests root    : {TESTS_DIR}")
     reports_root = resolve_reports_root(args.reports_root)
     print(f" reports root  : {reports_root}")
-    jobs = max(MIN_JOBS, min(MAX_JOBS, args.jobs))
+    job_cap = MAX_JOBS if args.max_jobs is None else min(MAX_JOBS,
+                                                        max(MIN_JOBS,
+                                                            args.max_jobs))
+    jobs = max(MIN_JOBS, min(job_cap, args.jobs))
     if jobs != args.jobs:
-        print(f" jobs          : {args.jobs} clamped to {jobs}")
+        reason = ""
+        if args.max_jobs is not None and args.jobs > job_cap:
+            reason = f" by --max-jobs {args.max_jobs}"
+        elif args.jobs > MAX_JOBS:
+            reason = f" (hard cap {MAX_JOBS})"
+        elif args.jobs < MIN_JOBS:
+            reason = f" (floor {MIN_JOBS})"
+        print(f" jobs          : {args.jobs} clamped to {jobs}{reason}")
     elif args.isolate_user_data:
-        print(f" jobs          : {jobs} parallel shards, no serialized shard")
+        print(f" jobs          : {jobs} parallel shards")
     else:
         print(f" jobs          : {jobs} parallel + 1 serialized")
+    print(f" benchmarks    : {len(SERIAL_SUITES)} wall-clock suite(s) "
+          f"({', '.join(sorted(SERIAL_SUITES))}) run alone in shard "
+          f"{SERIALIZED_SHARD}, LAST")
     print(f" fail-fast     : {'disabled (-c passed)' if args.continue_on_failure else 'ENABLED (omit -c)'}")
     print(f" import probe  : {'skipped (--no-import)' if args.run_import else 'enabled'}")
     user_data_root: Path | None = None
@@ -760,6 +1321,22 @@ def main(argv: list[str] | None = None) -> int:
         print("!! no suites discovered under "
               f"{TESTS_DIR} (no *.gd with func test_); nothing to do")
         return EXIT_PROBLEM
+
+    weights_path = resolve_weights_path(args.weights_file)
+    measured, notice = load_measured_weights(weights_path)
+    matched = fell_back = 0
+    if measured:
+        matched, fell_back = apply_measured_weights(suites, measured)
+        if fell_back:
+            notice += (f"; {matched} matched, {fell_back} suite(s) had no entry "
+                       "and keep their func test_ count")
+    print(f" weights       : {notice}")
+
+    if args.merge_only:
+        return run_merge_only(reports_root, args.timeout, weights_path)
+    if args.write_weights:
+        return report_measured_weights(reports_root, weights_path, suites)
+
     if args.only:
         try:
             suites = select_only(suites, args.only)
@@ -769,7 +1346,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         warn_static_weight_drift(suites)
     print(f" suites        : {len(suites)} discovered, "
-          f"{sum(s.weight for s in suites)} test functions")
+          f"{sum(s.test_count for s in suites)} test functions, "
+          f"weight {sum(s.weight for s in suites)}")
     contended_count = len([s for s in suites if s.contended])
     if args.isolate_user_data:
         print(f" contended     : {contended_count} save-touching suite(s) "
@@ -779,10 +1357,7 @@ def main(argv: list[str] | None = None) -> int:
               f"{SERIALIZED_SHARD} (runs alone, LAST)")
 
     shards = build_shards(suites, jobs, args.isolate_user_data)
-    print_plan(shards, suites)
-    if args.dry_run:
-        print("dry run: nothing launched")
-        return EXIT_OK
+    print_plan(shards, suites, weights_path, bool(measured), matched)
     if args.shard is not None:
         valid = [shard.index for shard in shards]
         if args.shard not in valid:
@@ -794,8 +1369,17 @@ def main(argv: list[str] | None = None) -> int:
             print(f"running only shard {SERIALIZED_SHARD}: the serialized "
                   "save-contention shard")
         print(f"running only shard {args.shard}: {selected[0].suites_run} suites, "
-              f"est {selected[0].weight} tests")
+              f"weight {selected[0].weight} ({selected[0].weight_source}), "
+              f"{selected[0].test_count} tests, {selected[0].time_s:.1f}s measured")
+        print(f"!! WARNING: shard membership depends on -j {jobs} AND the weights "
+              f"file ({rel_to_project(weights_path)}, sha1 "
+              f"{weights_digest(weights_path)}). Every CI matrix job must use "
+              "that identical -j with that identical committed weights file, or "
+              "the shards will not partition the suite set.")
         shards = selected
+    if args.dry_run:
+        print("dry run: nothing launched")
+        return EXIT_OK
 
     try:
         godot = resolve_godot(args.godot)
@@ -832,74 +1416,41 @@ def main(argv: list[str] | None = None) -> int:
     serialized = [shard for shard in shards if shard.serialized]
     results: list[ShardResult] = []
     started = time.time()
+    registry = AbortRegistry()
     if parallel:
         print(f"--- LAUNCH {len(parallel)} shard(s) CONCURRENTLY "
-              f"(threads driving subprocesses) ---")
+              f"(threads driving Popen + a shared abort event) ---")
         with concurrent.futures.ThreadPoolExecutor(
                 max_workers=len(parallel)) as pool:
             futures = [pool.submit(run_shard, shard, godot, reports_root,
                                    args.continue_on_failure, args.timeout,
-                                   user_data_root)
+                                   user_data_root, registry)
                        for shard in parallel]
             for future in concurrent.futures.as_completed(futures):
                 results.append(future.result())
     else:
         print("--- no parallel shards to launch ---")
     if serialized:
-        print("--- now the SERIALIZED save-contention shard, alone (nothing else "
-              "is running: these suites share user://saves/slot_N.json) ---")
-        for shard in serialized:
-            results.append(run_shard(shard, godot, reports_root,
-                                     args.continue_on_failure, args.timeout,
-                                     user_data_root))
+        if registry.event.is_set():
+            tripped = registry.tripped_by()
+            who = ", ".join(f"{index}: {reason}" for index, reason in sorted(tripped.items()))
+            print(f"--- SERIALIZED shard SKIPPED ({who}) ---")
+        else:
+            names = ", ".join(suite.name for shard in serialized
+                              for suite in shard.suites)
+            print(f"--- now the SERIALIZED shard {SERIALIZED_SHARD}, alone, "
+                  f"LAST (nothing else is running): {names} ---")
+            for shard in serialized:
+                results.append(run_shard(shard, godot, reports_root,
+                                         args.continue_on_failure, args.timeout,
+                                         user_data_root, AbortRegistry()))
     wall_seconds = time.time() - started
-    results.sort(key=lambda result: result.index)
 
-    sources: list[Path] = []
-    for result in results:
-        if result.results_xml:
-            sources.append(Path(result.results_xml))
-    merged_xml = reports_root / "merged-results.xml"
-    totals, suite_nodes = merge_junit(sources, merged_xml)
-    summary_json = reports_root / "summary.json"
-
-    false_greens = [result for result in results if result.false_green]
-    timed_out = [result for result in results if result.timed_out]
-    for result in false_greens:
-        print(RULE)
-        print(f" !! FALSE GREEN  shard {result.index} ({result.mode})")
-        print(f"    log        : {result.log_path}")
-        print(f"    exit code  : {result.exit_code}")
-        print(f"    xml        : {result.results_xml}")
-        for reason in result.false_green_reasons:
-            print(f"    reason     : {reason}")
-        print(RULE)
-    for result in results:
-        if result.timed_out:
-            print(f"!! shard {result.index} TIMED OUT after "
-                  f"{result.wall_seconds:.0f}s (--timeout {args.timeout:.0f}); "
-                  "it was killed and its results are untrustworthy")
-
-    print_results(results, totals, wall_seconds, len(sources), merged_xml,
-                  summary_json)
-    print(f"         merged <testsuite> nodes {suite_nodes}")
-
-    if false_greens or timed_out or totals.tests == 0 or suite_nodes == 0:
-        exit_code = EXIT_PROBLEM
-    elif totals.failures > 0 or totals.errors > 0:
-        exit_code = EXIT_TEST_FAILURES
-    else:
-        exit_code = EXIT_OK
-
-    summary = build_summary(results, totals, wall_seconds, len(sources),
-                            merged_xml, summary_json, exit_code, godot, version,
-                            probe)
-    summary["user_data_isolation"] = (
-        str(user_data_root) if user_data_root is not None else "shared")
-    summary_json.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    print(f"EXIT {exit_code}"
-          + ("" if exit_code == EXIT_OK else
-             "  (1 = test failures, 2 = false green / environment problem)"))
+    exit_code = finalize(results, reports_root, wall_seconds, str(godot),
+                         version, probe, args.timeout, weights_path,
+                         registry.tripped_by(),
+                         str(user_data_root) if user_data_root is not None
+                         else "shared")
     return exit_code
 
 

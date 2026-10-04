@@ -48,7 +48,7 @@ python merge_junit.py reports/group*/results.xml > reports/merged-results.xml
 ```
 
 **Pros:** Simple, no GDUnit4 changes, works today  
-**Cons:** N× Godot startup cost (~3s each), N× VRAM for scene tree
+**Cons:** N× Godot startup cost (~3s each), N× the RAM/CPU for the scene tree — *not* VRAM, headless uses the dummy rendering driver
 
 ### Option B: GDUnit4 Core Modification (Long-term)
 Add `--parallel=N` flag to `GdUnitCmdTool.gd` that:
@@ -221,20 +221,54 @@ if __name__ == "__main__":
 
 ### P1 — Medium (2 weeks): CI Integration & Optimization
 
-1. **GitHub Actions matrix** — replace single job with matrix of 4 shards
+1. **GitHub Actions matrix** — replace single job with a matrix of 4 shards.
+   **Shard indices are `1..jobs`, NOT `0..jobs-1`.** Under the default
+   `--isolate-user-data` mode the runner builds shards `1..jobs`, so `-j 4` means
+   `[1, 2, 3, 4]`. Shard `0` is reserved for the serialized save-contention
+   shard and exists ONLY under `--no-isolate-user-data`; `--shard 0` in the
+   default mode exits with an error, so a `[0, 1, 2, 3]` matrix would burn a job
+   on a shard that does not exist.
    ```yaml
    strategy:
      matrix:
-       shard: [0, 1, 2, 3]
+       shard: [1, 2, 3, 4]
      fail-fast: false
    ```
-   Each job runs `python tools/gdunit_parallel.py --shard ${{ matrix.shard }}`
+   Each job runs `py tools/gdunit_parallel.py -j 4 --shard ${{ matrix.shard }}`.
+   **Every matrix job MUST pass the identical `-j` AND the identical committed
+   `tools/suite_weights.json`.** Shard membership is a function of both — `-j`
+   decides how many bins exist, the weights file decides which suite lands in
+   which bin — so a job that drifts on either runs a *different partition* and
+   the merged total silently loses or double-counts suites. The runner prints
+   the weights file's sha1 in its `--shard` warning precisely so CI jobs can
+   compare digests and prove they matched; fail the workflow if they differ.
 
-2. **Dynamic sharding** — parse `_gdunit.txt` from previous run to get actual per-suite durations, feed back into `SUITE_WEIGHTS`
+   **A cross-job merge cannot trust mtimes.** Merging in a follow-up job means
+   `actions/download-artifact`, and downloaded files get *download-time* mtimes,
+   so the runner's own staleness guard (`_xml_is_fresh`, `st_mtime` vs process
+   launch with 120 s of slack) is meaningless after a download — it would accept
+   a stale XML or reject a good one depending on download order. A cross-job
+   merge must key on the **shard count** (all of `1..j` present) and the
+   **parsed JUnit counts**, never on mtime.
 
-3. **Resource limits** — cap at 4 parallel on GTX 970 (4GB VRAM). Each Godot headless ~800MB VRAM.
+2. **Dynamic sharding** — parse the previous run's actual per-suite durations
+   and feed them back as shard weights. Shipped as `--write-weights` /
+   `--weights-file` (see `### P1 — STATUS`); the source is the per-shard
+   `results.xml` files, not the `_gdunit.txt` scratch log this item used to name.
 
-4. **Fail-fast coordination** — if any shard hits a *script error* (not test failure), cancel others. Test failures should not cancel.
+3. **Resource limits** — cap the parallel job count on the GTX 970. **The real
+   constraint is CPU and RAM, not VRAM.** `--headless` runs Godot's *dummy*
+   rendering driver: the shard logs show `RendererDummy` allocations and
+   `servers/rendering/dummy/storage/material_storage.cpp` frames, with zero
+   Vulkan/VRAM use. The earlier "each Godot headless ~800 MB VRAM" claim in this
+   plan was simply false and must never be used to reason about job counts. What
+   the implementation actually ships is a `--max-jobs N` clamp on the job
+   **COUNT**: it does not measure VRAM, no VRAM measurement was implemented, and
+   it is not adaptive.
+
+4. **Fail-fast coordination** — if any shard hits a *script error* (not test
+   failure), cancel others. Test failures must not cancel. Shipped; see
+   `### P1 — STATUS`.
 
 ### P2 — Research (4 weeks): In-Process Parallelism (GDUnit4 Fork)
 
@@ -262,24 +296,31 @@ if __name__ == "__main__":
 Use the `SUITE_WEIGHTS` table above. Greedy bin-packing (largest-first) gives good balance.
 
 ### Dynamic Weights (P1+)
-After each full run, parse `reports/report_*/results.xml`:
+After each full run, parse the per-shard JUnit XML — the highest
+`report_<N>/results.xml` in each `<reports-root>/shard_*/` dir, which is what
+`--write-weights` does:
 ```python
 for suite in root.findall(".//testsuite"):
     name = suite.get("name")  # e.g. "test_highway_access"
     time = float(suite.get("time", 0))
-    SUITE_WEIGHTS[name + ".gd"] = max(1, int(time / 0.5))  # 0.5s per test heuristic
+    SUITE_WEIGHTS[name + ".gd"] = max(1, int(time / WEIGHT_UNIT_SECONDS))
 ```
-Persist to `tools/suite_weights.json` for next run.
+`WEIGHT_UNIT_SECONDS` is **0.05** in the implementation (one weight = 0.05 s of
+measured time), not the 0.5 s sketched here originally — the 0.5 s granularity
+was far too coarse to balance 95 suites. Persisted to
+`tools/suite_weights.json` for the next run.
 
 ### Bucketing Strategy
-| Parallelism | Shards | Expected Wall Time | VRAM Peak |
-|-------------|--------|-------------------|-----------|
-| 2 | 2 | ~9 min | ~1.6 GB |
-| 3 | 3 | ~6.5 min | ~2.4 GB |
-| **4** | **4** | **~5 min** | **~3.2 GB** |
-| 6 | 6 | ~4 min | ~4.8 GB (OOM risk) |
+| Parallelism | Shards | Expected Wall Time | Real constraint |
+|-------------|--------|-------------------|-----------------|
+| 2 | 2 | ~9 min | CPU / RAM |
+| 3 | 3 | ~6.5 min | CPU / RAM |
+| **4** | **4** | **~5 min** | CPU / RAM — measured 4.18× on the GTX 970 |
+| 6 | 6 | ~4 min | CPU / RAM — diminishing returns, *not* VRAM OOM |
 
-**Recommendation:** Start with `-j 4` on GTX 970. Monitor `nvidia-smi` during run.
+**Recommendation:** start with `-j 4` on the GTX 970 and read
+`reports/parallel/summary.json` for the actual per-shard walls. There is no VRAM
+to watch: headless shards run on the dummy rendering driver and allocate none.
 
 ---
 
@@ -319,13 +360,133 @@ Persist to `tools/suite_weights.json` for next run.
   and the missing import probe (a `-s` run before a successful
   `--headless --import .` dies with exit 103).
 
-Still open: the GitHub Actions JUnit-parser validation above, plus every P1 item.
+Still open: the GitHub Actions JUnit-parser validation above. P1 progress (three
+items shipped, the matrix deferred behind three blockers) is in
+`### P1 — STATUS` below.
 
 ### P1 (Next Sprint)
-- [ ] GitHub Actions workflow with matrix sharding
-- [ ] Dynamic weight update from CI artifacts
-- [ ] Add `--max-vram` flag to auto-scale job count
+- [ ] GitHub Actions workflow with matrix sharding (blocked — see P1 — STATUS)
+- [x] Dynamic weight update from measured durations (`--write-weights` /
+      `--weights-file`) — shipped against LOCAL per-shard XML; the "from CI
+      artifacts" half still needs a CI to exist
+- [x] Job-count clamp (`--max-jobs N`) — supersedes the original `--max-vram`
+      sketch in P1 item 3: headless allocates no VRAM, so there is nothing to
+      measure and no measurement was implemented
 - [ ] HTML report merge (optional: `gdunit4-test-runner` already does this)
+
+### P1 — STATUS
+
+Progress only — nothing below re-designs the P1 items above. The numbers come
+from `reports/parallel/summary.json`, `tools/suite_weights.json` and the shard
+logs; read those, not this block, which ages.
+
+**SHIPPED — dynamic weights.** `--write-weights` parses the highest
+`report_<N>/results.xml` of every `<reports-root>/shard_*` dir, sums each
+`<testsuite>`'s `time` (a suite appearing in more than one shard's XML is
+summed, and the shards recorded), and writes `tools/suite_weights.json`. Schema
+v1: `schema`, `generated_at`, `source`, `unit_seconds` (0.05 — one weight =
+0.05 s of measured time), `suites` keyed `<package>/<name>.gd` so the keys are
+exactly the discovered suite paths, plus `totals`. `--weights-file` consumes it
+and **overrides the `func test_` counts**; a missing or corrupt file, or a suite
+with no entry, falls back to the count with a one-line notice and never crashes.
+No Godot process is launched to write or read it.
+
+  Result: shard balance went from a **4.8× spread to 1.11×**, and wall-clock
+  from 264.3 s to **208.9 s**.
+  - Before (count weights): `264 / 136 / 247 / 46 s`.
+  - Projection from the per-suite `time` in the four existing shard XMLs (total
+    648.6 s, ideal `648.6 / 4 = 162.15 s`): `162.0 / 162.1 / 162.2 / 162.2 s`.
+    **The projection was roughly 23% optimistic** — see the contention note
+    below. Do not trust a projection for wall-clock.
+  - **MEASURED** (`-j 4`, exit 0, `1018 tests / 0 failures / 0 errors /
+    20 orphans`): parallel shards `156.0 / 154.3 / 159.7 / 144.1 s`
+    (spread **15.6 s**), plus a 49.2 s serialized tail. Total wall **208.9 s**
+    = **5.28×** the 18m23s serial baseline, and **55.4 s (1.27×) faster** than
+    the count-weighted P0 run.
+
+  **Wall-clock contention is real and it invalidates naive projections.**
+  The per-shard estimates predicted 148-150 s; measured 144-160 s. Worse, the
+  weights file was itself *generated from a contended run*, so it records
+  inflated per-suite times. Equalising the weights therefore equalises
+  *contended* cost, not serial cost — which is the right thing to balance, but
+  it means the projected total understates wall-clock by ~20-25%.
+
+  **SHIPPED — benchmark isolation (`SERIAL_SUITES`).** `test_perf_gate.gd`
+  measures wall-clock frame time, so it is meaningless under 4-way CPU
+  contention. Measured contended, it reported `152-248 ms` against its 16.7 ms
+  contract — **5 hard assertion failures**, exit 2. It is now excluded from the
+  parallel pool and runs alone in shard 0, LAST. Isolated, it **passes** (3/3,
+  `45s 330ms`, no `Expecting to be less than or equal:` line emitted). This is
+  worth more than it looks: paying a 49.2 s serialized tail is still 27 s
+  **faster** in total than running the benchmark contended (208.9 vs 236.1 s),
+  because the contended version also inflates every other shard it shares with.
+  **Any future wall-clock or throughput benchmark must be added to
+  `SERIAL_SUITES`** — it is a one-line change in `tools/gdunit_parallel.py`.
+
+**SHIPPED — exit-100 classification fix.** A shard reporting *real* failures
+(gdUnit exit 100 with `failures > 0` in its own XML) was mislabelled
+`!! FALSE GREEN`, conflating "red" with "untrustworthy". It now reports
+`RED (n fail / m err)` and the run exits **1** (test failures); exit **2**
+(false green) is reserved for genuinely untrustworthy results — no XML,
+`tests == 0`, exit 100 with 0 failures *and* 0 errors, exit 103/105, timeout,
+aborted, or a rejected `-a` path. Note the `RED` path is **not yet exercised by
+a green run** and still wants a deliberately-red verification.
+
+**SHIPPED — `--merge-only`.** Merges per-shard XMLs that already exist, with no
+Godot launch and no import probe, through the same merge → summary →
+false-green path, so the exit code and the `!! FALSE GREEN` banner mean exactly
+what they mean on a real run. Verified reproducing `1018 tests / 0 failures /
+0 errors / 95 suite nodes / EXIT 0` in **0.39 s**. This is the entry point for
+a CI follow-up-job merge — read the `download-artifact` mtime caveat in P1
+item 1 before wiring it up.
+
+**SHIPPED — `--max-jobs N` clamp.** Clamps the job **COUNT** from above (hard
+cap `-j` 1..8). It does not measure VRAM and is not adaptive — see P1 item 3.
+
+**SHIPPED — fail-fast coordination.** Shards are now driven with
+`subprocess.Popen` plus a shared abort event and a shared child registry. A
+shard exiting **105** (script errors) or blowing `--timeout` trips the event,
+which terminates the other live Godot children (terminate, then
+`KILL_GRACE_SECONDS` = 5 s, then kill). Test FAILURES (exit 100) deliberately do
+**not** trip it. Aborted shards report status `aborted (peer script error)`, are
+excluded from the merge, and force a non-zero exit.
+
+**OPEN / BLOCKER (CI matrix — machine-calibrated asserts).**
+`tests/suites/test_perf_gate.gd` asserts a **16.7 ms**
+`CONTRACT_FRAME_BUDGET_MS` that is deliberately calibrated to this box's
+GTX 970 / i7-6700 and fails on anything slower: it has flaked locally at
+`avg_ms 24.44`, and in the all-green run it consumed **52.7 s of one shard**. A
+GitHub runner has roughly half this box's physical parallelism, so a 4-job matrix
+would very likely go red for a reason that has nothing to do with the code. The
+`test_race_results.gd` wall-clock quantisation assert is the same class of
+problem. **Recommended order: land the local work first, make those two asserts
+machine-portable, THEN build CI.**
+
+**OPEN / BLOCKER (cold import).** `.godot/` is gitignored, so every CI job pays
+a cold editor import — 313 assets, ~38.8 MB of generated cache. Four matrix
+jobs would pay it four times, plausibly exceeding the entire 264 s of test time.
+Mitigable with `actions/cache` keyed on `assets/**`, `addons/**`,
+`project.godot`, `shaders/**` plus the runner OS.
+
+**OPEN / BLOCKER (no precedent).** The repo has **no CI of any kind today** — no
+`.github/`, no other pipeline config — so there is zero precedent here and the
+whole capability is unvalidated.
+
+**DEFERRED — GitHub Actions matrix**, for the three blockers above. Already
+known-good whenever it is built:
+  * `--godot <path>` fully bypasses the Windows-only `godot_path.bat`.
+  * `ubuntu-latest` is viable: no drive letters, no `.bat`/`.exe` calls and no
+    `APPDATA` dependency anywhere in the 96 suite files.
+  * Per-shard `results.xml` lands at a predictable path and `merge_junit` is
+    already path-agnostic.
+  * Assets are only 21.4 MB.
+  * No secrets and no extra permissions are required.
+  * `APPDATA`-based `user://` isolation is **Windows-only**, so it no-ops on a
+    Linux runner. Harmless in a matrix: each job is its own machine with its own
+    filesystem.
+
+The P0 checklist item "verify merged `results.xml` passes GitHub Actions JUnit
+parser" stays **unticked** — that validation has not happened.
 
 ### P2 (Future)
 - [ ] Fork GDUnit4, implement `--parallel` in `GdUnitCmdTool.gd`
@@ -344,11 +505,11 @@ python tools/gdunit_parallel.py -j 4
 # Dry-run: show shard assignment
 python tools/gdunit_parallel.py -j 4 --dry-run
 
-# Single shard (for debugging)
-python tools/gdunit_parallel.py -j 1 --shard 0
+# Single shard (for debugging) — indices are 1..j, so this is shard 1
+python tools/gdunit_parallel.py -j 1 --shard 1
 
-# CI: run one shard (matrix index from env)
-SHARD_IDX=2 python tools/gdunit_parallel.py -j 4 --shard $SHARD_IDX
+# CI: run one shard. -j must match the matrix, and the weights file must match too.
+py tools/gdunit_parallel.py -j 4 --shard 2
 ```
 
 ---
@@ -357,7 +518,7 @@ SHARD_IDX=2 python tools/gdunit_parallel.py -j 4 --shard $SHARD_IDX
 
 | Risk | Probability | Impact | Mitigation |
 |------|-------------|--------|------------|
-| Godot OOM with 4× processes | Medium | High | Monitor VRAM; fallback to `-j 2` |
+| CPU/RAM exhaustion with 4× processes | Medium | High | Headless shards allocate no VRAM; clamp the count with `--max-jobs`, fall back to `-j 2` |
 | Shared `.godot` cache corruption | Low | Medium | Each process uses same cache (read-only after import) |
 | Flaky tests non-deterministic across shards | Low | Low | Run flaky suites in isolation (sequential) |
 | JUnit merge loses per-suite timing | Low | Low | Keep per-shard XML as artifacts |
