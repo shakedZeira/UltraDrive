@@ -80,6 +80,14 @@ func _apply_lod(vehicle: VehiclePhysics, player_pos: Vector3) -> void:
         vehicle.freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
         vehicle.freeze = true
         vehicle.set_simulation_enabled(false)
+        # set_simulation_enabled() halts Jolt but leaves the node's own
+        # _physics_process alive, so a shelved car still paid for the ENTIRE
+        # vehicle model every tick: arcade speed clamp, _detect_impact, input
+        # reads, steering, drivetrain and the tyre/surface model. With
+        # lod_distance (140) well inside spawn_radius (300) most traffic is
+        # shelved, so this was the bulk of the open-world CPU cost. Paired with
+        # driver.set_suspended(true) below, which stops input being written.
+        vehicle.set_physics_process(false)
         _set_audio_processing(vehicle, false)
         if driver != null:
             driver.set_suspended(true)
@@ -87,6 +95,7 @@ func _apply_lod(vehicle: VehiclePhysics, player_pos: Vector3) -> void:
         var saved: Dictionary = _lod_state.get(vehicle, {})
         _lod_state.erase(vehicle)
         vehicle.set_simulation_enabled(true)
+        vehicle.set_physics_process(true)
         vehicle.freeze = false
         vehicle.linear_velocity = saved.get("velocity", Vector3.ZERO)
         vehicle.angular_velocity = saved.get("angular", Vector3.ZERO)

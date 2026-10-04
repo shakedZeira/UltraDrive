@@ -298,3 +298,119 @@ PowerShell's own `Get-Content` / `Get-ChildItem` / `Select-String`. §4 rules 2 
 ramp / per-segment rails, with a user-requested task still pending). It was
 left untracked and untouched. The next agent should read it before touching
 `corridor_planner.gd` / rails.
+ 
+## 9. FH5 optimization pass 2026-10-05 - optimization follow-up after the gate work
+
+Branch `master`, all commits below **pushed** unless noted. Full detail and
+measured tables live in `docs/plans/fh5_optimization_plan.md`.
+
+### 9.1 What shipped
+
+| Commit | Change |
+|---|---|
+| `333b472` | Plan correction: **9 `RenderingServer` methods in the FH5 plan do not exist**; FidelityFX class absent; FSR2 already shipped in `7ffb524` |
+| `13454c0` | Per-preset shadow ladder (Low 1 split/20 m, Medium 2/50 m, High 4/100 m + fade/opacity). Low **32.1 -> 78.6 fps (2.45x)**; +15 tests in `test_shadow_ladder.gd` |
+| `77757cc` | Measured real baseline at 1080p on the GTX 970, replacing stale numbers |
+| `5bf60ce` | High disables SDFGI: **41.7 -> 73.3 fps**, VRAM 1182 -> 777 MB |
+| `493be14` | Fixed a gate error I introduced (see 9.3) |
+| `aeae8a1` | `perf_probe.gd` prints active body count + physics share |
+| `7202c88` | Plan: recorded the CPU-bound finding, dropped the dead GPU items |
+| (this one) | `traffic_spawner.gd`: shelved traffic stops running its vehicle model |
+
+### 9.2 The gate error was mine, and the fix pattern matters
+
+`test_quality_ladder.gd` asserted with `assert_that(x).is_not_between(...)`.
+**gdUnit4's float assert has no `is_not_between`** - it raised
+`Nonexistent function 'is_not_between' in base 'GdUnitFloatAssertImpl.gd'`,
+which the runner counted as 1 error.
+
+Fixed by capturing the fresh `Environment`'s own values *before* applying the
+preset and asserting they are unchanged, instead of hardcoding an engine default
+a future Godot bump could invalidate. Prefer this shape whenever the invariant is
+"this code must not write X".
+
+Gate after the fix: **1033 tests, 0 failures, 0 errors, exit 0**.
+
+### 9.3 ⚠️ THE BOTTLENECK MOVED TO THE CPU - most of the FH5 plan is now dead
+
+After the SDFGI fix every preset measures `frame_ms ~= process_ms`:
+
+| Preset | frame_ms | process_ms | bound by |
+|---|---|---|---|
+| Low | 12.7 | 13.2 | **CPU** |
+| Medium | 16.1 | 17.0 | **CPU** |
+| High | 13.6 | 14.6 | **CPU** |
+
+High runs 13.6 ms against a 14.6 ms CPU floor: the GPU has ~1 ms of headroom,
+not ten. **Texture compression, draw-call batching/MultiMesh merging, VRS, TAA,
+mesh LOD, occlusion culling and virtual texturing are all DROPPED** - none of them
+touch the constraint. Do not implement them; they cannot move the framerate.
+
+`PHYSICS_3D_ACTIVE_OBJECTS avg=2`, so Jolt is solving essentially nothing. The CPU
+cost is in per-frame callbacks, not rigid-body solving. `terrain_seeder.gd` and
+`region_dresser.gd` use `_process`, not `_physics_process` - the `_physics_process`
+implementations are `vehicle_physics.gd`, `ai_controller.gd`, `traffic`-side audio,
+`living_world.gd`, `collectible_field.gd`, `event_session.gd` and the cameras.
+
+### 9.4 Shipped CPU fix: shelved traffic was still running its whole vehicle model
+
+`TrafficSpawner._apply_lod` shelves a car when it is parked or beyond
+`lod_distance` (140 m) by calling `set_simulation_enabled(false)`. That halts Jolt
+but **leaves the node's own `_physics_process` alive**, so every shelved car still
+paid for the full pipeline each tick: arcade speed clamp, `_detect_impact`, input
+reads, steering, drivetrain, tyre/surface model. Since `lod_distance` (140) sits
+well inside `spawn_radius` (300), *most* traffic was frozen-but-busy.
+
+Fixed by pairing `set_physics_process(false)` with the freeze and re-enabling it
+on unshelve, alongside the audio cull that was already there. Safe because
+`should_shelve` already excludes `_awaiting_ground` cars and the driver is
+suspended.
+
+**This fix is code-justified, not benchmark-justified** - a frozen suspended car
+should not run its tyre model. See 9.5 for why no number is attached to it.
+
+### 9.5 ⚠️ MEASUREMENT INTEGRITY - the box was too loaded to measure
+
+The dev box carried **46-53% ambient CPU load** (opencode, VS Code, copilot,
+Steam, OneDrive). Two **identical** Medium configs measured **62.1 and 38.5 fps**,
+and an identical High config measured **73.3 fps earlier vs 10.8 fps later** - a
+6.8x collapse.
+
+This also **invalidates leave-one-out ablation** under contention: disabling any
+subsystem frees CPU for everything else, so every ablation looks like a win. We
+measured base 10.8 / traffic-off 56.3 / dressing-off 45.1 / terrain-off 29.8, and
+**none of that ranking is meaningful.** Do not conclude "traffic is the
+bottleneck" from those numbers.
+
+Consequences for the next agent:
+- **Trustworthy:** SDFGI ~9 ms, the shadow ladder's 2.45x on Low, VRAM
+  1182 -> 777 MB. These reproduce across runs.
+- **Not trustworthy:** per-preset figures, especially Medium's. Nothing within
+  ~20% of current is measurable here.
+- `physics_ms` vs `process_ms` are **not comparable** under load (observed
+  `physics_ms` 26.3 > `frame_ms` 25.9, and "143% of process"). Only `fps` is
+  meaningful. This is why the probe now ablates and reads fps only.
+- **Re-baseline on a quiet machine before optimizing against any number.**
+  Median of >=3 runs. Never gate on a single run's fps.
+- `tools/perf_probe.gd` gained `PERF_DISABLE` CPU names (`chunk_streamer`,
+  `terrain_stream`, `traffic`, `living`, `collectibles`, `events`, `dressing`)
+  which `set_process`+`set_physics_process` the named nodes WITHOUT hiding
+  geometry, so a delta is CPU time not render time. Infrastructure only - no
+  conclusions drawn from it yet.
+- Perf logs always warn `7 RIDs of type "Texture" were leaked`; runs still complete.
+
+### 9.6 Open items
+
+1. **Re-baseline all 3 presets on a quiet machine** (blocks any further perf work).
+2. **CPU attribution, properly this time** - `phys_bodies=2` points at per-frame
+   callbacks, not solving. Candidates: terrain streaming (`TerrainSeeder` sync
+   player-region bake ~3.3 s plus worker-thread ring), `RegionDresser`,
+   `traffic` (8 cars). Needs a quiet box to rank.
+3. **Medium is dominated** - 62.1 fps vs High's 73.3, so High looks strictly
+   better. Medium is CPU-bound on MSAA 4x at full resolution. Product call.
+4. **FSR2 sharpness** - `Viewport.fsr_sharpness` was VERIFIED to exist as a real
+   float property (no `RenderingServer` method; project setting default 0.2).
+   Quality only, no framerate gain; needs `settings.tscn` work since the menu
+   binds `%UniqueName` nodes.
+5. CI still deliberately deferred (section 6). 
+
