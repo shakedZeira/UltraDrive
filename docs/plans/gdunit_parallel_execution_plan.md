@@ -391,18 +391,30 @@ and **overrides the `func test_` counts**; a missing or corrupt file, or a suite
 with no entry, falls back to the count with a one-line notice and never crashes.
 No Godot process is launched to write or read it.
 
-  Result: shard balance went from a **4.8× spread to 1.11×**, and wall-clock
-  from 264.3 s to **208.9 s**.
+  Result: shard balance went from a **4.8× spread to 1.08×**, and wall-clock
+  from 264.3 s to **206.4 s**.
   - Before (count weights): `264 / 136 / 247 / 46 s`.
   - Projection from the per-suite `time` in the four existing shard XMLs (total
-    648.6 s, ideal `648.6 / 4 = 162.15 s`): `162.0 / 162.1 / 162.2 / 162.2 s`.
-    **The projection was roughly 23% optimistic** — see the contention note
-    below. Do not trust a projection for wall-clock.
+    608.9 s, ideal `608.9 / 4 = 152.2 s`): `148.8 / 137.9 / 137.7 / 137.8 s`
+    (dry-run, `-j 4`). **Projections run ~5% optimistic** — see the contention
+    note below. Do not trust a projection for wall-clock.
   - **MEASURED** (`-j 4`, exit 0, `1018 tests / 0 failures / 0 errors /
-    20 orphans`): parallel shards `156.0 / 154.3 / 159.7 / 144.1 s`
-    (spread **15.6 s**), plus a 49.2 s serialized tail. Total wall **208.9 s**
-    = **5.28×** the 18m23s serial baseline, and **55.4 s (1.27×) faster** than
+    20 orphans`): parallel shards `153.7 / 149.9 / 155.7 / 140.1 s`
+    (spread **15.6 s**), plus a 50.7 s serialized tail. Total wall **206.4 s**
+    = **5.34×** the 18m23s serial baseline, and **57.9 s (1.28×) faster** than
     the count-weighted P0 run.
+  - Weights re-measured **after** upstream `794a199` made `test_perf_gate.gd` /
+    `test_race_results.gd` machine-portable; totals fell `648.6 s -> 608.9 s`
+    and `test_perf_gate.gd` `52.8 -> 46.7 s`, so the staleness had been
+    over-stating the critical path rather than hiding cost.
+
+  **Balance is now good but is capped by one monolithic suite.** Shards 2/3/4
+  land within **0.2 s** of each other; the whole remaining spread is shard 1
+  holding `test_open_world.gd` alone at **148.8 s / 5 tests**, which no
+  suite-level splitter can break up. The makespan is therefore
+  `max(one 148.8 s suite, three ~138 s shards) + 46.7 s serialized`. Closing
+  that needs **test-level** splitting inside that one suite, not better
+  bin-packing — see P2.
 
   **Wall-clock contention is real and it invalidates naive projections.**
   The per-shard estimates predicted 148-150 s; measured 144-160 s. Worse, the
@@ -536,6 +548,22 @@ known-good whenever it is built:
 
 The P0 checklist item "verify merged `results.xml` passes GitHub Actions JUnit
 parser" stays **unticked** — that validation has not happened.
+
+**Machine-portability of the two wall-clock suites — VERIFIED 2026-10-04.**
+Upstream `794a199` rewrote `test_perf_gate.gd`, `test_race_results.gd` and
+`scripts/bench/benchmark.gd` to be machine-portable; this had never been run
+here. Two consecutive full `-j 4` runs after that pull were **both green, exit
+`0`, `1018 tests / 0 failures / 0 errors / 20 orphans`, 95/95 suites**, and —
+the part that matters — the perf gate selected the **strict absolute** branch
+in both, not the relative fallback:
+
+  * run 1: `mode=reference control_ms=8.42 contract_ms=16.7 load_budget_ms=60.5`
+  * run 2 (`--write-weights`): `mode=reference control_ms=6.97 contract_ms=16.7 load_budget_ms=50.1`
+  * `test_perf_gate.gd` passed **3/3** in both, run alone in serialized shard 0.
+
+`mode=reference` means the box proved it holds 60 Hz, so the real 16.7 ms
+contract was enforced rather than loosened. This closes the portability
+question the plan had been carrying as untested.
 
 ### P2 (Future)
 - [ ] Fork GDUnit4, implement `--parallel` in `GdUnitCmdTool.gd`

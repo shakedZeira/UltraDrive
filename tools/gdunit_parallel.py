@@ -1307,7 +1307,7 @@ def main(argv: list[str] | None = None) -> int:
           f"({', '.join(sorted(SERIAL_SUITES))}) run alone in shard "
           f"{SERIALIZED_SHARD}, LAST")
     print(f" fail-fast     : {'disabled (-c passed)' if args.continue_on_failure else 'ENABLED (omit -c)'}")
-    print(f" import probe  : {'skipped (--no-import)' if args.run_import else 'enabled'}")
+    print(f" import probe  : {'skipped (--no-import)' if not args.run_import else 'enabled'}")
     user_data_root: Path | None = None
     if args.isolate_user_data:
         user_data_root = (reports_root / USER_DATA_SUBDIR).resolve()
