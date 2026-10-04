@@ -282,17 +282,69 @@ rs.fsr2_set_render_scale(drs_scale)
 
 ## Measurable Targets
 
-| Metric | Current | P0 Target | P1 Target | P2 Target |
-|--------|---------|-----------|-----------|-----------|
-| Terrain sync bake (1 region) | 3.3s | 3.3s | 3.3s | **<0.5s** (GPU) |
-| Async ring budget/frame | 16ms | 16ms | **<8ms** | **<4ms** |
-| VRAM at High (1080p) | ~3.5GB | **<2.5GB** | **<2GB** | **<1.5GB** |
-| Draw calls (dense scene) | ~2500 | ~2500 | **<1500** | **<800** |
-| Shadow cost (Medium) | ~2.5ms | **<1.5ms** | **<1ms** | **<0.5ms** |
-| FPS @ 1080p Medium (GTX 970) | ~45 | **55** | **60** | **60+** |
-| FSR2 Quality mode gain | N/A | **1.4×** | **1.5×** | **1.6×** |
-| Shader pipelines (High) | ~120 | ~120 | **<50** | **<30** |
-| GDUnit suite time | 18min | 18min | 15min | 10min |
+### MEASURED BASELINE — 2026-10-04 (replaces every estimated number below)
+
+Real hardware, not a spec sheet. `tools/perf_probe.gd` windowed, vsync off,
+1920×1080, `res://scenes/world/open_world_root.tscn`, car at full throttle,
+8 s warmup + 20 s measure. Adapter reported by the engine itself:
+`NVIDIA GeForce GTX 970`, `Vulkan 1.3.280 - Forward+`.
+
+| Metric | **Low** | **Medium** | **High** |
+|---|---|---|---|
+| FPS avg | **78.6** | **62.1** | **41.7** |
+| FPS min–max | 72–88 | 57–70 | 32–47 |
+| frame_ms | 12.7 | 16.1 | 24.0 |
+| process_ms (CPU) | 13.2 | 17.0 | 14.2 |
+| draw_calls | 303 | 354 | 464 |
+| primitives | 406,445 | 480,391 | 633,871 |
+| VRAM | 664 MB | 1161 MB | 1182 MB |
+
+Shadow-ladder A/B (same probe, `apply_shadow_preset` bypassed):
+
+| Run | FPS avg | frame_ms | draw_calls | primitives |
+|---|---|---|---|---|
+| Low, ladder ON | **78.6** | **12.7** | 303 | 406,445 |
+| Low, ladder OFF | 32.1 | 31.2 | 347 | 468,122 |
+| High, ladder ON | 41.7 | 24.0 | 464 | 633,871 |
+| High, ladder OFF | 39.2 | 25.5 | 372 | 479,616 |
+
+**What the measurements change — four of this plan's assumptions were wrong:**
+
+1. **VRAM was never a problem.** Peak is **1.18 GB on a 4 GB card**. The
+   "~3.5 GB current / <2.5 GB P0" row was ~3× wrong. **The texture-compression
+   P0 is solving a non-problem** — the single largest item in the original
+   plan, and it should be dropped, not scheduled.
+2. **Draw calls were never a problem either** — 303–464, not "~2500". The
+   `<1500` / `<800` targets are already met by 5×. Batching work is not where
+   the time goes.
+3. **Medium already hits the plan's headline goal** at 62.1 fps. "60 FPS @
+   1080p Medium" is *met*, not aspirational.
+4. **The one real gap is High at 41.7 fps**, and it is GPU-bound, not
+   CPU-bound: `frame_ms` 24.0 vs `process_ms` 14.2 leaves ~10 ms of GPU-only
+   cost. FSR2 is already on at scale 0.85, so that 10 ms is SDFGI + SSR +
+   volumetric fog + SSAO + glow + 4-split shadows, all at once.
+
+**The shadow ladder is the one shipped P0 with a measured win — and it is a
+large one.** Low went **32.1 → 78.6 fps (2.45×)**, because the engine default
+`directional_shadow_max_distance = 100` put the *entire* open world into the
+shadow cascade; cutting Low to 1 orthogonal split at 20 m removed most shadow
+casters. On High the effect is inside run-to-run noise (41.7 vs 39.2, and the
+OFF run's average was dragged down by a 16 fps min hitch) even though 4 splits
+versus the default 2 visibly raised submitted primitives (634k vs 480k). Do not
+claim a High win from this — the ladder's value is Low.
+
+### Remaining targets, re-based on the measurements
+
+| Metric | Measured | Still worth doing? |
+|---|---|---|
+| FPS @ 1080p High | 41.7 | **Yes — the only sub-60 preset.** ~10 ms GPU-bound |
+| FPS @ 1080p Medium | 62.1 | No — target met |
+| FPS @ 1080p Low | 78.6 | No |
+| VRAM at High | 1.18 GB | **No — drop the texture-compression P0** |
+| Draw calls | 303–464 | No — already 5× under target |
+| Shadow cost (Medium) | ladder shipped; 50 m / 2 splits | Measure separately if it still shows up |
+| Terrain sync bake (1 region) | ~3.3 s (CPU, unchanged) | Yes — unchanged, still the load-time cost |
+| GDUnit suite time | **206 s** (was 18 min) | Done — `tools\gdunit_parallel.py -j 4` |
 
 ---
 
@@ -304,7 +356,7 @@ rs.fsr2_set_render_scale(drs_scale)
 | Compute shader terrain bake fails on Maxwell | Medium | High | Keep CPU baker, optimize with `FastNoiseLite.get_image()` bulk |
 | Occluder3D setup labor-intensive | High | Low | Start with auto-generated occluders from collision meshes |
 | Mesh LOD pop-in visible | Medium | Medium | Cross-fade LODs (Godot 4.4+ `lod_transition_mode`) |
-| VRS unsupported on driver 560.94 | Medium | Low | Detect `has_feature("vrs")`, skip gracefully |
+| VRS unsupported on driver 560.94 | Medium | Low | Read `rendering/vrs/mode`; there is no runtime `has_feature` check to write |
 | DRS causes UI flicker | Medium | Medium | Clamp min scale 0.6, exclude UI viewport |
 | Virtual texturing too complex | High | High | Skip — use Texture2DArray for splatmaps only |
 
@@ -314,9 +366,9 @@ rs.fsr2_set_render_scale(drs_scale)
 
 | Feature | Class / Method | Notes |
 |---------|----------------|-------|
-| FSR2 | `RenderingServer.enable_fsr2()`, `fsr2_set_quality()`, `fsr2_set_sharpness()` | 4.4+ |
-| TAA | `RenderingServer.enable_taa()`, `set_taa_jitter_scale()` | 4.0+ |
-| VRS | `RenderingServer.enable_vrs()`, `vrs_set_combiner()` | Vulkan 1.1+, 4.3+ |
+| FSR2 | `Viewport.scaling_3d_mode` + `rendering/scaling_3d/mode` | **NOT** `RenderingServer.enable_fsr2()` — see the verification table |
+| TAA | `rendering/anti_aliasing/quality/use_taa` | **NOT** `RenderingServer.enable_taa()`; startup-only, not runtime |
+| VRS | `rendering/vrs/mode` | **NOT** `RenderingServer.enable_vrs()`; `1` = combine mode |
 | Clustered lighting | Project Settings → Rendering → 3D → Rendering Method = Forward+ | Default |
 | Occlusion culling | `Occluder3D`, `VisualInstance3D.occlusion_culling` | 4.0+ |
 | Mesh LOD | `MeshLOD`, `GeometryInstance3D.lod_threshold` | 4.0+ |
@@ -325,7 +377,7 @@ rs.fsr2_set_render_scale(drs_scale)
 | MultiMesh | `MultiMesh.instance_count`, `set_instance_transform()` | Batched props |
 | WorkerThreadPool | `WorkerThreadPool.add_task()`, `add_group_task()` | CPU async |
 | Motion vectors | `StandardMaterial3D.motion_vector_enabled` | For TAA/FSR2 |
-| Shadow tuning | `DirectionalLight3D.shadow_cascade_*`, `shadow_max_distance` | Per preset |
+| Shadow tuning | `directional_shadow_mode`, `directional_shadow_max_distance`, `directional_shadow_fade_start`, `Light3D.shadow_opacity` | `shadow_cascade_count` / `shadow_max_distance` / `shadow_fade_start` **do not exist** — see item 3 |
 
 ---
 
