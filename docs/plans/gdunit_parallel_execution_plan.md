@@ -286,10 +286,40 @@ Persist to `tools/suite_weights.json` for next run.
 ## Implementation Checklist
 
 ### P0 (This Week)
-- [ ] Create `tools/gdunit_parallel.py` with sharding + merge
-- [ ] Test locally: `python tools/gdunit_parallel.py -j 4`
+- [x] Create `tools/gdunit_parallel.py` with sharding + merge
+- [x] Test locally: `python tools/gdunit_parallel.py -j 4`
 - [ ] Verify merged `results.xml` passes GitHub Actions JUnit parser
-- [ ] Document in `docs/GDUNIT_GATE.md` (add parallel section)
+- [x] Document in `docs/GDUNIT_GATE.md` (add parallel section)
+
+### P0 — STATUS
+
+- **Deliverable:** `tools/gdunit_parallel.py`. Usage, flags and the false-green
+  rules are documented in `docs/GDUNIT_GATE.md` § "Parallel gate" — that section,
+  not this plan, is the operational reference.
+- **Suite weights come from runtime discovery**, not the `SUITE_WEIGHTS` table in
+  this plan: `tests/` is walked recursively and every `*.gd` with at least one
+  `func test_` is a suite, weighted by that count. The static table above was
+  stale — it was missing the 11 suites in the `tests/` root and carried a
+  duplicate `test_manual_transmission_default.gd` key. It is kept only as an
+  empty `STATIC_WEIGHTS` override for P1's measured-duration feedback, so
+  discovery stays the single source of truth.
+- **gdUnit `-a` is repeatable**; a comma-joined `-a` value is NOT split and
+  becomes one literal path, which discovers zero tests and exits 0. The runner
+  emits one `-a` per suite and treats the resulting silence as a false green.
+- **Each shard needs its own `-rd`.** gdUnit picks `report_<N>` by scanning for
+  the highest existing index and a finishing run deletes lower-indexed siblings,
+  so concurrent shards sharing a base would delete each other's reports.
+- **Per-shard `APPDATA` isolation removed the need to serialize** the 13
+  save-touching suites (`CONTENDED_SUITES`), by giving every shard a private
+  `user://`. `--no-isolate-user-data` remains as the serialize-into-one-trailing-
+  shard fallback.
+- **Three plan-doc bugs were fixed during implementation:** `ProcessPoolExecutor`
+  → `ThreadPoolExecutor` (the work is `subprocess.run`, not picklable CPU work),
+  the assumed `<rd>/results.xml` path (it is actually `<rd>/report_<N>/results.xml`),
+  and the missing import probe (a `-s` run before a successful
+  `--headless --import .` dies with exit 103).
+
+Still open: the GitHub Actions JUnit-parser validation above, plus every P1 item.
 
 ### P1 (Next Sprint)
 - [ ] GitHub Actions workflow with matrix sharding

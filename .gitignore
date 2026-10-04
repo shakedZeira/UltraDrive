@@ -21,6 +21,10 @@ diag/
 # Local vision bridge staging (pasted screenshots + captures; analyzed by Ollama)
 .vision/
 
+# Python bytecode from tools/ (gdunit_parallel.py + its py_compile checks)
+__pycache__/
+*.pyc
+
 # -----------------------------------------------------------------------
 # Junk: AI/playtest diagnostics, GDUnit outputs, logs, temp + regenerated files
 # -----------------------------------------------------------------------

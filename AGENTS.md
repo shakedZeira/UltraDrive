@@ -52,14 +52,56 @@ binary. After the suite, confirm `_gdunit.txt` is not 0 bytes.
 to one drive, fix it to go through `godot_path.bat` — do NOT just flip it to
 the other drive, that breaks the other machine.
 
+## SHELL IS cmd.exe ON WINDOWS — NO POSIX TOOLS (agents keep breaking on this)
+
+The Bash tool on this project runs **cmd.exe**, not bash/zsh. There is no
+`head`, `tail`, `cat`, `grep`, `ls`, `wc`, `sed`, `awk`, `xargs`, `tail -f`, or
+`&&`-after-pipe. Do NOT reach for them — use the Windows equivalents. Also do
+NOT paste the PowerShell snippets below straight into the tool: `&`, `$var`,
+`2>&1 |` and backtick syntax are PowerShell-only and will not parse in cmd.
+
+| Instead of | Use |
+|---|---|
+| `head -n 20 f` / `tail -n 20 f` | `powershell -NoProfile -Command "Get-Content f -TotalCount 20"` / `... -Tail 20` |
+| `cat f` | `type f` (cmd) or `Get-Content f` |
+| `grep -n "pat" f` / `grep -rn` | `findstr /n /c:"pat" f` / `findstr /s /n /c:"pat" *.gd` |
+| `ls` / `ls -la` | `dir` / `dir /a` |
+| `wc -l f` | `find /v /c "" f` |
+| `sed -i` / `awk` | the `edit` tool — do not shell out |
+| `find . -name x` | `dir /s /b x` or `Get-ChildItem -Recurse -Filter x` |
+
+**Paths:** always pass the `workdir` parameter instead of `cd`. `cd /d "..." &&
+cmd` chains have proven unreliable here, and `findstr` silently reports
+`Cannot open <basename>` when handed a relative path. Quote absolute paths.
+
+**Godot from cmd** (verified working — this is the form to use, not the
+PowerShell one in the workflow section below):
+
+```
+cmd /v:on /c "call godot_path.bat & echo !GODOT_EXE_CONSOLE!"
+cmd /v:on /c "call godot_path.bat & !GODOT_EXE_CONSOLE! --version"
+cmd /v:on /c "call godot_path.bat & !GODOT_EXE_CONSOLE! --headless --import . 2>&1"
+cmd /v:on /c "call godot_path.bat & !GODOT_EXE_CONSOLE! --headless -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd --ignoreHeadlessMode -a res://tests > _gdunit.txt 2>&1"
+```
+
+If you must use PowerShell, wrap it explicitly:
+`powershell -NoProfile -Command "..."`.
+
 ## FILESYSTEM HYGIENE (MANDATORY)
 - **Only write inside the project root** (this directory, whatever drive it
   is on). All tool output, logs, and artifacts stay in the project folder —
   no temp files, no scratch, no system temp dir.
-- On the **PC** specifically, that means do not write anywhere on `C:\`: the
-  drive is small and filling it causes failures. This caveat is about that
-  machine's low C: space, not a ban on the C: drive — the laptop's project
-  legitimately lives on `C:\Users\...\Desktop\Shaked Projects\`.
+- **HARD RULE (stated by the user 2026-10-04): do not use the C: drive AT ALL
+  — D: only.** This overrides any earlier softer wording here.
+- This bites in a specific place: Godot's `user://` defaults to
+  `%APPDATA%\Godot\app_userdata\<project>`, which is on C:. Every headless or
+  parallel run must set `APPDATA` to an ABSOLUTE path under the project root so
+  saves, engine logs and gdUnit temp land on D: (see the PARALLEL GATE note
+  below for the exact mechanism). Never leave it unset on a run you care about.
+- **Caveat for when this project is cloned on another machine:** this repo is
+  developed from `D:\AI Projects\UltraDrive`, but a checkout whose project root
+  is itself on `C:\` cannot honour the rule — keep artifacts beside the project
+  there. Never hardcode either path; resolve via `godot_path.bat` / `__file__`.
 
 ## VISION BRIDGE (local image analysis)
 
@@ -118,6 +160,14 @@ supported!"), which has nothing to do with your code.
    ```
    Then `findstr /c:"Overall Summary:" _gdunit.txt` — and confirm
    `_gdunit.txt` is NOT 0 bytes before reading it.
+
+   **READ `docs/GDUNIT_GATE.md` BEFORE RUNNING ANY OF THIS.** It has the
+   cmd.exe command forms that actually work (the PowerShell snippets here do
+   NOT parse in the Bash tool), the one-line command that lists every failing
+   suite, the browsable HTML report gdUnit writes to `reports/report_<N>/`, the
+   nested-quote `findstr` breakage, and the `test_perf_gate.gd` wall-clock
+   flake you must not mistake for a regression. Prefer running the gate INLINE
+   here over dispatching the `gate` sub-agent, which has proven unreliable.
    **MEASURED BASELINE at `a6287bb` (2026-09-27), not a target:**
    `Overall Summary: 950 test cases | 0 errors | 26 failures | 0 flaky | 0 skipped | 20 orphans`
    (exit 100). The tree defines 982 `func test_` across 95 files; 94 suites ran
@@ -136,7 +186,79 @@ supported!"), which has nothing to do with your code.
    - Known unexplained defect: `test_highway_access` sees road id
      `'spawnhub-highwayccess-ramp'`, which matches no id literal in
      `corridor_planner.gd` — looks like string corruption, not an index bug.
-   GDUnit gotchas: it treats GDScript warnings as errors (e.g. `var x := some_func_returning_Variant()` fails to load) and its vector `is_equal_approx` requires a SAME-TYPE approx arg, not a float (`assert_that(vec).is_equal_approx(vec, Vector2(0.001, 0.001))`).
+   - **SUPERSEDED 2026-10-03** by a full run of the current tree
+     (working tree, per-side rail mask landed):
+     `Overall Summary: 1004 test cases | 0 errors | 1 failures | 0 flaky | 0 skipped | 20 orphans`
+     (exit 100), 95/95 suites in **14m59s**, `_gdunit.txt` ~700 KB, HTML report
+     in `reports/report_596/`. All 26 ROAD/CORRIDOR failures above are FIXED.
+     The single remaining failure is
+     `test_perf_gate.gd > test_pick_preset_is_deterministic_and_in_ladder`
+     (`avg_ms 24.44` vs a `16.7` wall-clock budget) — a hardware-timing flake
+      on this GTX 970, NOT a correctness signal. Gate on the suites your change
+      touches, never on a hard-coded total.
+    - **SUPERSEDED 2026-10-03 (later)** by a full run with road NAMING landed
+      (`CorridorPlanner.ROAD_NAMES`, `RoadDef.display_name()`,
+      `MapRoads.get_road_names()`, pause map labels all 19 corridors):
+      `Overall Summary: 1006 test cases | 0 errors | 2 failures | 0 flaky | 0 skipped | 20 orphans`
+      (exit 100), 95/95 suites in **18m23s**. BOTH failures are wall-clock
+      flakes, neither touching roads or maps:
+      (1) the same `test_perf_gate.gd` budget (16.7 ms);
+      (2) `test_race_results.gd > test_win_results_overlay_matches_standings_total_and_best_lap`
+      — `Expecting: 0.590000 in range between 0.741000 <> 0.841000`, a timing
+      band that only slips under full-suite load. **It PASSES 8/8 in
+      isolation**, so treat it as cross-suite interference, not a regression —
+      re-run the suite alone before you investigate.
+    - **TWO MORE FALSE-GREENS on this shell, both hit for real:**
+      (a) GDUnit `-a` does NOT accept comma-separated paths. Passing six suites
+      comma-joined prints `Given directory or file does not exists: ...` and then
+      **`Exit code: 0` with zero tests run**. Chain the runs with `&` instead.
+      (b) A suite aborts at its FIRST failure, so the "Executed test cases"
+      denominator is lower than the number of `func test_` in the file and later
+      tests are silently never executed. A suite reporting 16 cases when the file
+      defines 19 is an ABORT, not a pass — check the counts against the file.
+   - **PARALLEL GATE — P0 of `docs/plans/gdunit_parallel_execution_plan.md`
+      SHIPPED 2026-10-04.** `tools/gdunit_parallel.py` shards the 95 suites
+      across N headless Godot processes and merges the per-shard JUnit XML:
+      `py tools\gdunit_parallel.py -j 4` (use `py` — `python`/`python3` are
+      WindowsApps Store stubs on this box). MEASURED **264.3 s (4m24s)** wall
+      vs the 18m23s serial baseline = **4.18x**, 95/95 suites,
+      `1018 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 20 orphans`,
+      0 false greens, exit 0 — an ALL-GREEN full run, and both prior
+      wall-clock flakes did NOT fire. Because it passes `-c`, every shard ran
+      its full case list (255/255, 255/255, 254/254, 254/254) with no fail-fast
+      truncation, which is why the count rose 1006 → 1018. Artifacts (ignored
+      by git) in `reports/parallel/`: `shard_<i>/report_1/` HTML + XML,
+      `logs/`, `userdata/`, `merged-results.xml`, `summary.json`.
+      Audited facts this depends on — do not re-derive:
+      * `-a` is REPEATABLE and accumulates into one command; comma-joined paths
+        do NOT work (that is false-green (a) above). One `-a` per suite.
+      * Every shard MUST get its own `-rd`. gdUnit picks `report_<N>` by scanning
+        the base dir for the highest index, and a finishing shard recursively
+        DELETES lower-indexed siblings — a shared `-rd` interleaves reports and
+        deletes live ones.
+      * Per-shard `user://` isolation by overriding `APPDATA` (absolute!) in each
+        child env; Godot resolves `user://` to
+        `%APPDATA%/Godot/app_userdata/<name>` with NO canonicalization. This
+        removed the need to serialize the 13 suites that write
+        `user://saves/slot_N.json` through `save_manager.gd`'s shared fixed
+        `.tmp` name, and keeps every byte off C:. A relative `APPDATA` silently
+        resolves against the child CWD — always pass an absolute path.
+        `--no-isolate-user-data` restores the serialized fallback.
+      * Exit 101 (orphans only) counts as SUCCESS (baseline has 20 orphans).
+        Runner exits: 0 clean, 1 test failures, 2 false green / env problem.
+      * gdUnit DOES write a JUnit `results.xml` per report dir, so merging is real.
+      Flags, layout and false-green rules: `docs/GDUNIT_GATE.md`.
+      STILL OPEN: shard balance is loose (walls 264/136/247/46 s — shard 1 is the
+      critical path); the merged XML is NOT yet validated against a CI JUnit
+      parser. Both are P1 (dynamic weights / Actions matrix).
+      The runner launches N Godot processes at once: it is the ONE deliberate
+      exception to "one Godot process at a time" — never run it beside another
+      Godot process or another gate run.
+    - **GDUnit CLI audit note:** `-a` with a value that matches nothing prints
+      `Given directory or file does not exists:` and still exits 0. `--help`
+      is `-help`; `-rd`/`-i` take exactly one value each (only `-a`/`-i`
+      accumulate when repeated).
+    GDUnit gotchas: it treats GDScript warnings as errors (e.g. `var x := some_func_returning_Variant()` fails to load) and its vector `is_equal_approx` requires a SAME-TYPE approx arg, not a float (`assert_that(vec).is_equal_approx(vec, Vector2(0.001, 0.001))`).
 
 NOTE: if you run the GDUnit `-s` command ALONE (without the earlier headless
 run), it may bail with exit 103/exit 1 "Headless mode is not supported". The
