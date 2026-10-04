@@ -408,13 +408,31 @@ No Godot process is launched to write or read it.
     and `test_perf_gate.gd` `52.8 -> 46.7 s`, so the staleness had been
     over-stating the critical path rather than hiding cost.
 
-  **Balance is now good but is capped by one monolithic suite.** Shards 2/3/4
-  land within **0.2 s** of each other; the whole remaining spread is shard 1
-  holding `test_open_world.gd` alone at **148.8 s / 5 tests**, which no
-  suite-level splitter can break up. The makespan is therefore
-  `max(one 148.8 s suite, three ~138 s shards) + 46.7 s serialized`. Closing
-  that needs **test-level** splitting inside that one suite, not better
-  bin-packing — see P2.
+  **Balance is already at its ceiling — do not "fix" it.** Shards 2/3/4 land
+  within **0.2 s** of each other, and the arithmetic says there is almost
+  nothing left. The parallel pool is `608.9 − 46.7 (serialized tail) = 562.2 s`
+  over 4 shards, i.e. an ideal `140.6 s` per shard; the worst shard is
+  `148.8 s`. That is **within 8 s (6%) of the theoretical optimum**, and the
+  gap is *not* a bin-packing defect: isolating `test_open_world.gd` on its own
+  shard is already the best assignment available.
+
+  Two consequences, both counter-intuitive enough to record:
+  * **Splitting `test_open_world.gd` test-by-test would make things worse.**
+    Handing its 148.8 s back to the pool gives four shards of `562.2 / 4 =
+    140.6 s` *plus* its share, i.e. ~152 s — strictly worse than the 148.8 s
+    it replaces.
+  * **Raising `-j` buys nothing.** At `-j 6` or `-j 8` the ideal falls to
+    101.5 / 87.7 s but `test_open_world.gd` alone is 148.8 s and cannot be
+    divided, so the max parallel shard stays pinned at 148.8 s and total wall
+    does not move. The hard floor is `max(148.8, pool/jobs) + 46.7`.
+
+  So the only real levers left are making `test_open_world.gd` itself faster
+  (5 tests, 148.8 s — until it drops below ~140 s the critical path cannot
+  move), or shortening the 46.7 s serialized perf-gate tail, which is 24% of
+  the makespan and can only be removed by weakening benchmark isolation —
+  i.e. by re-introducing exactly the contention that produced 5 failures
+  before `SERIAL_SUITES` existed. Neither is worth it; **treat suite-level
+  sharding as done** and see P2 for anything structural.
 
   **Wall-clock contention is real and it invalidates naive projections.**
   The per-shard estimates predicted 148-150 s; measured 144-160 s. Worse, the
@@ -533,8 +551,15 @@ Mitigable with `actions/cache` keyed on `assets/**`, `addons/**`,
 `.github/`, no other pipeline config — so there is zero precedent here and the
 whole capability is unvalidated.
 
-**DEFERRED — GitHub Actions matrix**, for the two blockers above. Already
-known-good whenever it is built:
+**DEFERRED BY USER DECISION 2026-10-04 — GitHub Actions matrix.** Not a
+technical block: the user chose to stay on the current Godot 4.7.2 setup and
+not stand CI up yet. Settled at the same time, for whenever it is revisited:
+trigger on **`pull_request` + `workflow_dispatch` only** (never `push`, so
+ordinary commits cost no Actions minutes), matrix `shard: [0,1,2,3,4]` all
+with the identical `-j 4` and identical committed weights, and
+`actions/cache` keyed on `assets/**` + `addons/**` + `project.godot` +
+`shaders/**` + runner OS for the cold import. Do not re-litigate these.
+Known-good whenever it is built:
   * `--godot <path>` fully bypasses the Windows-only `godot_path.bat`.
   * `ubuntu-latest` is viable: no drive letters, no `.bat`/`.exe` calls and no
     `APPDATA` dependency anywhere in the 96 suite files.
