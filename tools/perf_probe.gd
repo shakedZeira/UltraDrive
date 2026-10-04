@@ -157,6 +157,7 @@ func _report() -> void:
 	_describe_quality()
 	var n := float(_samples.size())
 	var sum_fps := 0.0; var sum_proc := 0.0; var sum_phys := 0.0; var sum_prims := 0.0; var sum_draw := 0.0; var sum_vram := 0.0
+	var sum_bodies := 0.0
 	var min_fps := 999999; var max_fps := 0
 	for s: Dictionary in _samples:
 		sum_fps += float(s["fps"])
@@ -165,6 +166,7 @@ func _report() -> void:
 		sum_prims += float(s["prims"])
 		sum_draw += float(s["draw_calls"])
 		sum_vram += float(s["vram_mb"])
+		sum_bodies += float(s["bodies"])
 		min_fps = mini(min_fps, int(s["fps"]))
 		max_fps = maxi(max_fps, int(s["fps"]))
 	var avg_fps := sum_fps / n
@@ -181,4 +183,9 @@ func _report() -> void:
 	print("[perfprobe] draw_calls  avg=", int(sum_draw/n))
 	print("[perfprobe] primitives  avg=", int(sum_prims/n))
 	print("[perfprobe] vram_mb     avg=", int(sum_vram/n))
+	# CPU attribution: every preset now measures frame_ms ~= process_ms, so the
+	# frame is CPU-bound. Physics share + active body count says whether Jolt is
+	# the cost and whether body count is the lever.
+	print("[perfprobe] phys_bodies avg=", int(sum_bodies/n))
+	print("[perfprobe] phys_share  avg=", snappedf((sum_phys/n) / maxf(sum_proc/n, 0.01) * 100.0, 0.1), "% of process")
 	print("[perfprobe] ==========================================================")
