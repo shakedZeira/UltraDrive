@@ -2,8 +2,43 @@
 
 **Target hardware:** GTX 970 (Maxwell, 4GB VRAM, compute 5.2, Vulkan 1.3)  
 **Engine:** Godot 4.7.2, Vulkan backend (OpenGL fallback), Forward+ renderer  
-**Current bottlenecks:** Terrain sync bake ~3.3s/region, 95 GDUnit suites ~18min, no upscaling  
-**Baseline quality ladder:** Low / Medium / High (settings_menu.gd)
+**Current bottlenecks:** Terrain sync bake ~3.3s/region, no upscaling below High  
+**Baseline quality ladder:** Low / Medium / High (settings_menu.gd)  
+**GDUnit suite:** ~~95 suites ~18min~~ → **206 s / 1018 tests via `tools\gdunit_parallel.py -j 4`** (5.34x). Gate any phase here with the parallel runner, not a serial `-s` run.
+
+---
+
+## ⚠️ API VERIFICATION PASS — 2026-10-04 (read before implementing anything below)
+
+This plan was written as a research/reference doc, not against a verified API.
+Every rendering call in it was checked against the **actual engine** this project
+runs (`4.7.2-stable`, `ed1daf0bf`) with `RenderingServer.has_method()`, plus a
+dump of the real `rendering/*` project settings. **Most of the `RenderingServer`
+API in this document does not exist.** Left uncorrected, implementing from the
+original text fails at parse time — GDUnit and the engine both treat those as hard
+errors.
+
+| Plan claimed | Reality on 4.7.2 | Correct mechanism |
+|---|---|---|
+| `rs.enable_fsr2()` | **false** | `Viewport.scaling_3d_mode` + `rendering/scaling_3d/mode` |
+| `rs.fsr2_set_quality()` | **false** | no per-call quality; use scale/sharpness |
+| `rs.fsr2_set_sharpness()` | **false** | `rendering/scaling_3d/fsr_sharpness` (default 0.2) |
+| `rs.enable_taa()` | **false** | `rendering/anti_aliasing/quality/use_taa` |
+| `rs.set_taa_jitter_scale()` | **false** | no equivalent exposed |
+| `rs.enable_vrs()` | **false** | `rendering/vrs/mode` |
+| `rs.vrs_set_combiner()` | **false** | `rendering/vrs/mode` = 1 (combine only) |
+| `rs.has_feature("vrs")` | **does not compile** | takes a `Features` **enum**, not a String |
+| `rs.get_video_memory_usage()` | **false** | `Performance.get_monitor(RENDER_VIDEO_MEM_USED)` |
+| `FidelityFXSuperResolution2` class | **does not exist** | — |
+
+Confirmed **real** (safe to use): `DirectionalLight3D.shadow_cascade_count` /
+`shadow_max_distance` / `shadow_resolution`; `Occluder3D`; `MeshLOD` +
+`GeometryInstance3D.lod_threshold`; `StandardMaterial3D.motion_vector_enabled`;
+`WorkerThreadPool`; `RenderingServer.get_video_adapter_name()`.
+
+Also stale: the FPS/VRAM/timing numbers in "Measurable Targets" predate
+`7ffb524` (FSR2 on High) and are **unverified on the current tree**. Treat them
+as targets to measure, not facts.
 
 ---
 
@@ -39,19 +74,31 @@ Forza Horizon 5 achieves 60fps on Xbox Series S (4 TFLOPS, 10GB) and scales down
 
 ### P0 — Quick Wins (1–2 weeks)
 
-#### 1. Enable FSR2 Upscaling + Quality Ladder Integration
-**Target:** 1080p → 1440p/4K upscale, 30–50% fps gain at High preset
+###### 1. FSR2 Upscaling + Quality Ladder Integration — **ALREADY SHIPPED (2026-09-27, `7ffb524`)**
+**Target:** 1080p → upscale, fps gain at High preset. **Status: DONE, and the plan's API was wrong.**
 
-```gdscript
-# In SettingsMenuScript.apply_to_scene_tree()
-var rs = RenderingServer
-rs.enable_fsr2(true)
-rs.fsr2_set_quality(FidelityFXSuperResolution2.QUALITY_ULTRA_QUALITY) # map: Low=Performance, Med=Balanced, High=Quality
-```
+The original text called `rs.enable_fsr2()` / `rs.fsr2_set_quality()` /
+`fsr2_set_sharpness()`. **None of those methods exist.** Verified against
+`RenderingServer.has_method()` on this exact engine (4.7.2-stable
+`ed1daf0bf`): `enable_fsr2=false`, `fsr2_set_quality=false`,
+`fsr2_set_sharpness=false`, `fsr2_set_render_scale=false`. FSR2 in Godot 4 is a
+**`Viewport` property + project setting**, not a `RenderingServer` call.
 
-- Add `fsr2_mode` enum to `QUALITY_PRESETS`: `OFF`, `PERFORMANCE`, `BALANCED`, `QUALITY`, `ULTRA_QUALITY`
-- Expose sharpness slider (0.0–1.0) in Settings UI
-- **Fallback:** If `rs.has_feature("fsr2")` false → disable gracefully
+What actually ships, and where:
+- `Viewport.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR2` — applied by
+  `scripts/ui/settings_menu.gd:211` via `_scaling_mode_for()`. Note the enum is
+  **2**, not 1 (`SCALING_3D_MODE_FSR2=2`, `BILINEAR=0`); the code maps its own
+  preset value 1 → FSR2 and warns about exactly this.
+- `Viewport.scaling_3d_scale = 0.85` on **High** only (Medium/Low stay
+  bilinear 1.0), the AAA-2 lever that took High from 57 fps toward the 60 bar.
+- Project settings that back it: `rendering/scaling_3d/mode`,
+  `rendering/scaling_3d/scale`, `rendering/scaling_3d/fsr_sharpness`
+  (default **0.2**, currently unexposed in the UI).
+
+Remaining, genuinely open:
+- Expose a **sharpness** control (`rendering/scaling_3d/fsr_sharpness`,
+  0.0–1.0) — the one piece of this item never built, and it is cheap.
+- Consider FSR2 on Medium once its fps is measured, not assumed.
 
 #### 2. Texture Compression Audit
 **Target:** VRAM <3GB at High, <2GB at Medium
@@ -61,44 +108,65 @@ rs.fsr2_set_quality(FidelityFXSuperResolution2.QUALITY_ULTRA_QUALITY) # map: Low
 - Disable compression only for pixel-art / UI textures
 - Verify with `RenderingServer.get_video_memory_usage()`
 
-#### 3. Shadow Cascade Tuning
-**Target:** 2ms → 1ms shadow cost at Medium
+#### 3. Shadow Cascade Tuning — **OPEN, the highest-value P0 item**
+**Target:** 2.5ms → <1.5ms shadow cost at Medium.
 
-```gdscript
-# In SettingsMenuScript.apply_to_scene_tree() per preset:
-# Low: 1 cascade, 1024, 20m max
-# Med: 2 cascades, 2048, 50m max
-# High: 4 cascades, 2048, 100m max
-dir_light.shadow_cascade_count = cascades
-dir_light.shadow_max_distance = max_dist
-dir_light.shadow_resolution = res
-```
+This one's API is **correct** (`DirectionalLight3D.shadow_cascade_count`,
+`shadow_max_distance`, `shadow_resolution` all exist) and it is genuinely
+unbuilt: `project.godot` sets only
+`rendering/lights_and_shadows/directional_shadow/size = 2048` globally, and
+`settings_menu.gd`'s `QUALITY_PRESETS` carries **no shadow keys at all**, so
+every preset currently renders identical shadows.
 
-- Disable shadows for `OmniLight3D`/`SpotLight3D` beyond 15m (traffic, props)
-- Use `shadow_contact` bias to avoid acne without PCF cost
+Preset split to implement (from the plan):
+| Preset | `shadow_cascade_count` | `shadow_max_distance` | resolution |
+|---|---|---|---|
+| Low | 1 | 20 m | 1024 |
+| Medium | 2 | 50 m | 2048 |
+| High | 4 | 100 m | 2048 |
 
-#### 4. Enable TAA + Motion Vectors
-**Target:** Stable 60fps image, ghosting <1 frame
+Two gotchas, both real in this tree:
+- `apply_to_scene_tree()` currently only ever receives an `Environment` and a
+  `Viewport` — it never sees the `DirectionalLight3D`. Shadow tuning needs the
+  light found via `find_children("*", "DirectionalLight3D")` alongside the
+  existing `find_scene_environment()` walk, and `DayNightDriver` also mutates
+  the sun, so the preset must survive a time-of-day update.
+- Low/Medium cutting `shadow_max_distance` to 20/50 m will visibly pop shadows
+  at the far plane on the open world. Expect to tune `shadow_fade_start` /
+  `shadow_opacity` alongside it.
 
-```gdscript
-rs.enable_taa(true)
-rs.set_taa_jitter_scale(0.5) # tune for vehicle speed
-```
+#### 4. TAA + Motion Vectors — **OPEN, but the plan's API is wrong**
+**Target:** Stable 60fps image, ghosting <1 frame.
 
-- Ensure all moving objects (cars, wheels) have `MotionVector` pass (StandardMaterial3D → `motion_vector` enabled)
-- Disable TAA at Low preset (FXAA only)
+`rs.enable_taa()` / `rs.set_taa_jitter_scale()` **do not exist**
+(`has_method` → false for both). The real knobs, verified present in
+`project.godot` on this engine:
+- `rendering/anti_aliasing/quality/use_taa` — **currently `false`**
+- `rendering/anti_aliasing/quality/screen_space_aa` — currently `0` (off)
+- `rendering/anti_aliasing/quality/msaa_3d` — currently `0`; the ladder
+  overrides this per preset via `Viewport.msaa_3d` (Low/Med 4x, High off,
+  because High uses FSR2 instead).
 
-#### 5. Variable Rate Shading (VRS)
-**Target:** 5–10% fragment cost reduction on GTX 970 (Vulkan 1.1+)
+TAA is a **project setting**, not per-frame API, so it is a boot-time cost
+decision, not something `apply_to_scene_tree` can toggle. Caveat to weigh
+before shipping: TAA + FSR2 both reconstruct, and High already runs FSR2 —
+stacking both on a Maxwell GPU is the highest-risk item in this phase for
+image quality. Gate it behind High only and verify visually.
 
-```gdscript
-if rs.has_feature("vrs"):
-    rs.enable_vrs(true)
-    rs.vrs_set_combiner(VRS_COMBINER_MAX) # per-draw VRS texture later
-```
+#### 5. Variable Rate Shading (VRS) — **OPEN, but the plan's API is wrong**
+**Target:** 5–10% fragment cost reduction on GTX 970 (Vulkan 1.1+).
 
-- Start with `VRS_COMBINER_MAX` (coarse shading on low-detail tiles)
-- Later: generate VRS texture from depth/velocity for foveated shading
+`rs.enable_vrs()` / `rs.vrs_set_combiner()` **do not exist**
+(`has_method` → false for both), and `RenderingServer.has_feature()` takes a
+`Features` **enum, not a String** — the plan's `has_feature("vrs")` does not
+compile. Real keys, verified in `project.godot`:
+- `rendering/vrs/mode` — currently **`0`** (disabled). `1` = combined VRS.
+- `rendering/vrs/texture` — currently empty, i.e. no per-draw VRS texture, so
+  only the combine mode would apply.
+
+Note the plan's `VRS_COMBINER_MAX` maps to `rendering/vrs/mode = 1`; the
+per-draw-texture item needs an actual `Texture2DRD` bound, which is the
+foveated-shading follow-up and is genuinely not built.
 
 ---
 
