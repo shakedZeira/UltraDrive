@@ -49,6 +49,27 @@ func _bind_menu_blip(control: Control) -> void:
 ## tonemap_exposure 0.9. Low keeps AO/GI off for perf but gains MSAA (2 in
 ## project-settings units → Viewport.MSAA_4X) so it stops aliasing, keeping
 ## scaling bilinear 1.0.
+##
+## DirectionalLight3D shadow-cascade ladder (fh5_optimization_plan.md item 3).
+## The ladder KEYS are the plan's names; the ENGINE property each maps to is
+## documented on apply_shadow_preset below, because 4.7.2 renamed this whole
+## family. Per preset:
+##   shadow_cascade_count 1 / 2 / 4 -> directional_shadow_mode
+##                            ORTHOGONAL / PARALLEL_2_SPLITS / PARALLEL_4_SPLITS
+##   shadow_max_distance  20 / 50 / 100 m -> directional_shadow_max_distance
+##   shadow_resolution    1024 / 2048 / 2048 -> NOT a per-light property on
+##                            4.7.2 (see apply_shadow_preset); declared so the
+##                            ladder stays complete and a future engine that
+##                            exposes it gets it for free.
+##   shadow_fade_start    0.25 / 0.6 / 1.0 -> directional_shadow_fade_start,
+##                            a 0..1 FRACTION of max_distance (not metres).
+##                            Cutting max_distance to 20/50 m pops shadows at
+##                            the far plane on the open world, so Low fades from
+##                            5 m (soft, early, hard cut hidden) and Medium
+##                            from 30 m; High runs 1.0 so it never fades at all
+##                            inside its own 100 m range.
+##   shadow_opacity       0.75 / 0.9 / 1.0 -> Light3D.shadow_opacity, the
+##                            second half of the same softening.
 const QUALITY_PRESETS: Dictionary = {
 	0: {
 		"ssao_enabled": false,
@@ -61,6 +82,11 @@ const QUALITY_PRESETS: Dictionary = {
 		"probe_enabled": false,
 		"scaling_3d_mode": 0,
 		"scaling_3d_scale": 1.0,
+		"shadow_cascade_count": 1,
+		"shadow_max_distance": 20.0,
+		"shadow_resolution": 1024,
+		"shadow_fade_start": 0.25,
+		"shadow_opacity": 0.75,
 	},
 	1: {
 		"ssao_enabled": true,
@@ -76,6 +102,11 @@ const QUALITY_PRESETS: Dictionary = {
 		"ssao_intensity": 2.0,
 		"ssao_radius": 0.05,
 		"ssao_ao_channel_affect": 0.1,
+		"shadow_cascade_count": 2,
+		"shadow_max_distance": 50.0,
+		"shadow_resolution": 2048,
+		"shadow_fade_start": 0.6,
+		"shadow_opacity": 0.9,
 	},
 	2: {
 		"ssao_enabled": true,
@@ -100,6 +131,13 @@ const QUALITY_PRESETS: Dictionary = {
 		# sdfgi_cascade0_distance (default 12.8) — stretch it a touch so the
 		# first cascade covers the car + immediate roadside.
 		"sdfgi_cascade0_distance": 16.0,
+		"shadow_cascade_count": 4,
+		"shadow_max_distance": 100.0,
+		"shadow_resolution": 2048,
+		# 1.0 = the fade never starts inside High's own 100 m range, so High
+		# gets hard, fully-solid shadows everywhere it claims to cover.
+		"shadow_fade_start": 1.0,
+		"shadow_opacity": 1.0,
 	},
 }
 
@@ -169,15 +207,37 @@ static func find_scene_environment(root: Node) -> Environment:
 			return we.environment
 	return null
 
+## Finds the scene's driving DirectionalLight3D (or null when the scene has
+## none). Mirrors find_scene_environment's shape deliberately: the quality
+## ladder only has a Viewport + an Environment to hand, so the sun has to be
+## walked out of the scene the same way the environment is. Matches script
+## subclasses too (scripts/world/sun_driver.gd extends DirectionalLight3D), so
+## both the open-world sun and the standalone scenes are found.
+static func find_scene_directional_light(root: Node) -> DirectionalLight3D:
+	if root == null:
+		return null
+	for light_node: Node in root.find_children("*", "DirectionalLight3D", true, false):
+		var light := light_node as DirectionalLight3D
+		# "A real light": non-null, actually rendering, and not parked at zero
+		# energy as a fill/placeholder node.
+		if light and light.visible and light.light_energy > 0.0:
+			return light
+	return null
+
 ## Auto-apply entry point: pushes the ladder preset onto a loaded scene's
-## environment + the given viewport. Used by GameState on boot and on every
-## scene transition so scenes honor the saved choice instead of their baked
-## max-quality environment. Mirrors the live settings-menu path.
+## environment + directional light + the given viewport. Used by GameState on
+## boot and on every scene transition so scenes honor the saved choice instead
+## of their baked max-quality environment. Mirrors the live settings-menu path.
 static func apply_to_scene_tree(preset_index: int, scene_root: Node, viewport: Viewport) -> void:
 	var env := find_scene_environment(scene_root)
-	apply_quality_preset(env, viewport, preset_for(preset_index))
+	var light := find_scene_directional_light(scene_root)
+	apply_quality_preset(env, viewport, preset_for(preset_index), light)
 
-static func apply_quality_preset(env: Environment, viewport: Viewport, preset: Dictionary) -> void:
+## The single entry point for one preset. `light` is optional and defaults to
+## null so the pre-shadow-ladder 3-arg call sites (and their tests) keep working;
+## pass the scene's DirectionalLight3D (find_scene_directional_light) to get the
+## cascade ladder too.
+static func apply_quality_preset(env: Environment, viewport: Viewport, preset: Dictionary, light: DirectionalLight3D = null) -> void:
 	if env:
 		env.ssao_enabled = preset["ssao_enabled"]
 		env.glow_enabled = preset["glow_enabled"]
@@ -211,6 +271,66 @@ static func apply_quality_preset(env: Environment, viewport: Viewport, preset: D
 		viewport.scaling_3d_mode = _scaling_mode_for(preset["scaling_3d_mode"])
 		var scale: float = preset["scaling_3d_scale"]
 		viewport.scaling_3d_scale = clampf(scale, 0.5, 2.0)
+	apply_shadow_preset(light, preset)
+
+## fh5_optimization_plan.md item 3 — the DirectionalLight3D shadow-cascade
+## ladder. This is the ONLY writer of these four knobs in the project, which is
+## how the preset is made AUTHORITATIVE over the clock rather than re-applied
+## after it:
+##
+## The time-of-day path (autoload/day_night_driver.gd -> WeatherManager ->
+## scripts/world/sun_driver.gd / scripts/world/world_driver.gd
+## apply_sun_transform()) writes exactly two fields on the sun — `transform`
+## and `shadow_enabled` (world_driver.gd:357-365). It never touches the mode,
+## max distance, fade start or opacity, so a preset applied here survives the
+## clock ticking untouched. `shadow_enabled` is deliberately NOT a ladder key
+## for the same reason: world_driver.gd re-asserts it every tick, so a preset
+## that tried to disable shadows would be silently undone each frame.
+##
+## Property mapping — the plan's names are the Godot 4.0-4.2 API and are wrong
+## for 4.7.2, verified against ClassDB on this engine:
+##   shadow_cascade_count -> directional_shadow_mode (int ShadowMode enum)
+##   shadow_max_distance  -> directional_shadow_max_distance (float, metres)
+##   shadow_fade_start    -> directional_shadow_fade_start (float 0..1, a
+##                           FRACTION of max_distance — not metres)
+##   shadow_opacity       -> shadow_opacity (float, on the Light3D base class)
+## All four use .get(key, default) so a legacy/unknown preset dict can't crash
+## the boot path; the four required keys are asserted by
+## tests/suites/test_shadow_ladder.gd.
+static func apply_shadow_preset(light: DirectionalLight3D, preset: Dictionary) -> void:
+	if light == null:
+		return
+	light.directional_shadow_mode = _shadow_mode_for(int(preset.get("shadow_cascade_count", 4)))
+	light.directional_shadow_max_distance = maxf(float(preset.get("shadow_max_distance", 100.0)), 0.0)
+	light.directional_shadow_fade_start = clampf(float(preset.get("shadow_fade_start", 0.8)), 0.0, 1.0)
+	light.shadow_opacity = clampf(float(preset.get("shadow_opacity", 1.0)), 0.0, 1.0)
+	_set_shadow_resolution_if_supported(light, int(preset.get("shadow_resolution", 2048)))
+
+## Preset cascade count -> DirectionalLight3D.ShadowMode. There is no
+## shadow_cascade_count property on 4.7.2; the mode IS the cascade count
+## (ORTHOGONAL = 1, PARALLEL_2_SPLITS = 2, PARALLEL_4_SPLITS = 4).
+static func _shadow_mode_for(cascade_count: int) -> int:
+	match cascade_count:
+		1:
+			return DirectionalLight3D.SHADOW_ORTHOGONAL
+		2:
+			return DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+		_:
+			return DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+
+## Directional shadow RESOLUTION is not a per-light property on 4.7.2. It comes
+## from the project setting `rendering/lights_and_shadows/directional_shadow/
+## size` (2048 in project.godot), which the rendering server reads at startup —
+## so the ladder's shadow_resolution values (1024/2048/2048) are declarative and
+## this is a guarded no-op, kept forward-compatible with an engine that does
+## expose a per-light size. Same guarded style as _apply_motion_blur. The only
+## honest way to make it live is a boot-time ProjectSettings write in a fresh
+## process, which is out of scope for this item.
+static func _set_shadow_resolution_if_supported(light: DirectionalLight3D, resolution: int) -> void:
+	for property: Dictionary in light.get_property_list():
+		if String(property["name"]) == "shadow_resolution":
+			light.set("shadow_resolution", resolution)
+			return
 
 ## Maps the project-settings msaa_3d units (0=off/1=2x/2=4x/3=8x) to the
 ## Viewport.MSAA enum. The old dead "msaa" caps at 4x; anything out of range
@@ -397,7 +517,11 @@ func _on_quality_selected(index: int) -> void:
 	var world_env: WorldEnvironment = viewport.world_environment
 	if world_env:
 		env = world_env.environment
-	apply_quality_preset(env, viewport, preset)
+	# Same single entry point as the boot path, so a mid-game preset change
+	# re-pins the sun's cascades too instead of waiting for the next
+	# scene change (fh5_optimization_plan.md item 3).
+	var scene_root: Node = get_tree().current_scene
+	apply_quality_preset(env, viewport, preset, find_scene_directional_light(scene_root))
 	GameState.set_quality_preset(index)
 	GameState.set_probe_enabled(probe_enabled_for(index))
 
