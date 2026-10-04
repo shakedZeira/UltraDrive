@@ -20,7 +20,15 @@ as N concurrent headless Godot processes.
 |---|---|---|
 | Serial baseline | 18m23s (1103 s) | 1.00x |
 | P0 — count-weighted sharding (`3544b94`) | 4m24s (264.3 s) | 4.18x |
-| **P1 — measured weights + isolated benchmark** | **3m29s (208.9 s)** | **5.28x** |
+| P1 — measured weights + isolated benchmark (`5840ebd`) | 3m29s (208.9 s) | 5.28x |
+| **P1 verified — weights re-measured after `794a199`** | **3m26s (206.4 s)** | **5.34x** |
+
+The current row is the one to trust: two consecutive full `-j 4` runs after
+upstream `794a199` made the two wall-clock suites machine-portable were both
+`exit 0`, `1018 tests / 0 failures / 0 errors / 20 orphans`, 95/95 suites, with
+`test_perf_gate.gd` passing 3/3 alone in serialized shard 0 under the **strict
+absolute** gate (`mode=reference control_ms=8.42` and `6.97` vs the 16.7 ms
+contract) — not the relative fallback.
 
 **How to run it:**
 
@@ -94,8 +102,15 @@ All in `tools/gdunit_parallel.py`, plus generated `tools/suite_weights.json`:
   for genuinely untrustworthy results: no XML, `tests == 0`, exit 100 with 0
   failures *and* 0 errors, exit 103/105, timeout, aborted, rejected `-a` path.
 
-Shard balance improved from a 4.8x spread to **1.11x**:
-`156.0 / 154.3 / 159.7 / 144.1 s` parallel + `49.2 s` serialized tail.
+Shard balance improved from a 4.8x spread to **1.08x**:
+`153.7 / 149.9 / 155.7 / 140.1 s` parallel + `50.7 s` serialized tail.
+
+**Do not try to improve this further.** The parallel pool is
+`608.9 − 46.7 = 562.2 s` over 4 shards (ideal `140.6 s`) and the worst shard is
+`148.8 s`, so packing is within ~6% of optimal. Raising `-j` changes nothing —
+`test_open_world.gd` alone is 148.8 s and caps the parallel max regardless —
+and splitting that suite test-by-test would make the makespan *worse*
+(~152 s), because isolating it is already the best assignment.
 
 ---
 
