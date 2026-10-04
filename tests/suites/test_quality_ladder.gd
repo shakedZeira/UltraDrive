@@ -43,22 +43,29 @@ func test_medium_has_tuned_ssao_and_sdfgi_on() -> void:
 	assert_that(preset["sdfgi_enabled"]).is_true()
 	assert_that(preset.has("sdfgi_energy")).is_false()
 
-## (c) High: full stack — SSAO knobs, SDFGI energy 0.8, SSR + glow on, and
-## FSR 2.2 scaling (mode 1, 0.9) instead of MSAA.
-func test_high_has_full_stack_with_sdfgi_energy_and_fsr() -> void:
+## (c) High: SSAO knobs, SSR + glow + volumetric fog on, FSR 2.2 scaling
+## (mode 1, 0.85) instead of MSAA, and SDFGI OFF.
+##
+## SDFGI was flipped off on 2026-10-04 on measured evidence, not taste: it
+## costs 9.3 ms/frame on the GTX 970 and is the whole High GPU deficit
+## (41.7 -> 67.9 fps when removed). Every cheaper-SDFGI variant still landed
+## at 57-59 fps, under the 60 bar. Medium keeps SDFGI.
+func test_high_has_full_stack_without_sdfgi_and_fsr() -> void:
 	var preset: Dictionary = SettingsMenuScript.preset_for(2)
 	assert_that(preset["ssao_enabled"]).is_true()
 	assert_that(preset["ssao_intensity"]).is_between(1.5, 2.5)
 	assert_that(preset["ssao_radius"]).is_between(0.03, 0.08)
 	assert_that(preset["ssao_ao_channel_affect"]).is_between(0.05, 0.2)
-	assert_that(preset["sdfgi_enabled"]).is_true()
+	assert_that(preset["sdfgi_enabled"]).is_false()
+	# Fog and SSR are what High trades GI FOR — they must stay on.
+	assert_that(preset["volumetric_fog_enabled"]).is_true()
+	# Retained-but-inert: documented so a GI re-enable is one flag flip.
 	assert_that(preset["sdfgi_energy"]).is_between(0.7, 0.9)
 	assert_that(preset["ssr_enabled"]).is_true()
 	assert_that(preset["glow_enabled"]).is_true()
 	assert_that(preset["msaa_3d"]).is_equal(0)
 	assert_that(preset["scaling_3d_mode"]).is_equal(1)
-	# AAA-2 lever (settings_menu.gd): High FSR scale 0.9 -> 0.85 is the
-	# GTX-970 57->60 fps close, without touching the SDFGI/SSR/volumetrics stack.
+	# AAA-2 lever (settings_menu.gd): High FSR scale 0.9 -> 0.85.
 	assert_that(preset["scaling_3d_scale"]).is_equal_approx(0.85, 0.001)
 
 ## (d) Default preset decision: the /graphics-gap rig's "GeForce GTX 970"
@@ -83,19 +90,24 @@ func test_apply_medium_lands_ao_knobs() -> void:
 	assert_that(env.ssao_ao_channel_affect).is_between(0.05, 0.2)
 	assert_that(env.sdfgi_enabled).is_true()
 
-## (e2) Applying the High preset lands SDFGI energy + cascade distance, SSR and
-## glow, and the FSR viewport mapping.
-func test_apply_high_lands_gi_energy_and_fsr() -> void:
+## (e2) Applying the High preset lands SSR + glow + volumetric fog and the FSR
+## viewport mapping, and leaves SDFGI OFF — including NOT writing the retained
+## sdfgi_energy / cascade0 tuning, which stays guarded behind sdfgi_enabled.
+func test_apply_high_lands_fog_and_fsr_without_gi() -> void:
 	var env := Environment.new()
 	var viewport: SubViewport = SubViewport.new()
 	_managed.append(env)
 	_managed.append(viewport)
 	SettingsMenuScript.apply_quality_preset(env, viewport, SettingsMenuScript.preset_for(2))
 	assert_that(env.ssao_enabled).is_true()
-	assert_that(env.sdfgi_enabled).is_true()
-	assert_that(env.sdfgi_energy).is_between(0.7, 0.9)
-	assert_that(env.sdfgi_cascade0_distance).is_greater_equal(14.0)
+	assert_that(env.sdfgi_enabled).is_false()
+	# The retained tuning must stay INERT: apply writes sdfgi_energy and
+	# sdfgi_cascade0_distance only inside `if sdfgi_enabled`, so the fresh
+	# Environment keeps its own defaults rather than High's values.
+	assert_that(env.sdfgi_energy).is_not_between(0.7, 0.9)
+	assert_that(env.sdfgi_cascade0_distance).is_less(14.0)
 	assert_that(env.ssr_enabled).is_true()
+	assert_that(env.volumetric_fog_enabled).is_true()
 	assert_that(env.glow_enabled).is_true()
 	assert_that(viewport.msaa_3d).is_equal(Viewport.MSAA_DISABLED)
 	assert_that(viewport.scaling_3d_mode).is_equal(Viewport.SCALING_3D_MODE_FSR2)

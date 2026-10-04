@@ -291,13 +291,52 @@ Real hardware, not a spec sheet. `tools/perf_probe.gd` windowed, vsync off,
 
 | Metric | **Low** | **Medium** | **High** |
 |---|---|---|---|
-| FPS avg | **78.6** | **62.1** | **41.7** |
-| FPS min–max | 72–88 | 57–70 | 32–47 |
-| frame_ms | 12.7 | 16.1 | 24.0 |
-| process_ms (CPU) | 13.2 | 17.0 | 14.2 |
-| draw_calls | 303 | 354 | 464 |
-| primitives | 406,445 | 480,391 | 633,871 |
-| VRAM | 664 MB | 1161 MB | 1182 MB |
+| FPS avg | **78.6** | **62.1** | **73.3** |
+| FPS min–max | 72–88 | 57–70 | 70–76 |
+| frame_ms | 12.7 | 16.1 | 13.6 |
+| process_ms (CPU) | 13.2 | 17.0 | 14.6 |
+| draw_calls | 303 | 354 | 476 |
+| primitives | 406,445 | 480,391 | 652,995 |
+| VRAM | 664 MB | 1161 MB | **777 MB** |
+
+High's row is **after** the SDFGI fix below; the pre-fix High baseline was
+41.7 fps / 24.0 ms / 1182 MB.
+
+### High GPU attribution — SDFGI was the entire deficit (measured)
+
+Leave-one-out from the High preset, same probe, each run disabling exactly one
+effect:
+
+| High configuration | FPS | frame_ms | Δ ms |
+|---|---|---|---|
+| as originally shipped | 41.7 | 24.0 | — |
+| − volumetric fog | 57.5 | 17.4 | **−6.6** |
+| SDFGI cheapened (2 cascades, 32 m) | 57.4 | 17.4 | −6.6 |
+| SDFGI cheapened − volumetric fog | 58.9 | 17.0 | −7.0 |
+| **− SDFGI (shipped fix)** | **73.3** | **13.6** | **−10.4** |
+
+The decisive line is the last one: High with SDFGI off runs at **13.6 ms
+against a 14.6 ms CPU floor**, i.e. the GPU is no longer the constraint at all.
+
+**Cheapening SDFGI does not work.** Halving the cascades and cutting
+`sdfgi_max_distance` to 32 m recovered only 6.6 of the 9.3 ms, and adding back a
+no-fog configuration still landed at 58.9. *Every* configuration that keeps
+ray-traced diffuse GI measured 57–59 fps — just under the bar. On this GPU, GI
+and 60 fps are mutually exclusive. Note also the engine clamps
+`sdfgi_max_distance` to 32 m when cascades are reduced, so the distance lever is
+not independently tunable.
+
+**Shipped fix:** High sets `sdfgi_enabled = false` and keeps volumetric fog +
+SSR + glow + SSAO + FSR2 0.85 + the 4-split shadow ladder. Result 41.7 → 73.3
+fps, and VRAM fell 1182 → 777 MB because SDFGI's cascade buffers are no longer
+allocated. GI is not gone from the ladder: **Medium keeps SDFGI**. Ambient light
+plus High's per-car `ReflectionProbe` carry the fill light.
+
+**Open design smell this exposes:** Medium (62.1 fps) is now *slower* than High
+(73.3), so selecting High gives both better visuals and more frames — Medium is
+dominated. Medium is CPU-bound, not GPU-bound (`process_ms` 17.0 vs High's
+14.6), driven by MSAA 4x at full resolution with no upscaling. Deciding what
+Medium should be is a product call, not a perf one, so it is left open here.
 
 Shadow-ladder A/B (same probe, `apply_shadow_preset` bypassed):
 
@@ -319,10 +358,11 @@ Shadow-ladder A/B (same probe, `apply_shadow_preset` bypassed):
    the time goes.
 3. **Medium already hits the plan's headline goal** at 62.1 fps. "60 FPS @
    1080p Medium" is *met*, not aspirational.
-4. **The one real gap is High at 41.7 fps**, and it is GPU-bound, not
-   CPU-bound: `frame_ms` 24.0 vs `process_ms` 14.2 leaves ~10 ms of GPU-only
-   cost. FSR2 is already on at scale 0.85, so that 10 ms is SDFGI + SSR +
-   volumetric fog + SSAO + glow + 4-split shadows, all at once.
+4. **The one real gap was High, and it was SDFGI alone** — not the ~10 ms of
+   unspecified GPU cost this section originally speculated about. High measured
+   41.7 fps and was GPU-bound (frame_ms 24.0 vs process_ms 14.2); attribution
+   put essentially all of it on ray-traced diffuse GI. Fixed by disabling SDFGI
+   at High: **73.3 fps**, GPU no longer the constraint.
 
 **The shadow ladder is the one shipped P0 with a measured win — and it is a
 large one.** Low went **32.1 → 78.6 fps (2.45×)**, because the engine default
@@ -337,12 +377,12 @@ claim a High win from this — the ladder's value is Low.
 
 | Metric | Measured | Still worth doing? |
 |---|---|---|
-| FPS @ 1080p High | 41.7 | **Yes — the only sub-60 preset.** ~10 ms GPU-bound |
-| FPS @ 1080p Medium | 62.1 | No — target met |
+| FPS @ 1080p High | **73.3** (was 41.7) | Fixed — SDFGI attribution + fix shipped |
+| FPS @ 1080p Medium | 62.1 | No — target met. But see the dominance note above |
 | FPS @ 1080p Low | 78.6 | No |
-| VRAM at High | 1.18 GB | **No — drop the texture-compression P0** |
-| Draw calls | 303–464 | No — already 5× under target |
-| Shadow cost (Medium) | ladder shipped; 50 m / 2 splits | Measure separately if it still shows up |
+| VRAM at High | 777 MB (was 1182) | **No — drop the texture-compression P0** |
+| Draw calls | 303–476 | No — already 5x under target |
+| Shadow cost | ladder shipped; Low 2.45x faster | Done |
 | Terrain sync bake (1 region) | ~3.3 s (CPU, unchanged) | Yes — unchanged, still the load-time cost |
 | GDUnit suite time | **206 s** (was 18 min) | Done — `tools\gdunit_parallel.py -j 4` |
 

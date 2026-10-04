@@ -73,7 +73,9 @@ func test_high_preset_spot_check() -> void:
 	assert_that(preset["glow_enabled"]).is_true()
 	assert_that(preset["volumetric_fog_enabled"]).is_true()
 	assert_that(preset["ssr_enabled"]).is_true()
-	assert_that(preset["sdfgi_enabled"]).is_true()
+	# SDFGI off since 2026-10-04: measured at 9.3 ms/frame on the GTX 970 and
+	# the entire High GPU deficit (41.7 -> 67.9 fps). See settings_menu.gd.
+	assert_that(preset["sdfgi_enabled"]).is_false()
 	assert_that(preset["tonemap_mode"]).is_equal(ACES)
 	assert_that(preset["msaa_3d"]).is_equal(0)
 	assert_that(preset["probe_enabled"]).is_true()
@@ -103,7 +105,8 @@ func test_apply_high_preset_sets_env_and_viewport() -> void:
 	SettingsMenuScript.apply_quality_preset(env, viewport, SettingsMenuScript.preset_for(2))
 	assert_that(env.volumetric_fog_enabled).is_true()
 	assert_that(env.ssr_enabled).is_true()
-	assert_that(env.sdfgi_enabled).is_true()
+	# High trades SDFGI for fog + SSR to clear 60 fps on the GTX 970.
+	assert_that(env.sdfgi_enabled).is_false()
 	assert_that(env.ssao_enabled).is_true()
 	assert_that(env.glow_enabled).is_true()
 	assert_that(env.tonemap_mode).is_equal(ACES)
@@ -183,7 +186,8 @@ func test_apply_to_scene_tree_pushes_preset_onto_scene_env() -> void:
 	assert_that(we.environment.glow_enabled).is_true()
 	assert_that(we.environment.volumetric_fog_enabled).is_true()
 	assert_that(we.environment.ssr_enabled).is_true()
-	assert_that(we.environment.sdfgi_enabled).is_true()
+	# High no longer runs SDFGI (measured 9.3 ms/frame on the GTX 970).
+	assert_that(we.environment.sdfgi_enabled).is_false()
 	assert_that(viewport.msaa_3d).is_equal(Viewport.MSAA_DISABLED)
 	SettingsMenuScript.apply_to_scene_tree(0, root, viewport)
 	assert_that(we.environment.ssao_enabled).is_false()

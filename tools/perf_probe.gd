@@ -14,6 +14,36 @@ var _phase := "warmup"
 var _samples: Array = []
 var _preset_override := -1
 var _preset_label := "default"
+## Comma-separated effect names forced OFF after the preset is applied, read from
+## PERF_DISABLE. Leave-one-out attribution of the GPU cost: run the full preset,
+## then disable exactly one effect and diff. Names: sdfgi, ssr, volfog, glow,
+## ssao, shadows. Empty = no ablation.
+var _disable: Dictionary = {}
+## SDFGI tuning overrides, applied after the preset. SDFGI is the dominant GPU
+## cost at High, so this is how we test whether a CHEAPER SDFGI can hold the
+## look without the full-fat cascade march.
+var _sdfgi_cascades := 0
+var _sdfgi_max_dist := 0.0
+var _sdfgi_cascade0 := 0.0
+
+func _parse_tuning() -> void:
+	_sdfgi_cascades = int(OS.get_environment("PERF_SDFGI_CASCADES"))
+	_sdfgi_max_dist = float(OS.get_environment("PERF_SDFGI_MAXDIST"))
+	_sdfgi_cascade0 = float(OS.get_environment("PERF_SDFGI_CASCADE0"))
+	if _sdfgi_cascades > 0 or _sdfgi_max_dist > 0.0 or _sdfgi_cascade0 > 0.0:
+		print("[perfprobe] sdfgi tuning: cascades=", _sdfgi_cascades,
+				" max_dist=", _sdfgi_max_dist, " cascade0=", _sdfgi_cascade0)
+
+func _parse_disable() -> void:
+	_disable.clear()
+	var raw := OS.get_environment("PERF_DISABLE").strip_edges().to_lower()
+	if raw.is_empty():
+		return
+	for token in raw.split(",", false):
+		var name := token.strip_edges()
+		if not name.is_empty():
+			_disable[name] = true
+	print("[perfprobe] ablation DISABLING: ", _disable.keys())
 
 func _ready() -> void:
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
@@ -23,6 +53,8 @@ func _ready() -> void:
 	print("[perfprobe] Viewport.msaa_3d=", get_viewport().msaa_3d)
 	_world = load(WORLD).instantiate()
 	add_child(_world)
+	_parse_disable()
+	_parse_tuning()
 	_apply_preset_from_env()
 	print("[perfprobe] world instanced, warming up ", WARMUP_SECONDS, "s")
 
@@ -65,13 +97,46 @@ func _apply_preset_from_env() -> void:
 
 func _apply_override() -> void:
 	SettingsMenuScript.apply_to_scene_tree(_preset_override, _world, get_viewport())
+	_apply_ablation()
+
+## Forces the PERF_DISABLE effects off AFTER the ladder wrote them, so the
+## ablation always wins over the preset regardless of apply order.
+func _apply_ablation() -> void:
+	if _disable.is_empty():
+		return
+	var env: Environment = SettingsMenuScript.find_scene_environment(_world)
+	if env:
+		if _disable.has("sdfgi"):
+			env.sdfgi_enabled = false
+		if _disable.has("ssr"):
+			env.ssr_enabled = false
+		if _disable.has("volfog"):
+			env.volumetric_fog_enabled = false
+		if _disable.has("glow"):
+			env.glow_enabled = false
+		if _disable.has("ssao"):
+			env.ssao_enabled = false
+	if _disable.has("shadows"):
+		var light: DirectionalLight3D = SettingsMenuScript.find_scene_directional_light(_world)
+		if light:
+			light.shadow_enabled = false
+	if env and _sdfgi_cascades > 0:
+		env.sdfgi_cascades = _sdfgi_cascades
+	if env and _sdfgi_max_dist > 0.0:
+		env.sdfgi_max_distance = _sdfgi_max_dist
+	if env and _sdfgi_cascade0 > 0.0:
+		env.sdfgi_cascade0_distance = _sdfgi_cascade0
 
 func _describe_quality() -> void:
 	var env: Environment = SettingsMenuScript.find_scene_environment(_world)
 	var vp := get_viewport()
 	if env:
 		print("[perfprobe] env: sdfgi=", env.sdfgi_enabled, " ssao=", env.ssao_enabled, " glow=", env.glow_enabled, " volfog=", env.volumetric_fog_enabled, " ssr=", env.ssr_enabled, " tonemap=", env.tonemap_mode, " sdfgi_energy=", env.sdfgi_energy)
+		print("[perfprobe] sdfgi: cascades=", env.sdfgi_cascades, " cascade0=", env.sdfgi_cascade0_distance, " max_dist=", env.sdfgi_max_distance)
 	print("[perfprobe] viewport: msaa=", vp.msaa_3d, " scaling_mode=", vp.scaling_3d_mode, " scale=", vp.scaling_3d_scale)
+	var light: DirectionalLight3D = SettingsMenuScript.find_scene_directional_light(_world)
+	if light:
+		print("[perfprobe] sun: shadows=", light.shadow_enabled, " mode=", light.directional_shadow_mode, " max_dist=", light.directional_shadow_max_distance, " fade=", light.directional_shadow_fade_start)
 
 func _snapshot() -> Dictionary:
 	return {

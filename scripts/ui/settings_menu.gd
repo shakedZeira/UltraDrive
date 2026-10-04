@@ -113,23 +113,38 @@ const QUALITY_PRESETS: Dictionary = {
 		"glow_enabled": true,
 		"volumetric_fog_enabled": true,
 		"ssr_enabled": true,
-		"sdfgi_enabled": true,
+		# MEASURED 2026-10-04 (tools/perf_probe.gd, GTX 970, 1920x1080, vsync
+		# off): SDFGI costs 9.3 ms/frame here and is the entire High GPU
+		# deficit. Leave-one-out from 41.7 fps / 24.0 ms:
+		#   SDFGI off          -> 67.9 fps / 14.7 ms  (+26.2 fps, -9.3 ms)
+		#   volumetric fog off -> 57.5 fps / 17.4 ms  ( -6.6 ms)
+		#   both off           -> below the 14.2 ms CPU floor, i.e. GPU-idle
+		# Cheapening SDFGI instead of removing it does NOT work: 2 cascades at
+		# a 32 m max distance only reached 57.4 fps, and cheap-SDFGI + no fog
+		# 58.9 fps — every config that KEEPS ray-traced GI lands at 57-59 fps,
+		# just under 60. On this GPU GI and 60 fps are mutually exclusive, so
+		# High trades GI for volumetric fog + SSR, which give more visual
+		# return per millisecond and still clear 60 with margin.
+		# GI is NOT lost from the ladder: Medium keeps SDFGI on (its GPU
+		# budget has room, and it is CPU-bound at 62.1 fps).
+		# Ambient light + the per-car ReflectionProbe (probe_enabled) carry the
+		# fill light SDFGI would have contributed.
+		"sdfgi_enabled": false,
 		"msaa_3d": 0,
 		"tonemap_mode": Environment.TONE_MAPPER_ACES,
 		"probe_enabled": true,
 		"scaling_3d_mode": 1,
 		# AAA-2 lever: FSR 2.2 scale 0.9 -> 0.85 on High. High was 57 fps on the
 		# GTX 970 reference (7ffb524); ~10% more upscaling per axis is the
-		# cheapest GPU cut that clears 60 without touching the env stack
-		# (SDFGI/SSR/volumetrics stay the reference High look).
+		# cheapest GPU cut that clears 60 without touching the env stack.
 		"scaling_3d_scale": 0.85,
 		"ssao_intensity": 2.0,
 		"ssao_radius": 0.05,
 		"ssao_ao_channel_affect": 0.1,
+		# Retained so a future GI re-enable is one flag flip, and so the tuned
+		# values stay documented. INERT while sdfgi_enabled is false —
+		# apply_quality_preset() only writes them inside `if sdfgi_enabled`.
 		"sdfgi_energy": 0.8,
-		# 4.7.2 has no sdfgi_cascaded_distance; the closest property is
-		# sdfgi_cascade0_distance (default 12.8) — stretch it a touch so the
-		# first cascade covers the car + immediate roadside.
 		"sdfgi_cascade0_distance": 16.0,
 		"shadow_cascade_count": 4,
 		"shadow_max_distance": 100.0,
