@@ -7,6 +7,33 @@ const WARMUP_SECONDS := 8.0
 const MEASURE_SECONDS := 20.0
 const SettingsMenuScript: GDScript = preload("res://scripts/ui/settings_menu.gd")
 
+## CPU ablations: PERF_DISABLE names mapped to world-relative node paths. These
+## are stopped with set_process + set_physics_process so the diff attributes CPU
+## cost specifically (a MultiMesh is NOT hidden, so render cost is untouched).
+## Motivation: every preset measures frame_ms ~= process_ms, and
+## PHYSICS_3D_ACTIVE_OBJECTS avg=2, so Jolt is solving almost nothing and the
+## cost must be in per-frame callbacks rather than rigid-body solving.
+const CPU_ABLATION := {
+	# Terrain3D region streaming (drains up to 2 baked regions per frame).
+	"chunk_streamer": ["ChunkStreamer"],
+	# Runtime terrain seeding/baking - the sync player-region bake plus the
+	# worker-thread ring. Heaviest _process candidate.
+	"terrain_stream": ["TerrainSeeder"],
+	# 8 AI cars, each ticking vehicle_physics + ai_controller + engine_audio +
+	# car_audio in physics ticks. Top suspect: they tick callbacks but are not
+	# active Jolt bodies, which is consistent with phys_bodies staying at 2.
+	"traffic": ["TrafficSpawner"],
+	"living": ["LivingWorld"],
+	"collectibles": ["CollectibleField"],
+	"events": ["EventSession"],
+	# Per-frame runtime prop/foliage scatter work (MultiMesh built once, but the
+	# scatterers keep processing).
+	"dressing": [
+		"Foliage", "PropsFestival", "PropsLowlands",
+		"PropsCoast", "PropsHighlands", "PropsAlpine",
+	],
+}
+
 var _world: Node = null
 var _car: Node = null
 var _t := 0.0
@@ -126,6 +153,23 @@ func _apply_ablation() -> void:
 		env.sdfgi_max_distance = _sdfgi_max_dist
 	if env and _sdfgi_cascade0 > 0.0:
 		env.sdfgi_cascade0_distance = _sdfgi_cascade0
+	_apply_cpu_ablation()
+
+## Stops the named subsystems' per-frame callbacks. Deliberately does NOT hide
+## anything, so a win here is CPU time and not render time.
+func _apply_cpu_ablation() -> void:
+	for name: String in CPU_ABLATION.keys():
+		if not _disable.has(name):
+			continue
+		var stopped: Array[String] = []
+		for path: String in CPU_ABLATION[name]:
+			var node: Node = _world.get_node_or_null(NodePath(path))
+			if node == null:
+				continue
+			node.set_process(false)
+			node.set_physics_process(false)
+			stopped.append(path)
+		print("[perfprobe] CPU ablation OFF: ", name, " -> ", stopped)
 
 func _describe_quality() -> void:
 	var env: Environment = SettingsMenuScript.find_scene_environment(_world)
