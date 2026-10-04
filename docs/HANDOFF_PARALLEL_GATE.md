@@ -1,7 +1,9 @@
 # HANDOFF — GDUnit4 parallel gate (P1)
 
 **Status at handoff:** P1 implemented, validated GREEN, and committed. Nothing
-is left half-done. CI is the open item and is deliberately deferred.
+is left half-done. CI is still not written, but it is no longer blocked on
+assert portability — both machine-calibrated/timing-band blockers are resolved
+(§6). What remains is cold import and having no CI precedent to copy.
 
 - Repo: `https://github.com/shakedZeira/UltraDrive.git`, branch `master`
 - Working dir on this machine: `D:\AI Projects\UltraDrive`
@@ -109,13 +111,14 @@ short version:
    C:. A **relative** `APPDATA` silently resolves against the child CWD — always
    pass an absolute path. This is what makes per-shard save isolation possible
    and is why the 13 save-touching suites no longer need serializing.
-2. **The shell is cmd.exe, not bash.** No `head`, `tail`, `cat`, `grep`, `ls`,
-   `wc`, `sed`, `awk`, or `&&` after a pipe. Use `findstr /c:"pat" <ABSOLUTE
-   path>`, `type`, `dir`, or wrap PowerShell as
-   `powershell -NoProfile -Command "..."`. `findstr` silently reports
-   `Cannot open` on relative paths — always pass absolute ones. Use the `workdir`
-   parameter, never `cd`.
+2. **The shell is cmd.exe, not bash** (on the PC — see §8, the laptop is
+   PowerShell 5.1). No `head`, `tail`, `cat`, `grep`, `ls`, `wc`, `sed`, `awk`,
+   or `&&` after a pipe. Use `findstr /c:"pat" <ABSOLUTE path>`, `type`, `dir`,
+   or wrap PowerShell as `powershell -NoProfile -Command "..."`. `findstr`
+   silently reports `Cannot open` on relative paths — always pass absolute ones.
+   Use the `workdir` parameter, never `cd`.
 3. **Use `py`.** `python`/`python3` are WindowsApps Store stubs and do nothing.
+   On the laptop there is not even a `py` launcher — §8 has the interpreter.
 4. **Never use the GUI Godot binary headless.** `Godot_v4.7.2-stable_win64.exe`
    is a WINDOWS_GUI-subsystem PE: under `&` it *detaches*, does not wait, and
    writes nothing — while still reporting success. This produced two false
@@ -154,18 +157,56 @@ short version:
 ## 6. Open item: CI is deliberately deferred
 
 An assessment was done. **No workflow was written**, because it would be red on
-arrival. Blockers:
+arrival — but two of the three original blockers are now **resolved in the
+tree**, and both were re-measured on a second, non-reference machine (§8). CI is
+unblocked on the assert-portability front.
 
-1. `tests/suites/test_perf_gate.gd` asserts a **16.7 ms** budget calibrated to
-   *this* machine. Per `AGENTS.md` it has failed twice in fully serial runs
-   here (`avg_ms 24.44`). On shared CI runners that contract is meaningless.
-   Fixing it means making the assertion machine-portable (compare against the
-   fastest sustained row in the same run rather than an absolute number) — a
-   change to the test's intent, so it needs a decision, not a drive-by edit.
-2. `tests/suites/test_race_results.gd` has a timing band that only slips under
-   full-suite load. It passes in isolation.
+**Resolved:**
+
+1. `tests/suites/test_perf_gate.gd` no longer asserts a bare **16.7 ms**
+   against the wall clock. `PerfBench.CONTRACT_FRAME_BUDGET_MS` is still `16.7`
+   and its **value is never loosened** — but the **gate** that enforces it is now
+   self-selecting. It engages only when this same run demonstrated the box can
+   hold 60 Hz, i.e. its fastest SUSTAINED row (`control_ms`) came in at or under
+   16.7 ms. That is **reference** mode, and it is the only mode the reference rig
+   can ever be in. When `control_ms > 16.7` the gate enters **relative** mode and
+   enforces only the same-run spread control that already existed: every
+   sustained row within `1.35x` of the fastest sustained row *of that run*, floor
+   `1.5` ms — which is meaningful at any machine speed, because headless draws
+   nothing, so Low/Medium/High run the identical CPU workload and any spread
+   between them is drift or a per-preset regression, never a legitimate saving.
+   A `print` line
+   `[perf_gate] mode=... control_ms=... contract_ms=... load_budget_ms=...`
+   records which mode ran. The load-window bound is now
+   `3.0 x maxf(control_ms, contract_ms)`, so "the world never settled" stays
+   detectable on a slow box; in reference mode that evaluates to exactly the old
+   `50.1` ms. `ULTRADRIVE_PERF_MODE=reference` forces the strict absolute gate on
+   even where the box cannot hold it (it will then fail, deliberately),
+   `=relative` forces it off, unset auto-detects.
+   **The tradeoff, stated honestly:** in relative mode a regression that slows
+   **every** preset *equally* is no longer detectable — only a *per-preset*
+   regression is. The reference rig never degrades, so it pays none of this cost.
+2. `tests/suites/test_race_results.gd` was **not** a calibration problem — it was
+   a genuine test bug. It asserted the results-screen total against a `±0.05 s`
+   band around a *second* read of `LapCounter.get_total_time()`, which is a live
+   monotonic clock
+   (`(Time.get_ticks_msec()/1000.0) - _race_start_time`). The HUD reads that clock
+   once inside `RaceManager.finish_race()` and then does save-file I/O in
+   `_submit_best_lap` before writing the label, so the band was measuring the
+   test's own execution latency plus disk I/O latency and failed only under load.
+   It is now an exact bracket: two clock reads taken immediately before and after
+   the `finish_race()` call, with the label asserted to fall between them (plus
+   `LABEL_QUANTISATION_SECONDS = 0.01` for the label's own `mm:ss.ss` rendering
+   granularity). Exact on any machine at any speed. It is **not** a wall-clock
+   benchmark and does **not** belong in `SERIAL_SUITES` — its problem was fixed,
+   not isolated.
+
+**Still open:**
+
 3. `.godot/` import cache is ~38.7 MB and 313 assets would import cold on every
    runner. Needs a cache strategy.
+4. **No precedent.** The repo has no CI of any kind today — no `.github/`, no
+   other pipeline config — so the whole capability is unvalidated.
 
 When these are settled: build the matrix from `[1, 2, 3, 4]` — **not** `[0, 1,
 2, 3]`; shard 0 is the serialized benchmark tail and is not a matrix shard.
@@ -186,6 +227,57 @@ been corrected.
 | `docs/GDUNIT_GATE.md` | Operator-facing flags and false-green rules. |
 | `AGENTS.md` | Project-wide agent rules; P0 baseline + parallel-gate section. |
 | `reports/parallel/` | Gitignored: per-shard HTML+XML, `logs/`, `userdata/`, `merged-results.xml`, `summary.json`. |
+
+---
+
+## 8. Second rig — the laptop (measured) and two environment gotchas
+
+Everything above was measured on the PC (GTX 970). The perf gate was then
+validated on a **second, much slower machine**, because "does the gate work on a
+box that is not the reference box?" is exactly the question a CI runner asks.
+
+**Laptop:** AMD Ryzen 3 5300U, 4c/8t, 7.3 GB RAM, Godot
+`4.7.2.stable.official.ed1daf0bf`. Checkout at
+`C:\Users\IMOE001\Desktop\Shaked Projects\UltraDrive\UltraDrive`.
+
+| Run | Result |
+|---|---|
+| Default (auto) | `[perf_gate] mode=reference control_ms=7.00 contract_ms=16.7 load_budget_ms=50.1` -> 3/3 pass, 49.0 s, runner exit 0 |
+| Forced relative | `mode=relative control_ms=7.07` -> 3/3 pass, runner exit 0 |
+| Simulated slower-than-reference box (contract const temporarily `0.001`, then reverted), auto | `mode=relative control_ms=7.04 contract_ms=0.0 load_budget_ms=21.1` -> GREEN, runner exit 0 |
+| Same box, forced `reference` | `mode=reference control_ms=6.98 contract_ms=0.0` -> RED, 2 failures, runner exit 1 |
+| `test_race_results.gd` alone | 8/8 pass, runner exit 0 |
+| Both suites together, default mode | `11 tests, 0 failures, 0 errors`, runner exit 0 |
+
+Note the laptop is *reference-capable* despite being the slow box: headless
+draws nothing, so the workload is CPU-only and `control_ms` is ~7 ms against the
+16.7 ms contract. The two simulated-slow-box rows are the ones that matter — the
+rescue and the strict gate were both confirmed end to end, the
+`ULTRADRIVE_PERF_MODE` override works in both directions, and the runner's
+exit-1 `RED` path was exercised for real (it had never been reached by a green
+run before; it is now confirmed three times).
+
+### Gotcha: no `py` launcher on the laptop
+
+On the MAIN PC the runner is invoked with `py tools\gdunit_parallel.py`. On the
+laptop `py` is **not installed**, and `python`/`python3` resolve to the
+WindowsApps Store stubs that silently do nothing — a runner invocation that
+returns instantly and runs nothing. The working interpreter is:
+
+```
+C:\Users\IMOE001\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe
+```
+
+Real CPython 3.13.14. `tools/gdunit_parallel.py` is pure stdlib, so there is
+nothing to `pip install`.
+
+### Gotcha: the laptop shell is PowerShell 5.1, not cmd.exe
+
+`AGENTS.md` used to claim the shell is cmd.exe. That is true on the PC only. The
+laptop shell is **PowerShell 5.1**: there is no `&&`, and no `head`/`tail`/`cat`/
+`ls`/`grep` either. Use the `read` / `grep` / `glob` / `edit` tools, or
+PowerShell's own `Get-Content` / `Get-ChildItem` / `Select-String`. §4 rules 2 and
+3 above are the PC's; this is the laptop's.
 
 `HANDOFF.md` at the repo root is an **older, unrelated** handoff (spawn-highway
 ramp / per-segment rails, with a user-requested task still pending). It was

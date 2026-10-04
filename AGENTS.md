@@ -52,13 +52,25 @@ binary. After the suite, confirm `_gdunit.txt` is not 0 bytes.
 to one drive, fix it to go through `godot_path.bat` — do NOT just flip it to
 the other drive, that breaks the other machine.
 
-## SHELL IS cmd.exe ON WINDOWS — NO POSIX TOOLS (agents keep breaking on this)
+## SHELL IS cmd.exe ON THE PC, POWERSHELL 5.1 ON THE LAPTOP — NO POSIX TOOLS (agents keep breaking on this)
 
-The Bash tool on this project runs **cmd.exe**, not bash/zsh. There is no
-`head`, `tail`, `cat`, `grep`, `ls`, `wc`, `sed`, `awk`, `xargs`, `tail -f`, or
+The Bash tool on this project runs **cmd.exe** on the PC, not bash/zsh. There is
+no `head`, `tail`, `cat`, `grep`, `ls`, `wc`, `sed`, `awk`, `xargs`, `tail -f`, or
 `&&`-after-pipe. Do NOT reach for them — use the Windows equivalents. Also do
 NOT paste the PowerShell snippets below straight into the tool: `&`, `$var`,
 `2>&1 |` and backtick syntax are PowerShell-only and will not parse in cmd.
+
+**The laptop is the exception (corrected):** there the shell is **PowerShell
+5.1**, NOT cmd.exe. No `&&` either, and no `head`/`tail`/`cat`/`ls`/`grep` at
+all. Use the `read` / `grep` / `glob` / `edit` tools, or PowerShell's own
+`Get-Content` / `Get-ChildItem` / `Select-String`. The `cmd /v:on /c` forms below
+are the PC's recipe and stay the verified one.
+
+**The laptop also has no `py` launcher**, and `python`/`python3` there resolve to
+the WindowsApps Store stubs that do nothing. The working interpreter is
+`C:\Users\IMOE001\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe`
+(real CPython 3.13.14; `tools/gdunit_parallel.py` is pure stdlib, so nothing to
+`pip install`). On the PC, use `py` as the rules below say.
 
 | Instead of | Use |
 |---|---|
@@ -208,6 +220,14 @@ supported!"), which has nothing to do with your code.
       band that only slips under full-suite load. **It PASSES 8/8 in
       isolation**, so treat it as cross-suite interference, not a regression —
       re-run the suite alone before you investigate.
+      **BOTH flakes are now FIXED in the tree**, so treat the diagnosis above as
+      history, not as live guidance: the perf gate is now two-mode
+      (`ULTRADRIVE_PERF_MODE`, see the PARALLEL GATE rules below) and
+      `test_race_results.gd` now brackets `finish_race()` exactly instead of
+      tolerating a wall-clock band. Neither is load-sensitive any more, and the
+      `test_race_results.gd` defect was a genuine test bug — the band measured
+      the test's own latency plus the HUD's save-file I/O — not cross-suite
+      interference.
     - **TWO MORE FALSE-GREENS on this shell, both hit for real:**
       (a) GDUnit `-a` does NOT accept comma-separated paths. Passing six suites
       comma-joined prints `Given directory or file does not exists: ...` and then
@@ -219,8 +239,9 @@ supported!"), which has nothing to do with your code.
    - **PARALLEL GATE — P0 of `docs/plans/gdunit_parallel_execution_plan.md`
       SHIPPED 2026-10-04.** `tools/gdunit_parallel.py` shards the 95 suites
       across N headless Godot processes and merges the per-shard JUnit XML:
-      `py tools\gdunit_parallel.py -j 4` (use `py` — `python`/`python3` are
-      WindowsApps Store stubs on this box). MEASURED **264.3 s (4m24s)** wall
+      `py tools\gdunit_parallel.py -j 4` (on the PC use `py` — `python`/`python3`
+      are WindowsApps Store stubs there; on the laptop there is no `py` at all,
+      see the SHELL section for the interpreter). MEASURED **264.3 s (4m24s)** wall
       vs the 18m23s serial baseline = **4.18x**, 95/95 suites,
       `1018 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 20 orphans`,
       0 false greens, exit 0 — an ALL-GREEN full run, and both prior
@@ -246,6 +267,38 @@ supported!"), which has nothing to do with your code.
         `--no-isolate-user-data` restores the serialized fallback.
       * Exit 101 (orphans only) counts as SUCCESS (baseline has 20 orphans).
         Runner exits: 0 clean, 1 test failures, 2 false green / env problem.
+        **Exit 1 and exit 2 are different verdicts:** a shard with real failures
+        prints `RED (n fail / m err)` and exits 1 — red but TRUSTWORTHY. The
+        `!! FALSE GREEN` banner / exit 2 means the numbers cannot be believed.
+        That RED path had never been exercised by a green run before; it is now
+        VERIFIED, confirmed three times.
+      * **PERF GATE HAS TWO MODES, and `ULTRADRIVE_PERF_MODE` picks one.** The
+        16.7 ms `PerfBench.CONTRACT_FRAME_BUDGET_MS` VALUE is never loosened —
+        only the GATE that enforces it is self-selecting. It engages only when
+        the run's own fastest SUSTAINED row (`control_ms`) already met 16.7 ms,
+        i.e. the box proved it can hold 60 Hz (**reference** mode). Otherwise the
+        gate drops to **relative** mode and enforces only the same-run spread
+        control: every sustained row within `1.35x` of the fastest sustained row
+        of THAT run, floor `1.5` ms. Every run prints
+        `[perf_gate] mode=... control_ms=... contract_ms=... load_budget_ms=...` —
+        read `mode=` before believing a perf failure. Set
+        `ULTRADRIVE_PERF_MODE=reference` to force the strict absolute gate on
+        anyway (it will then fail, deliberately) or `=relative` to force it off;
+        unset auto-detects. **COST, stated plainly:** in relative mode a
+        regression that slows EVERY preset EQUALLY is undetectable — only a
+        per-preset regression is. The reference rig never degrades, so it pays
+        none of this cost. VERIFIED on a second, non-reference box (AMD Ryzen 3
+        5300U): auto -> `mode=reference control_ms=7.00 load_budget_ms=50.1`
+        3/3 pass exit 0; forced `relative` -> 3/3 pass; with the contract const
+        temporarily `0.001` (reverted) auto -> `mode=relative` GREEN exit 0 while
+        forced `reference` -> RED, 2 failures, exit 1.
+      * **`test_race_results.gd` is NOT a wall-clock benchmark** and is NOT in
+        `SERIAL_SUITES`. Its old `±0.05 s` band around a second read of a live
+        monotonic clock was a genuine test bug — the HUD reads that clock once
+        inside `finish_race()` and then does save-file I/O in `_submit_best_lap`,
+        so the band measured the test's own latency plus disk I/O — and is now an
+        exact bracket around the `finish_race()` call. Its problem was fixed, not
+        isolated: nothing about parallel load can break it now.
       * gdUnit DOES write a JUnit `results.xml` per report dir, so merging is real.
       Flags, layout and false-green rules: `docs/GDUNIT_GATE.md`.
       STILL OPEN: shard balance is loose (walls 264/136/247/46 s — shard 1 is the

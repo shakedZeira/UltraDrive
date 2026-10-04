@@ -212,6 +212,11 @@ This is **not** a regression from a logic change — nothing in
 `RoadDef` / `TrackBuilder` / `CorridorPlanner` adds per-frame cost. If it is the
 only failure, the gate is green for your change. Note it and move on.
 
+The gate now self-selects between an absolute contract and a same-run relative
+one, so this advice applies differently off the reference box. Read the `[perf_gate]
+mode=...` line the suite prints before judging it, and see "The perf gate has two
+modes, and one override" in the parallel-gate section below.
+
 ### GDUnit aborts a suite at its first failure
 
 So a red suite hides every test after it. The true state is worse than one run
@@ -371,6 +376,51 @@ distinctly from failures.
 Runner exit codes: `0` clean, `1` test failures/errors, `2` false green or
 environment problem.
 
+**Exit `1` and exit `2` are different verdicts — never collapse them.** A shard
+with real failures prints `RED (n fail / m err)` and the run exits `1`: the tests
+ran and something genuinely failed, so the result is *red but trustworthy*. The
+`!! FALSE GREEN` banner and exit `2` mean the opposite: the result is
+*untrustworthy* — nothing ran, or the numbers cannot be believed. The `RED`
+path had never been reached by a green run before; it is now **verified**,
+confirmed three times, so the distinction is observed rather than merely
+asserted.
+
+### The perf gate has two modes, and one override
+
+`test_perf_gate.gd` asserts a frame-budget contract, so the box's speed decides
+which contract is meaningful. The **value** of
+`PerfBench.CONTRACT_FRAME_BUDGET_MS` is never loosened — only the **gate** that
+enforces it changes, and it picks its own mode from the run's own numbers:
+
+- **`reference`** — this run's fastest SUSTAINED row (`control_ms`) already came
+  in at or under 16.7 ms, so the box demonstrated it can hold 60 Hz. The
+  **absolute** contract binds: every sustained row must fit 16.7 ms.
+- **`relative`** — `control_ms > 16.7` ms, so the absolute number would only
+  measure the machine. The absolute gate is **off** and only the same-run spread
+  control applies: every sustained row within `1.35x` of the fastest sustained
+  row of that same run, floor `1.5` ms.
+
+Whichever mode ran is printed by the suite:
+`[perf_gate] mode=... control_ms=... contract_ms=... load_budget_ms=...`. The load
+window's bound is `3.0 x maxf(control_ms, contract_ms)`, which is exactly the old
+`50.1` ms in reference mode and keeps "the world never settled" detectable on a
+slow box.
+
+`ULTRADRIVE_PERF_MODE` overrides the auto-detection when the detection is not
+good enough:
+
+| Value | Effect |
+|---|---|
+| unset, or any other value | auto-detect from `control_ms` (default) |
+| `reference` | force the strict absolute gate on even if the box cannot hold it — it will then fail, which is the point |
+| `relative` | force the absolute gate off |
+
+**The tradeoff, stated honestly:** in relative mode a regression that slows
+EVERY preset EQUALLY is no longer detectable — only a *per-preset* regression is,
+because only the per-preset comparison survives at a machine speed that already
+misses the budget. The reference rig never degrades, so it pays none of this
+cost.
+
 ### Report layout
 
 Per-shard artifacts land under `reports/parallel/`:
@@ -398,16 +448,28 @@ index, so a stale `report_` directory cannot be picked up as this run's result.
 `shard_<i>/report_<N>/index.html` for per-suite failure text exactly as you
 would in §5.
 
-### Timing flakes get worse under parallel load
+### Timing flakes: one is fixed, one is still hardware timing
 
-§6 records two known wall-clock flakes: `test_perf_gate.gd`'s 16.7 ms
-`CONTRACT_FRAME_BUDGET_MS` assertion and `test_race_results.gd`'s timing band.
-Four concurrent Godot processes on the GTX 970 make **both** measurably worse —
-this is CPU/GPU contention, and the budget is wall-clock.
+§6 records two wall-clock flakes. Their status is no longer the same:
 
-They are **hardware-timing flakes, not correctness signals.** A parallel run
-must not be used to judge either of them: if one of those two is the only
-failure, re-check it with the serial recipe (§2) before believing it.
+- **`test_race_results.gd`'s timing band is FIXED.** It was never a
+  machine-calibration problem — it was a genuine test bug. The suite asserted the
+  results-screen total against a `±0.05 s` band around a *second* read of
+  `LapCounter.get_total_time()`, a live monotonic clock, while the HUD reads that
+  clock once inside `RaceManager.finish_race()` and then does save-file I/O in
+  `_submit_best_lap` before writing the label — so the band measured the test's
+  own execution latency plus disk I/O latency. It is now an exact bracket taken
+  around the `finish_race()` call (plus `LABEL_QUANTISATION_SECONDS = 0.01` for
+  the label's `mm:ss.ss` granularity), which is exact at any machine speed. It is
+  not a benchmark and is not in `SERIAL_SUITES`; nothing about parallel load can
+  break it now.
+- **`test_perf_gate.gd` is still the one real hardware-timing suite**, which is
+  why it still runs alone in the serialized shard (index `0`). Four concurrent
+  Godot processes on the GTX 970 make it measurably worse — this is CPU
+  contention and the budget is wall-clock. A red perf gate is **not** a
+  correctness signal: read the `mode=` field of the `[perf_gate]` line first (see
+  "The perf gate has two modes" above), because a red gate is either a loaded box
+  or a deliberately forced strict mode. Re-run it alone before believing it.
 
 ### One Godot process at a time — the deliberate exception
 

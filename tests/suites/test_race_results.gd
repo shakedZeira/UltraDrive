@@ -7,9 +7,18 @@ extends GdUnitTestSuite
 ## re-arms the start ceremony, Return to Free Roam launches the open-world
 ## scene, the position->points table is exported for item 11, and the confetti
 ## burst steps to completion without a scene. Leak discipline mirrors
-## test_race_loop.gd.
+## test_race_loop.gd. The results total is verified against a bracket taken
+## around finish_race() rather than a fixed tolerance, because the HUD reads the
+## lap clock once before its save-file I/O, so a fixed band would measure the
+## machine's I/O latency instead of the HUD.
 
 const FREE_ROAM_SCENE := "res://scenes/world/open_world_root.tscn"
+
+## Rendering granularity of the mm:ss.ss label, half a centisecond rounded up to
+## 0.01: _format_time() can only express totals to a hundredth of a second, so
+## the parsed label may sit that far off the exact float. NOT a latency
+## allowance.
+const LABEL_QUANTISATION_SECONDS: float = 0.01
 
 var _managed_cars: Array = []
 
@@ -74,16 +83,25 @@ func test_win_results_overlay_matches_standings_total_and_best_lap() -> void:
 	var counter: LapCounter = RaceManager.get_lap_counter(player)
 	counter.update(player, cp)
 	var standings := RaceManager.get_standings()
+	var before: float = counter.get_total_time()
 	RaceManager.finish_race()
+	var after: float = counter.get_total_time()
 
 	var overlay := scene.get_node("%ResultsOverlay") as Control
 	assert_that(overlay.visible).is_true()
 	assert_that(standings[0]).is_equal(player)
 	assert_that((scene.get_node("%ResultsPosition") as Label).text).is_equal("P1")
 	assert_that((scene.get_node("%ResultsTitle") as Label).text).is_equal("1ST PLACE!")
-	var total := counter.get_total_time()
 	var total_label := scene.get_node("%ResultsTotal") as Label
-	assert_that(_parse_mm_ss(total_label.text)).is_equal_approx(total, 0.05)
+	var shown: float = _parse_mm_ss(total_label.text)
+	# Exact bracket, not a tolerance: the HUD's single read of the lap clock
+	# happens strictly inside the finish_race() call above, so the value it
+	# rendered must fall between the two surrounding reads on any machine at any
+	# speed. Only LABEL_QUANTISATION_SECONDS is allowed for, because the label
+	# itself only renders hundredths.
+	assert_float(shown).is_greater_equal(before - LABEL_QUANTISATION_SECONDS)
+	assert_float(shown).is_less_equal(after + LABEL_QUANTISATION_SECONDS)
+	assert_float(shown).is_greater(0.0)
 	var best_parsed := _parse_mm_ss((scene.get_node("%ResultsBestLap") as Label).text)
 	assert_that(best_parsed).is_greater(0.0)
 	var best_lap: float = scene.get("_best_lap")

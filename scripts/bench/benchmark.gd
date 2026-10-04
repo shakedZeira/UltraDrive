@@ -36,8 +36,11 @@ const REFERENCE_SCENE := "res://scenes/world/open_world_root.tscn"
 const WARMUP_SECONDS := 3.0
 const MEASURE_SECONDS := 3.0
 ## GTX-970-calibrated fixed-timestep budget: 1000 ms / 60 Hz = 16.7 ms per
-## frame. This is the contract threshold the gate asserts against (never
-## loosened for a slow machine).
+## frame. The VALUE is never loosened for a slow machine. The GATE that asserts
+## it is self-selecting: tests/suites/test_perf_gate.gd enforces it only when the
+## run demonstrated this box can hold 60 Hz, and otherwise falls back to the
+## same-run control row so a slow box does not report machine speed as a
+## regression. ULTRADRIVE_PERF_MODE=reference forces the strict gate on.
 const CONTRACT_FRAME_BUDGET_MS := 16.7
 const PRESET_IDS: Array[int] = [0, 1, 2]
 const SettingsMenuScript: GDScript = preload("res://scripts/ui/settings_menu.gd")

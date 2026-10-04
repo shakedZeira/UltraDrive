@@ -360,9 +360,9 @@ to watch: headless shards run on the dummy rendering driver and allocate none.
   and the missing import probe (a `-s` run before a successful
   `--headless --import .` dies with exit 103).
 
-Still open: the GitHub Actions JUnit-parser validation above. P1 progress (three
-items shipped, the matrix deferred behind three blockers) is in
-`### P1 — STATUS` below.
+Still open: the GitHub Actions JUnit-parser validation above. P1 progress (the
+matrix deferred behind two blockers; the machine-calibration blocker that was
+the third is now shipped) is in `### P1 — STATUS` below.
 
 ### P1 (Next Sprint)
 - [ ] GitHub Actions workflow with matrix sharding (blocked — see P1 — STATUS)
@@ -429,8 +429,11 @@ No Godot process is launched to write or read it.
 `RED (n fail / m err)` and the run exits **1** (test failures); exit **2**
 (false green) is reserved for genuinely untrustworthy results — no XML,
 `tests == 0`, exit 100 with 0 failures *and* 0 errors, exit 103/105, timeout,
-aborted, or a rejected `-a` path. Note the `RED` path is **not yet exercised by
-a green run** and still wants a deliberately-red verification.
+aborted, or a rejected `-a` path. The `RED` path is **now VERIFIED**: it had
+never been exercised by a green run, and has since been confirmed three times,
+including deliberately on the forced-`reference` run below (2 failures, runner
+exit 1) — so exit 1 / exit 2 is a distinction that has been observed in both
+directions rather than only asserted.
 
 **SHIPPED — `--merge-only`.** Merges per-shard XMLs that already exist, with no
 Godot launch and no import probe, through the same merge → summary →
@@ -451,16 +454,62 @@ which terminates the other live Godot children (terminate, then
 **not** trip it. Aborted shards report status `aborted (peer script error)`, are
 excluded from the merge, and force a non-zero exit.
 
-**OPEN / BLOCKER (CI matrix — machine-calibrated asserts).**
-`tests/suites/test_perf_gate.gd` asserts a **16.7 ms**
-`CONTRACT_FRAME_BUDGET_MS` that is deliberately calibrated to this box's
-GTX 970 / i7-6700 and fails on anything slower: it has flaked locally at
-`avg_ms 24.44`, and in the all-green run it consumed **52.7 s of one shard**. A
-GitHub runner has roughly half this box's physical parallelism, so a 4-job matrix
-would very likely go red for a reason that has nothing to do with the code. The
-`test_race_results.gd` wall-clock quantisation assert is the same class of
-problem. **Recommended order: land the local work first, make those two asserts
-machine-portable, THEN build CI.**
+**SHIPPED — two-mode perf gate (the machine-calibration blocker).** The
+assert-portability work this plan called for has landed in
+`tests/suites/test_perf_gate.gd` and `scripts/bench/benchmark.gd`, so a 4-job CI
+matrix is no longer red for a reason that has nothing to do with the code.
+`PerfBench.CONTRACT_FRAME_BUDGET_MS` is still `16.7` ms and its VALUE is never
+loosened; the GATE that enforces it is now **self-selecting** from this run's own
+numbers. It engages only when the run demonstrated the box can hold 60 Hz — its
+fastest SUSTAINED row (`control_ms`) at or under 16.7 ms — which is **reference**
+mode, and the only mode the reference rig can ever be in. When `control_ms >
+16.7` the gate enters **relative** mode and enforces only the same-run spread
+control that already existed: every sustained row within `1.35x` of the fastest
+sustained row of that same run, floor `1.5` ms. A `print` line
+`[perf_gate] mode=... control_ms=... contract_ms=... load_budget_ms=...` records
+which mode ran, and the load-window bound became
+`3.0 x maxf(control_ms, contract_ms)` — exactly the old `50.1` ms in reference
+mode, and still able to report "the world never settled" on a slow box instead of
+masking it behind the machine's own slowness. New `ULTRADRIVE_PERF_MODE` env var
+overrides the detection: `reference` forces the strict absolute gate on even
+where the box cannot hold it (it will then fail, which is the point), `relative`
+forces it off, unset or any other value auto-detects.
+**COST, stated plainly:** in relative mode a regression that slows EVERY preset
+EQUALLY is no longer detectable — only a *per-preset* regression is. The
+reference rig never degrades, so it pays none of this cost.
+
+**SHIPPED — `test_race_results.gd` timing band (a test bug, not a machine).**
+This one was **not** the same class of problem as the perf gate. It asserted the
+results-screen total against a `±0.05 s` band around a SECOND read of
+`LapCounter.get_total_time()`, which is a live monotonic clock
+(`(Time.get_ticks_msec()/1000.0) - _race_start_time`). The HUD reads that clock
+once inside `RaceManager.finish_race()` and then does save-file I/O in
+`_submit_best_lap` before writing the label, so the band was measuring the
+test's own execution latency plus disk I/O latency, and failed only under load.
+It is now an exact bracket: two clock reads taken immediately before and after
+the `finish_race()` call, with the label asserted to fall between them, plus a
+new `LABEL_QUANTISATION_SECONDS = 0.01` const for the label's own `mm:ss.ss`
+rendering granularity (not a latency allowance). Exact on any machine at any
+speed. `test_race_results.gd` is **not** a wall-clock benchmark and does **not**
+belong in `SERIAL_SUITES` — its problem was fixed, not isolated.
+
+**MEASURED on a second, non-reference box** (AMD Ryzen 3 5300U, 4c/8t, 7.3 GB
+RAM, Godot `4.7.2.stable.official.ed1daf0bf`). The laptop is itself
+reference-capable — headless draws nothing, so the workload is CPU-only:
+
+| Run | Result |
+|---|---|
+| Default (auto) | `mode=reference control_ms=7.00 contract_ms=16.7 load_budget_ms=50.1` → 3/3 pass, 49.0 s, runner exit 0 |
+| Forced `relative` | `mode=relative control_ms=7.07` → 3/3 pass, runner exit 0 |
+| Simulated slower-than-reference box (contract const temporarily `0.001`, then reverted), auto | `mode=relative control_ms=7.04 contract_ms=0.0 load_budget_ms=21.1` → GREEN, runner exit 0 |
+| Same box, forced `reference` | `mode=reference control_ms=6.98 contract_ms=0.0` → RED, 2 failures, runner exit 1 |
+| `test_race_results.gd` alone | 8/8 pass, runner exit 0 |
+| Both suites, default mode | `11 tests, 0 failures, 0 errors`, runner exit 0 |
+
+Both the rescue and the strict gate were confirmed end to end, in both
+directions of the override. This is the evidence that closes the
+machine-calibration half of the CI matrix item in `### P1 (Next Sprint)` above;
+it does not touch the P1 numbers above, which stay as measured on the PC.
 
 **OPEN / BLOCKER (cold import).** `.godot/` is gitignored, so every CI job pays
 a cold editor import — 313 assets, ~38.8 MB of generated cache. Four matrix
@@ -472,7 +521,7 @@ Mitigable with `actions/cache` keyed on `assets/**`, `addons/**`,
 `.github/`, no other pipeline config — so there is zero precedent here and the
 whole capability is unvalidated.
 
-**DEFERRED — GitHub Actions matrix**, for the three blockers above. Already
+**DEFERRED — GitHub Actions matrix**, for the two blockers above. Already
 known-good whenever it is built:
   * `--godot <path>` fully bypasses the Windows-only `godot_path.bat`.
   * `ubuntu-latest` is viable: no drive letters, no `.bat`/`.exe` calls and no
