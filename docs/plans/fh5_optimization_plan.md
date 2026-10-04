@@ -338,6 +338,47 @@ dominated. Medium is CPU-bound, not GPU-bound (`process_ms` 17.0 vs High's
 14.6), driven by MSAA 4x at full resolution with no upscaling. Deciding what
 Medium should be is a product call, not a perf one, so it is left open here.
 
+### ⚠️ THE BOTTLENECK MOVED — the rest of this plan is now obsolete
+
+After the SDFGI fix, every preset measures `frame_ms ≈ process_ms`, i.e. **the
+frame is CPU-bound and the GPU is no longer the constraint**:
+
+| Preset | frame_ms | process_ms | bound by |
+|---|---|---|---|
+| Low | 12.7 | 13.2 | **CPU** |
+| Medium | 16.1 | 17.0 | **CPU** |
+| High | 13.6 | 14.6 | **CPU** |
+
+High with SDFGI off runs at 13.6 ms against a 14.6 ms CPU floor — the GPU has
+roughly a millisecond of headroom, not ten.
+
+**Therefore do not implement the remaining GPU items. None of them can move the
+framerate, because none of them touch the constraint:** texture compression,
+draw-call batching / MultiMesh merging, VRS, TAA, mesh LOD, occlusion culling,
+and virtual texturing are all **DROPPED**. SDFGI's own cost was ~9 ms of GPU
+time; nothing else in this document is plausibly that large, and there is no
+longer anywhere to hide it.
+
+First CPU measurement (`perf_probe.gd`, `PHYSICS_3D_ACTIVE_OBJECTS`):
+**`phys_bodies avg=2`**. Jolt is solving essentially nothing, so physics cost is
+*not* body-count bound — the CPU time is in `_physics_process` callbacks
+(terrain streaming, `TerrainSeeder`, `RegionDresser`), which count toward
+`TIME_PHYSICS_PROCESS`. That is where the next investigation belongs.
+
+### ⚠️ Measurement integrity — read before trusting any number here
+
+The dev box carried **53% ambient CPU load** from unrelated processes (opencode,
+VS Code, Steam, OneDrive) during these runs. Two **identical** Medium
+configurations measured **62.1 fps and 38.5 fps (min 18)**. Consequences:
+
+- **Trustworthy:** large effects far above the noise floor — SDFGI ±9 ms, the
+  shadow ladder's 2.45× on Low, VRAM 1182 → 777 MB. These reproduce.
+- **NOT trustworthy:** fine-grained per-preset figures, especially Medium's,
+  and any target set within ~20% of current. Re-baseline on a quiet machine
+  before optimising against them.
+- Do not gate a regression on a single run's fps. Median of ≥3 runs, or the
+  `test_perf_gate.gd` CPU budget, which is measured under a serialized shard.
+
 Shadow-ladder A/B (same probe, `apply_shadow_preset` bypassed):
 
 | Run | FPS avg | frame_ms | draw_calls | primitives |
