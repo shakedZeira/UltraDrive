@@ -98,14 +98,19 @@ func test_apply_high_lands_fog_and_fsr_without_gi() -> void:
 	var viewport: SubViewport = SubViewport.new()
 	_managed.append(env)
 	_managed.append(viewport)
+	# Capture the fresh Environment's own values first. The invariant under test
+	# is that apply_quality_preset does NOT WRITE them — so compare against what
+	# the Environment already had, rather than hardcoding an engine default that
+	# a future Godot bump could silently invalidate.
+	var baseline_energy := env.sdfgi_energy
+	var baseline_cascade0 := env.sdfgi_cascade0_distance
 	SettingsMenuScript.apply_quality_preset(env, viewport, SettingsMenuScript.preset_for(2))
 	assert_that(env.ssao_enabled).is_true()
 	assert_that(env.sdfgi_enabled).is_false()
 	# The retained tuning must stay INERT: apply writes sdfgi_energy and
-	# sdfgi_cascade0_distance only inside `if sdfgi_enabled`, so the fresh
-	# Environment keeps its own defaults rather than High's values.
-	assert_that(env.sdfgi_energy).is_not_between(0.7, 0.9)
-	assert_that(env.sdfgi_cascade0_distance).is_less(14.0)
+	# sdfgi_cascade0_distance only inside `if sdfgi_enabled`.
+	assert_that(env.sdfgi_energy).is_equal_approx(baseline_energy, 0.0001)
+	assert_that(env.sdfgi_cascade0_distance).is_equal_approx(baseline_cascade0, 0.0001)
 	assert_that(env.ssr_enabled).is_true()
 	assert_that(env.volumetric_fog_enabled).is_true()
 	assert_that(env.glow_enabled).is_true()
