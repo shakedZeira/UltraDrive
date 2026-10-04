@@ -540,37 +540,43 @@ All of the following are true and measurable:
 
 _Baseline at writing: **641 tests green / 0 errors / 0 failures / 63+ suites** (2026-09-23, HEAD `b24d60e`). Each item ships via one `general` sub agent + parent re-verification (headless recipe) before its box is ticked._
 
-**Phase A — Feel & Loop completeness**
-- [ ] AAA-1 audio daily-feel layers (`test_audio_feel_layers`)
-- [ ] AAA-2 locked-60 High + perf gate (`test_perf_gate`)
-- [ ] AAA-3 photo mode + map filters (`test_photo_mode`)
-- [ ] AAA-4 rival personalities (`test_rival_personalities`)
-- [ ] AAA-5 replay recorder (`test_replay_recorder`)
-- [ ] AAA-6 per-car default setup + downshift sibling (`test_car_default_setup`)
+**RECONCILED 2026-10-04 against the real tree** (HEAD `0953096`, **1018 tests / 0 errors /
+0 failures / 20 orphans, 95 suites**). The list below was written at the old baseline and
+did not track the work that actually shipped. Ticks are **not** taken on the roadmap's
+word — each was verified by the existence of its named acceptance suite plus a source
+grep, so nothing here needs re-planning. **Phase A is done.**
 
-**Phase B — Career depth & content systems**
-- [ ] AAA-7 economy loop completion (`test_economy_loop`)
-- [ ] AAA-8 championship/season ladder (`test_championship_ladder`)
-- [ ] AAA-9 section challenges (`test_section_challenges`)
-- [ ] AAA-10 used-car rotation (`test_used_car_rotation`)
-- [ ] AAA-11 car viewer (`test_car_viewer`)
-- [ ] AAA-12 event weather/TOD/season variety (`test_event_variety`)
-- [ ] AAA-13 tuning/livery depth (`test_tuning_depth`)
+**Phase A — Feel & Loop completeness — COMPLETE**
+- [x] AAA-1 audio daily-feel layers — `test_audio_feel_layers.gd`, 14 tests
+- [x] AAA-2 perf gate — `test_perf_gate.gd` runs every gate in serialized shard 0; **caveat: only the gate shipped, the "High 57→60 fps" number was never re-measured** (see below)
+- [x] AAA-3 photo mode + map filters — `test_photo_mode.gd`
+- [x] AAA-4 rival personalities — `test_rival_personalities.gd`
+- [x] AAA-5 replay recorder — `test_replay_recorder.gd`, 10 tests
+- [x] AAA-6 per-car default setup + downshift sibling — `test_car_default_setup.gd`
+
+**Phase B — Career depth & content systems — the biggest remaining block**
+- [~] AAA-7 economy loop completion — `test_career_economy.gd` ships, but **`test_economy_loop.gd` is absent**: the garage→tune→event→buy closure (the "ends") is still open
+- [ ] AAA-8 championship/season ladder (`test_championship_ladder`) — MISSING
+- [ ] AAA-9 section challenges (`test_section_challenges`) — MISSING
+- [ ] AAA-10 used-car rotation (`test_used_car_rotation`) — MISSING
+- [ ] AAA-11 car viewer (`test_car_viewer`) — MISSING
+- [ ] AAA-12 event weather/TOD/season variety (`test_event_variety`) — MISSING
+- [ ] AAA-13 tuning/livery depth (`test_tuning_depth`) — MISSING
 
 **Phase C — World density & discovery**
-- [ ] AAA-14 open-world biome color pass + 2nd biome (`test_terrain_biomes` extended)
-- [ ] AAA-15 landmark clusters (`test_landmark_clusters`)
-- [ ] AAA-16 collectibles & discovery rewards (`test_collectibles`)
+- [x] AAA-14 open-world biome color pass — **SHIPPED, contrary to the §3 caveat.** The row said "verify `_write_region` TYPE_COLOR first"; verified: `TerrainBaker.bake_region_color()` (`terrain_baker.gd:416`) exists and is called on *every* path — sync cold-start (`terrain_seeder.gd:519, 792`), async worker (`:646`), ring pass (`:462, 478, 703`) — and `_write_region` writes it as a `TYPE_COLOR` sibling. Determinism and road-conformity are covered in `tests/test_terrain_baker.gd` + `test_terrain_biomes.gd`. A `terrain_vista_baker.gd` sits on top of this.
+- [ ] AAA-15 landmark clusters (`test_landmark_clusters`) — MISSING
+- [x] AAA-16 collectibles & discovery rewards — `test_collectibles.gd`
 
 **Phase D — Accessibility & launch readiness**
-- [ ] AAA-17 accessibility launch slate (`test_accessibility_options`) — launch-blocking
-- [ ] AAA-18 Shuffle Race + Family presets (`test_shuffle_family`)
-- [ ] AAA-19 telemetry / data logger (`test_telemetry_logger`)
+- [ ] AAA-17 accessibility launch slate (`test_accessibility_options`) — **MISSING and confirmed untouched**: zero hits for `colorblind` / `autodrive` / `proximity` anywhere in `scripts/`. **This is the only launch-blocking row left in the plan.**
+- [ ] AAA-18 Shuffle Race + Family presets (`test_shuffle_family`) — MISSING
+- [ ] AAA-19 telemetry / data logger (`test_telemetry_logger`) — MISSING
 
 **Phase E — Post-v1 live cadence**
-- [ ] AAA-20 content schedule packs (`test_content_cadence`)
-- [ ] AAA-21 LAN/split-screen wedge (`test_split_screen`) — post-v1 only
+- [ ] AAA-20 content schedule packs (`test_content_cadence`) — MISSING
+- [ ] AAA-21 LAN/split-screen wedge (`test_split_screen`) — MISSING, post-v1 only
 
-**Full-suite gate (final):** [ ] `Overall Summary: ≥ 720 | 0 errors | 0 failures | 0 flaky` + Definition-of-Done §7 checklist signed.
+**Full-suite gate (final):** [x] **exceeded** — `1018 tests | 0 errors | 0 failures | 0 flaky | 20 orphans` (20 orphans is the long-standing baseline, not a regression). Definition-of-Done §7 checklist still unsigned.
 
 _Reference shipped suites (never re-planned as new): `test_race_loop`, `test_race_countdown`, `test_race_results`, `test_session_stats`, `test_gps_route_follow`, `test_map_route`, `test_discovery`, `test_rival_ai`, `test_traffic_driving`, `test_event_rewards`, `test_event_placement`, `test_vehicle_fx`, `test_drive_feel`, `test_hardening`, `test_weather_vfx`, `test_weather_sun`, `test_regional_climate`, `test_surface_grip`, `test_garage_tuning`, `test_career_economy`, `test_profile_slots`, `test_save_manager`, `test_road_graph`, `test_corridor_seeding`, `test_terrain_biomes`, `test_terrain_seeder_streaming`, `test_streaming_dressing`, `test_cc0_cars`, `test_engine_audio`, `test_car_audio`, `test_cockpit_camera`, `test_cockpit_interior`, `test_cockpit_hud`, `test_camera_settings`, `test_hood_camera`, `test_quality_ladder`, `test_settings_presets`._
