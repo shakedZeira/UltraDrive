@@ -399,7 +399,44 @@ Consequences for the next agent:
   conclusions drawn from it yet.
 - Perf logs always warn `7 RIDs of type "Texture" were leaked`; runs still complete.
 
-### 9.6 Open items
+### 9.6 ⚠️ CORRECTION to 9.5 - paired A/B also failed; the noise is NOT background load
+
+The user confirmed this box is already at its quietest (VS Code always runs), so
+9.5's "re-baseline on a quiet machine" advice is **wrong** - there is no quieter
+machine to wait for. Re-tested with **paired back-to-back runs in one session**,
+which is supposed to control for machine state. It does not:
+
+| Run | Config | fps | phys_bodies |
+|---|---|---|---|
+| `abA_prefix` | traffic PRE-fix | **7.4** | 4 |
+| `abB_postfix` | traffic POST-fix | **70.1** | 2 |
+| `abA2_prefix` | traffic PRE-fix | **73.1** | 1 |
+| `abB2_postfix` | traffic POST-fix | **73.2** | 1 |
+| `abC_notraffic1` | traffic OFF entirely | **53.7** | 3 |
+| `abC_notraffic2` | traffic OFF entirely | **69.9** | 2 |
+
+Three conclusions, and they matter more than any number above:
+
+1. **The traffic fix has NO measured perf benefit.** Pair 1 said 9.5x, pair 2 said
+   0.1%. Same-session repeats of the same config swing 7.4 -> 73.1. It is kept
+   because it is correct-by-construction (a frozen suspended car should not run
+   its tyre model) - **not** because it was measured. Do not cite it as a win.
+2. **Config has no reliable effect.** Disabling traffic *entirely* still produced
+   53.7 and 69.9. Every earlier ablation number (56.3 / 45.1 / 29.8 / 10.8) is
+   noise. None of them rank anything.
+3. **The swing is NOT in script CPU.** `process_ms` stayed 13.8-15.0 and
+   `physics_ms` 13.9-14.1 across runs that differed 10x in fps. So the variance
+   lives outside `TIME_PROCESS`/`TIME_PHYSICS_PROCESS` - i.e. GPU/driver/present
+   stall, not GDScript. `phys_bodies` (1-4) does not correlate with fps either.
+
+**Next agent: do not try to profile on this box.** Before trusting any fps figure,
+check whether the GTX 970 is thermally throttling or power/clock limited
+(`nvidia-smi -q -d PERFORMANCE,TEMPERATURE,CLOCK` while a run is going) - a 10x
+collapse with flat script timings is not something load averaging explains.
+Until that is resolved, the only safe perf work is code-justified changes, and
+the `test_perf_gate.gd` CPU budget is the only trustworthy gate signal.
+
+### 9.7 Open items
 
 1. **Re-baseline all 3 presets on a quiet machine** (blocks any further perf work).
 2. **CPU attribution, properly this time** - `phys_bodies=2` points at per-frame
