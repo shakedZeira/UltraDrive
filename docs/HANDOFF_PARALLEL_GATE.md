@@ -513,26 +513,63 @@ upscaling, and MSAA resolve lands on the swapchain - a classic present-cost
 multiplier. Medium being the slowest preset (62.1 vs High 73.3) fits the
 present-cost theory far better than it fits a GPU-fill theory.
 
-### 9.9 Open items
+### 9.9 CORRECTION to 9.8 - `wait` is mostly OS scheduling, and there IS real GPU headroom
 
-1. **Re-frame the FH5 plan around present cost, not fill cost.** The lever is now
-   swapchain/present: default to fullscreen, avoid MSAA on the swapchain (use
-   FSR2 upscaling instead of MSAA at Medium/High), and consider resolution
-   scale. Validate each on `stage_wait`, NOT on fps - fps is the noisy signal.
-2. **`stage_wait` is the metric to gate on.** It is stable enough to compare
-   (todraw 6.6-9.7) and it is what actually moves fps. Worth wiring into the
-   probe's own regression check.
-3. **Confirm fullscreen with more samples** (n=2 now); if the wait floor holds,
-   make it the shipped default.
-4. **The real-world framerate users see is the BAD case, not 73.** The healthy
-   73.3 in earlier logs was the lucky case; the same content also runs at 53-61.
-   Any player-facing target must be set against the bad case.
-5. **CPU attribution is now a smaller prize.** `todraw` is 7-10 ms total, so
-   there is little left to win there; revisit only if `todraw` itself grows.
+Two refinements, the second of which **retracts the over-claim in 9.8**.
+
+**(a) `wait` is background CPU load, not GPU present.** Sampled system load
+*during* runs (`reports/load_sampler.ps1`, append-per-sample):
+
+| run | todraw | wait | fps | load during measured window |
+|---|---|---|---|---|
+| f2 (fullscreen) | 9.7 | 3.5 | 75.3 | quiet |
+| healthy windowed | 9.5 | 4.1 | 73.5 | quiet |
+| b2 | 7.2 | 9.0 | 61.7 | - |
+| load_s2 | 6.6 | 12.1 | 53.4 | **15-39%, rising** |
+| loadtest | 6.8 | 21.0 | 34.6 | **46%** |
+
+`wait` tracks background load, and it is the OS descheduling our process between
+`process_frame` and the next one - VS Code, copilot, OneDrive and Steam. This is
+**not** a GPU present/compositor wall as 9.8 guessed. Note also that `todraw`
+*falls* as `wait` rises (9.7 -> 6.6), because a slower loop submits fewer draws
+and the GPU idles more - further proof the GPU is not the constraint.
+
+**(b) RETRACTION: there IS real GPU headroom, and 9.8's "no 2x render win" was
+wrong.** `todraw` runs 6.6-9.7 ms *inside a 13.4-13.6 ms frame*, and it includes
+GPU time, because `frame_post_draw` only fires once the GPU has finished drawing.
+So at the quiet floor (wait 3.7) the frame is ~70% draw work. Cutting `todraw`
+from 9.7 -> 6.6 would take the frame from 13.4 -> ~10.3 ms, i.e. **74 -> ~97
+fps**. That is a genuine ~30% win, and it is exactly the kind of GPU-side work
+9.8 and the earlier sections cancelled.
+
+Why it still could not be *measured*: the effect (1-3 ms) is smaller than the
+`wait` noise (+-8 ms, driven by apps outside the game). So the GPU items are not
+worthless - they are **unverifiable on this box while other apps run**.
+
+Practical consequence: **all GPU reductions must be judged on `todraw`, never on
+fps**, and `todraw` must be sampled across several runs and compared at a
+similar `wait`. The right target is the 9.7 ms figure, not 73 fps.
+
+### 9.10 Open items
+
+1. **Re-measure GPU items against `todraw`, not fps.** Anything that cuts draw
+   work (fewer draws/primitives, cheaper shading, less overdraw) should move the
+   9.7 ms `todraw`. Previously-dropped items are reconsidered ONLY with this
+   metric. Do not re-run the old fps A/B - it cannot resolve 1-3 ms.
+2. **Still dropped:** TAA (stacks with FSR2, visual risk) and VRS (needs a
+   startup ProjectSettings flag, and terrain here is mostly distant). Keep
+   texture compression / batching / culling in "only if `todraw` won't move".
+3. **Confirm fullscreen (n=2)** - but note 9.9(a): if `wait` is OS scheduling,
+   fullscreen's apparent benefit may be coincidence. Re-test with load sampled.
+4. **The bad case is the real case.** Healthy runs are 73-75 fps; the same content
+   also measures 34-61 fps when the box is busy. Player-facing targets must be set
+   against the busy case, and `stage_wait` is worth wiring into a regression check.
+5. **`todraw` composition is still unattributed.** It is ~7-10 ms and includes
+   both CPU submit and GPU execution; splitting those two would say whether more
+   headroom exists. GPU util 47-88% says the GPU is moderately busy, not pegged.
 6. **FSR2 sharpness** - `Viewport.fsr_sharpness` VERIFIED to exist as a real float
-   property (project setting default 0.2). Quality only, no framerate gain; needs
-   `settings.tscn` work since the menu binds `%UniqueName` nodes. Note that
-   sharpening costs nothing in `todraw`, so it is safe under the present-bound
-   regime.
-7. CI still deliberately deferred (section 6). 
+   property (project setting default 0.2). Quality only; near-free under this
+   model; needs `settings.tscn` work since the menu binds `%UniqueName` nodes.
+7. Delete `reports/load_sampler.ps1` (throwaway; `reports/` is gitignored).
+8. CI still deliberately deferred (section 6). 
 
