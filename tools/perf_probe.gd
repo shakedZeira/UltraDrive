@@ -1,4 +1,4 @@
-extends Node
+﻿extends Node
 
 ## TEMPORARY perf probe - measure CURRENT DEFAULTS (after fixes applied).
 
@@ -39,6 +39,21 @@ var _car: Node = null
 var _t := 0.0
 var _phase := "warmup"
 var _samples: Array = []
+## Frame-stage breakdown. Godot's TIME_PROCESS / TIME_PHYSICS_PROCESS monitors
+## are NOT additive with frame time (process_ms has repeatedly exceeded
+## frame_ms), so they cannot be differenced to find where a frame blocks. This
+## measures the frame directly instead:
+##   _period  = start of one process_frame -> start of the next
+##   _to_draw = start of process_frame -> RenderingServer.frame_post_draw
+##   _wait    = _period - _to_draw  (engine tail + present + compositor/OS)
+## High _wait with low GPU utilization means the frame is BLOCKED, not busy.
+var _prev_frame_usec := 0
+var _frame_start_usec := 0
+var _sum_period := 0.0
+var _sum_to_draw := 0.0
+var _stage_frames := 0
+var _max_to_draw := 0.0
+var _max_period := 0.0
 var _preset_override := -1
 var _preset_label := "default"
 ## Comma-separated effect names forced OFF after the preset is applied, read from
@@ -83,7 +98,26 @@ func _ready() -> void:
 	_parse_disable()
 	_parse_tuning()
 	_apply_preset_from_env()
+	RenderingServer.frame_post_draw.connect(_on_frame_post_draw)
 	print("[perfprobe] world instanced, warming up ", WARMUP_SECONDS, "s")
+
+## Runs once per rendered frame, before the scene tree's own _process pass.
+func _process(_delta: float) -> void:
+	var now := Time.get_ticks_usec()
+	_frame_start_usec = now
+	if _prev_frame_usec != 0 and _phase == "measure":
+		var period := float(now - _prev_frame_usec) / 1000.0
+		_sum_period += period
+		_max_period = maxf(_max_period, period)
+	_prev_frame_usec = now
+
+func _on_frame_post_draw() -> void:
+	if _phase != "measure" or _frame_start_usec == 0:
+		return
+	var to_draw := float(Time.get_ticks_usec() - _frame_start_usec) / 1000.0
+	_sum_to_draw += to_draw
+	_max_to_draw = maxf(_max_to_draw, to_draw)
+	_stage_frames += 1
 
 func _physics_process(delta: float) -> void:
 	_t += delta
@@ -232,4 +266,15 @@ func _report() -> void:
 	# the cost and whether body count is the lever.
 	print("[perfprobe] phys_bodies avg=", int(sum_bodies/n))
 	print("[perfprobe] phys_share  avg=", snappedf((sum_phys/n) / maxf(sum_proc/n, 0.01) * 100.0, 0.1), "% of process")
-	print("[perfprobe] ==========================================================")
+	# Self-consistent frame breakdown (see _prev_frame_usec docs). _wait is the
+	# engine tail + present + compositor; if that dominates while GPU util is low,
+	# the frame is blocked rather than busy.
+	if _stage_frames > 0:
+		var s := float(_stage_frames)
+		var period := _sum_period / s
+		var to_draw := _sum_to_draw / s
+		print("[perfprobe] -- frame stages over ", _stage_frames, " frames --")
+		print("[perfprobe] stage_period avg=", snappedf(period, 0.1), " max=", snappedf(_max_period, 0.1))
+		print("[perfprobe] stage_todraw  avg=", snappedf(to_draw, 0.1), " max=", snappedf(_max_to_draw, 0.1))
+		print("[perfprobe] stage_wait    avg=", snappedf(period - to_draw, 0.1), "  (engine tail + present + compositor)")
+		print("[perfprobe] ==========================================================")

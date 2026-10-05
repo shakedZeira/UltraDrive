@@ -465,22 +465,74 @@ start "" /b cmd /c "nvidia-smi --query-gpu=temperature.gpu,clocks.sm,power.draw,
 taskkill /im nvidia-smi.exe /f
 ```
 
-### 9.8 Open items
+### 9.8 ⚠️ BREAKTHROUGH: the bottleneck is PRESENT/WAIT, not work — the whole plan was aimed at the wrong stage
 
-1. **Chase the wait, not the work.** GPU util ~68% and flat script timings with
-   fps swinging 7-73 means frames are blocked on something outside script CPU:
-   most likely render-thread present/stall, a driver-level swapchain wait, or the
-   windowed/composited path (DWM). Next step is Godot's own frame breakdown
-   (`render`/`physics`/`process` vs total, or `--profil`) rather than more A/B.
-   Thermal and power causes are excluded per 9.7.
-2. **CPU attribution, unattempted.** `phys_bodies` 1-4. Terrain streaming
-   (`TerrainSeeder` sync bake ~3.3 s + worker-thread ring), `RegionDresser`,
-   traffic. Unmeasurable until item 1 is understood.
-3. **Medium is dominated** - 62.1 fps vs High's 73.3, so High looks strictly
-   better. Medium is CPU-bound on MSAA 4x at full resolution. Product call.
-4. **FSR2 sharpness** - `Viewport.fsr_sharpness` was VERIFIED to exist as a real
-   float property (no `RenderingServer` method; project setting default 0.2).
-   Quality only, no framerate gain; needs `settings.tscn` work since the menu
-   binds `%UniqueName` nodes.
-5. CI still deliberately deferred (section 6). 
+Added a self-consistent frame-stage breakdown to `perf_probe.gd` (see
+`_prev_frame_usec`): using `Time.get_ticks_usec()` at `process_frame` and at
+`RenderingServer.frame_post_draw` to split each frame into
+`todraw` (process+render up to draw done) and `wait` (engine tail + present +
+compositor). Validation: `stage_period` **13.6 ms vs `frame_ms` 13.6 ms** in the
+same run, so the two independent measures agree and the split is trustworthy.
+(Do NOT use `OS.get_ticks_usec()` - it does not exist in Godot 4; it is `Time`.)
+
+Same High config, four windowed runs:
+
+| run | fps | period | **todraw** | **wait** |
+|---|---|---|---|---|
+| healthy | 73.5 | 13.6 | 9.5 | **4.1** |
+| b1 | 53.2 | 18.7 | 6.6 | **12.0** |
+| b2 | 61.7 | 16.2 | 7.2 | **9.0** |
+| b3 | 74.3 | 13.4 | 9.6 | **3.8** |
+
+**The work is stable; the wait is not.** `todraw` stays in a tight 6.6-9.7 ms
+band, while `wait` swings **3.8 -> 12.0 ms** and fps tracks it almost exactly
+(`fps ~= 1000/(todraw+wait)` reproduces every row). That is the whole mystery
+resolved:
+
+- The 7-73 fps swing was **never** a workload difference. It is present /
+  compositor blocking, and it varies run to run on identical content.
+- **Every A/B in this handoff was measuring noise**, because the effect being
+  chased (~1-3 ms of render work) sits under a +-8 ms present stall.
+- `todraw` ~7-10 ms is the *only* stable cost, and it is already under the 16.7
+  ms contract. There is no 2x render win available - the GPU was never the wall.
+
+Fullscreen probe (`--fullscreen --resolution 1920x1080`), same config:
+
+| run | fps | todraw | **wait** |
+|---|---|---|---|
+| f1 | 74.3 | 9.7 | **3.7** |
+| f2 | 75.3 | 9.7 | **3.5** |
+
+2/2 fullscreen runs sat at the *floor* of the wait band and were healthy, versus
+2/4 windowed runs collapsing to 9-12 ms. **Suggestive, not conclusive** (n=2) -
+but it is the cheapest thing to try and it costs no quality. Get more samples
+before claiming it.
+
+**This also explains Medium.** Medium is MSAA 4x at full resolution with no
+upscaling, and MSAA resolve lands on the swapchain - a classic present-cost
+multiplier. Medium being the slowest preset (62.1 vs High 73.3) fits the
+present-cost theory far better than it fits a GPU-fill theory.
+
+### 9.9 Open items
+
+1. **Re-frame the FH5 plan around present cost, not fill cost.** The lever is now
+   swapchain/present: default to fullscreen, avoid MSAA on the swapchain (use
+   FSR2 upscaling instead of MSAA at Medium/High), and consider resolution
+   scale. Validate each on `stage_wait`, NOT on fps - fps is the noisy signal.
+2. **`stage_wait` is the metric to gate on.** It is stable enough to compare
+   (todraw 6.6-9.7) and it is what actually moves fps. Worth wiring into the
+   probe's own regression check.
+3. **Confirm fullscreen with more samples** (n=2 now); if the wait floor holds,
+   make it the shipped default.
+4. **The real-world framerate users see is the BAD case, not 73.** The healthy
+   73.3 in earlier logs was the lucky case; the same content also runs at 53-61.
+   Any player-facing target must be set against the bad case.
+5. **CPU attribution is now a smaller prize.** `todraw` is 7-10 ms total, so
+   there is little left to win there; revisit only if `todraw` itself grows.
+6. **FSR2 sharpness** - `Viewport.fsr_sharpness` VERIFIED to exist as a real float
+   property (project setting default 0.2). Quality only, no framerate gain; needs
+   `settings.tscn` work since the menu binds `%UniqueName` nodes. Note that
+   sharpening costs nothing in `todraw`, so it is safe under the present-bound
+   regime.
+7. CI still deliberately deferred (section 6). 
 
