@@ -359,11 +359,44 @@ and virtual texturing are all **DROPPED**. SDFGI's own cost was ~9 ms of GPU
 time; nothing else in this document is plausibly that large, and there is no
 longer anywhere to hide it.
 
+### SUPERSEDED by handoff 9.9-9.10 - the DROPPED list above is now WRONG
+
+The reasoning above rested on fps, which turned out to be unmeasurable on this
+box (it swings 34-75 fps for identical content because the OS deschedules us
+between frames). Measured on `stage_todraw` instead, which repeats within
++-0.1 ms:
+
+- Gameplay script CPU, ALL of it disabled, is worth **< 0.5 ms** - so the CPU
+  leads below really are dead, and the traffic LOD change is correctness only.
+- But `stage_todraw` is **geometry-bound, not fill-bound**: rendering at
+  `scaling_3d_scale=0.25` (1/16 the pixels) saves only ~1.3 ms of ~9.6 ms.
+  Fragment cost is ~14%; the other ~8 ms is vertex/primitive/draw-call work
+  (476 calls, 650k primitives per frame at High).
+
+**Revised, with cause:**
+
+| Item | Verdict now | Why |
+|---|---|---|
+| Draw-call batching / MultiMesh merging | **RESURRECT** | geometry-bound frame |
+| Mesh LOD, distance culling | **RESURRECT** | 650k prims/frame |
+| Occlusion culling | maybe | geometry-bound, but high complexity |
+| VRS | **PERMANENTLY DROP** | pure fragment rate; ~14% of frame |
+| TAA | **PERMANENTLY DROP** | fragment + history |
+| Texture compression | **PERMANENTLY DROP** | fragment/bandwidth |
+| Resolution scale / FSR tuning | **PERMANENTLY DROP** | max ~1.3 ms, costs quality |
+| Medium MSAA 4x removal | **DROP** | resolve is largely fragment cost |
+
+The binding constraint is now ~8 ms of geometry/vertex/submission cost, not ~9 ms
+of SDFGI and not any fragment-side lever. See
+`docs/HANDOFF_PARALLEL_GATE.md` 9.9-9.11 for the measurements, and do not trust
+any fps-only comparison in this document.
+
 First CPU measurement (`perf_probe.gd`, `PHYSICS_3D_ACTIVE_OBJECTS`):
 **`phys_bodies avg=2`**. Jolt is solving essentially nothing, so physics cost is
 *not* body-count bound — the CPU time is in `_physics_process` callbacks
 (terrain streaming, `TerrainSeeder`, `RegionDresser`), which count toward
 `TIME_PHYSICS_PROCESS`. That is where the next investigation belongs.
+(**Now closed: those callbacks total < 0.5 ms.**)
 
 ### ⚠️ Measurement integrity — read before trusting any number here
 

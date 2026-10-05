@@ -98,8 +98,27 @@ func _ready() -> void:
 	_parse_disable()
 	_parse_tuning()
 	_apply_preset_from_env()
+	_apply_render_scale_override()
 	RenderingServer.frame_post_draw.connect(_on_frame_post_draw)
 	print("[perfprobe] world instanced, warming up ", WARMUP_SECONDS, "s")
+
+## PERF_RSCALE=<float> forces `Viewport.scaling_3d_scale` AFTER the quality preset
+## has been applied. 3D render scale is the cleanest available probe for whether
+## `stage_todraw` is fill-bound or geometry/draw-call-bound: it multiplies
+## fragment cost only and leaves vertex/primitive work untouched. Both the
+## property and the mode enum were verified against ClassDB first (see
+## reports/verify_scaling.gd) after `OS.get_ticks_usec` burned a run.
+func _apply_render_scale_override() -> void:
+	var raw := OS.get_environment("PERF_RSCALE").strip_edges()
+	if raw.is_empty():
+		return
+	var s := raw.to_float()
+	if s <= 0.0:
+		print("[perfprobe] ignoring PERF_RSCALE=", raw, " (must be > 0)")
+		return
+	get_viewport().scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+	get_viewport().scaling_3d_scale = s
+	print("[perfprobe] PERF_RSCALE override -> scaling_3d_scale=", get_viewport().scaling_3d_scale)
 
 ## Runs once per rendered frame, before the scene tree's own _process pass.
 func _process(_delta: float) -> void:

@@ -550,26 +550,107 @@ Practical consequence: **all GPU reductions must be judged on `todraw`, never on
 fps**, and `todraw` must be sampled across several runs and compared at a
 similar `wait`. The right target is the 9.7 ms figure, not 73 fps.
 
-### 9.10 Open items
+### 9.10 `todraw` is GEOMETRY-bound, not fill-bound - this kills half the plan permanently
 
-1. **Re-measure GPU items against `todraw`, not fps.** Anything that cuts draw
-   work (fewer draws/primitives, cheaper shading, less overdraw) should move the
-   9.7 ms `todraw`. Previously-dropped items are reconsidered ONLY with this
-   metric. Do not re-run the old fps A/B - it cannot resolve 1-3 ms.
-2. **Still dropped:** TAA (stacks with FSR2, visual risk) and VRS (needs a
-   startup ProjectSettings flag, and terrain here is mostly distant). Keep
-   texture compression / batching / culling in "only if `todraw` won't move".
-3. **Confirm fullscreen (n=2)** - but note 9.9(a): if `wait` is OS scheduling,
-   fullscreen's apparent benefit may be coincidence. Re-test with load sampled.
-4. **The bad case is the real case.** Healthy runs are 73-75 fps; the same content
-   also measures 34-61 fps when the box is busy. Player-facing targets must be set
-   against the busy case, and `stage_wait` is worth wiring into a regression check.
-5. **`todraw` composition is still unattributed.** It is ~7-10 ms and includes
-   both CPU submit and GPU execution; splitting those two would say whether more
-   headroom exists. GPU util 47-88% says the GPU is moderately busy, not pegged.
-6. **FSR2 sharpness** - `Viewport.fsr_sharpness` VERIFIED to exist as a real float
-   property (project setting default 0.2). Quality only; near-free under this
-   model; needs `settings.tscn` work since the menu binds `%UniqueName` nodes.
-7. Delete `reports/load_sampler.ps1` (throwaway; `reports/` is gitignored).
-8. CI still deliberately deferred (section 6). 
+Two leave-one-out-style experiments on the now-trustworthy `todraw` metric
+(it repeats within +-0.1 ms at a fixed config, which fps never did).
+
+**(a) Gameplay script CPU is worth < 0.5 ms.** Disabling ALL of it at once -
+`PERF_DISABLE=chunk_streamer,terrain_stream,traffic,living,collectibles,events,
+dressing`:
+
+| config | todraw | fps |
+|---|---|---|
+| baseline | 9.7 / 9.5 / 9.6 | 73.5 / 74.3 / 75.3 |
+| all gameplay off | **8.8 / 9.4** | 84.1 / 71.5 |
+
+So terrain streaming, `RegionDresser`, traffic (including the LOD fix in 140e98e),
+living world, collectibles, events and chunk streaming together cost under half a
+millisecond. **None of the CPU-side work is worth optimising for frame time.**
+The traffic LOD change stays as correctness, not performance.
+
+**(b) It is not fill.** `PERF_RSCALE` added to the probe (verified against
+ClassDB first via `reports/verify_scaling.gd` - `Viewport.scaling_3d_scale` is
+real; `OS.get_ticks_usec` was not). This scales fragment cost only and leaves
+vertex/primitive work untouched:
+
+| scaling_3d_scale | todraw |
+|---|---|
+| 1.0 | 9.7 / 9.5 / 9.6 |
+| 0.5 | 7.7 |
+| **0.25 (1/16 the pixels)** | **8.3** |
+
+**One-sixteenth of the pixels buys ~1.3 ms (~14%).** Fragment cost is ~14% of
+`todraw`; the other ~8 ms is geometry, vertex processing and draw submission -
+consistent with 476 draw calls and 650k primitives/frame at High.
+
+**Therefore, permanently:**
+- **RESURRECT** draw-call batching, LOD and distance culling, and any primitive
+  reduction. These are the only levers left.
+- **PERMANENTLY DROP**, now with cause rather than taste: **VRS** (pure fragment
+  rate), **TAA** (fragment + history), **texture compression** (fragment/cache
+  bandwidth), and **resolution scale / FSR tuning** (max ~1.3 ms, and it costs
+  image quality). None of these can matter on a geometry-bound frame.
+- **Medium's MSAA 4x is NOT worth removing for frame time** - MSAA is also
+  largely fragment/resolve cost. 9.9's guess that Medium was present-bound was
+  wrong for the same reason. Revisit only as a memory-bandwidth nicety.
+
+The realistic ceiling is therefore ~8 ms of geometry cost, not ~1.3 ms of
+fragment. Getting under the 16.7 ms contract needs **fewer primitives and fewer
+draw calls**, and the next useful measurement is a breakdown of *where* the 650k
+primitives and 476 calls come from (Terrain3D tiles vs foliage MultiMeshes vs
+props vs vehicles).
+
+### 9.12 The perf gate suite false-REDs under background load (environmental, not a regression)
+
+A full parallel run after the 9.10 work came back **1033 tests / 2 failures /
+exit 1**, both in `test_perf_gate.gd >
+test_each_preset_row_within_frame_budget_contract`:
+
+- `low averaged 159.61 ms over the FIRST measured window (bound 100.6 ms)`
+  — yet low actually runs ~6.3 ms/frame, so 159 ms is not a real measurement.
+- `medium averaged 149.83 ms, 4.47x the fastest sustained row (33.54 ms)`.
+
+Checked before assuming anything, and it is **not** a regression from the change
+under test (a tool script plus two docs cannot affect this suite):
+
+1. `test_perf_gate` **is** already in `SERIAL_SUITES`, and the runner awaits all
+   parallel shards via `as_completed` before running shard 0 alone
+   (`tools/gdunit_parallel.py:1415-1446`, `SERIALIZED_SHARD = 0`). So it was not
+   sharing the box with the other four shards, and no code change was warranted.
+2. Re-run alone: `mode=reference control_ms=7.05 contract_ms=16.7`,
+   **3 test cases / 0 failures**. Passes.
+3. The failing shard's fastest row was 33.54 ms against 7.05 ms solo — the whole
+   shard ran ~4.8x slow, *uniformly*, which is the signature of external
+   contention rather than a per-preset cost change.
+4. `tasklist` found no stray Godot and no `ollama`. The box's real background
+   load is `opencode` (~735 s CPU) and VS Code (~544 s+ across processes), which
+   the user keeps running by choice.
+
+**Conclusion: this is the 9.9 mechanism (OS descheduling) attacking the gate's own
+wall-clock benchmark.** Diagnosis for a future red here: re-run that suite alone
+before investigating anything else. It is a false-red source, so do not "fix" it
+by editing `SERIAL_SUITES` — that mechanism is already right.
+
+### 9.13 Open items
+
+1. **Attribute the 650k primitives / 476 draw calls.** Highest-value remaining
+   measurement, and now cheap because `todraw` is a stable metric. Look at
+   Terrain3D tile count, `foliage.gd` MultiMesh instance counts, `PropScatterer`
+   counts, and anything drawn per-frame. `RegionDresser` already budgets
+   spawn/free and per-band density, so it is the obvious starting point - but
+   note (a): that is about *cost*, and its *budget* still governs primitive
+   count.
+2. **Only then re-test batching/LOD against `todraw`**, never fps.
+3. **Confirm fullscreen (n=2), now suspect.** 9.9(a) attributes `wait` to OS
+   scheduling, so fullscreen's apparent benefit may be coincidence. Re-test with
+   load sampled; if it does not hold, drop it.
+4. **The bad case is the real case.** 73-75 fps healthy vs 34-61 fps when the
+   box is busy. Player-facing targets must be set against the busy case.
+5. **FSR2 sharpness** - `Viewport.fsr_sharpness` VERIFIED real float (default
+   0.2). Quality only, and under (b) sharpening is close to free. Needs
+   `settings.tscn` work since the menu binds `%UniqueName` nodes.
+6. Delete `reports/load_sampler.ps1` and `reports/verify_scaling.gd`
+   (throwaways; `reports/` is gitignored).
+7. CI still deliberately deferred (section 6). 
 
