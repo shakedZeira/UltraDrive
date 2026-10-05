@@ -99,6 +99,7 @@ func _ready() -> void:
 	_parse_tuning()
 	_apply_preset_from_env()
 	_apply_render_scale_override()
+	_apply_hide_from_env()
 	RenderingServer.frame_post_draw.connect(_on_frame_post_draw)
 	print("[perfprobe] world instanced, warming up ", WARMUP_SECONDS, "s")
 
@@ -149,11 +150,126 @@ func _physics_process(delta: float) -> void:
 	if _phase == "warmup" and _t >= WARMUP_SECONDS:
 		_phase = "measure"
 		print("[perfprobe] measuring ", MEASURE_SECONDS, "s")
+		_report_primitive_breakdown()
 	elif _phase == "measure":
 		_samples.append(_snapshot())
 		if _t >= WARMUP_SECONDS + MEASURE_SECONDS:
 			_report()
 			get_tree().quit()
+
+func _apply_hide_from_env() -> void:
+	# PERF_HIDE=<substring[,substring...]> hides every node whose path contains
+	# a keyword, subtree included. This is a RENDER-side ablation, unlike
+	# PERF_DISABLE which only stops _process/_physics_process callbacks - so it
+	# is the only clean way to ask "what does drawing X cost?". Needed because
+	# Terrain3D tiles are not MeshInstance3D children and so are invisible to the
+	# primitive breakdown.
+	var raw := OS.get_environment("PERF_HIDE").strip_edges().to_lower()
+	if raw.is_empty():
+		return
+	for key in raw.split(",", false):
+		var k := key.strip_edges()
+		if k.is_empty():
+			continue
+		var hidden := 0
+		for node in _find_all(_world):
+			if node is Node3D and k in str(node.get_path()).to_lower():
+				(node as Node3D).visible = false
+				hidden += 1
+		print("[perfprobe] PERF_HIDE '", k, "' -> hid ", hidden, " nodes")
+
+
+func _report_primitive_breakdown() -> void:
+	# Where the 476 draw calls / 650k primitives per frame actually come from.
+	# 9.10 established the frame is GEOMETRY-bound, so this is the only
+	# attribution that can point at a lever.
+	#
+	# Primitive counts are cached per mesh RID: `surface_get_arrays` allocates,
+	# and there are only a few dozen UNIQUE meshes behind hundreds of
+	# MultiMesh instances, so paying it once per mesh is cheap. Do NOT switch
+	# this to `surface_get_array_len` - it does not exist in Godot 4.
+	var prims_by_mesh := {}
+	var by_cat := {}   # category -> [prims, instances, draws]
+	var root_path := str(_world.get_path())
+
+	for node in _find_all(_world):
+		var mesh: Mesh = null
+		var instances := 1
+		if node is MultiMeshInstance3D:
+			var mm: MultiMesh = (node as MultiMeshInstance3D).multimesh
+			if mm == null:
+				continue
+			mesh = mm.mesh
+			instances = mm.visible_instance_count
+			if instances <= 0:
+				continue
+		elif node is MeshInstance3D:
+			mesh = (node as MeshInstance3D).mesh
+		else:
+			continue
+		if mesh == null or not (node as VisualInstance3D).is_visible_in_tree():
+			continue
+
+		var key := mesh.get_instance_id()
+		if not prims_by_mesh.has(key):
+			prims_by_mesh[key] = _mesh_primitive_count(mesh)
+		var prims: int = prims_by_mesh[key]
+		var cat := _categorize(str(node.get_path()).replace(root_path, ""))
+		var row: Array = by_cat.get(cat, [0, 0, 0])
+		row[0] = int(row[0]) + prims * instances
+		row[1] = int(row[1]) + instances
+		row[2] = int(row[2]) + 1
+		by_cat[cat] = row
+
+	var ranked := by_cat.keys()
+	ranked.sort_custom(func(a, b): return int(by_cat[a][0]) > int(by_cat[b][0]))
+	print("[perfprobe] --- primitive breakdown (mesh prims x visible instances) ---")
+	var total := 0
+	for cat in ranked:
+		var row: Array = by_cat[cat]
+		total += int(row[0])
+		print("[perfprobe]   %-12s prims=%-9d instances=%-6d draws=%d" % [cat, int(row[0]), int(row[1]), int(row[2])])
+	print("[perfprobe]   TOTAL prims=", total, " across ", prims_by_mesh.size(), " unique meshes")
+
+
+func _find_all(root: Node) -> Array[Node]:
+	var out: Array[Node] = []
+	var stack: Array[Node] = [root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		out.append(n)
+		for c in n.get_children():
+			stack.append(c)
+	return out
+
+
+func _mesh_primitive_count(mesh: Mesh) -> int:
+	var total := 0
+	for i in range(mesh.get_surface_count()):
+		var arr := mesh.surface_get_arrays(i)
+		var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX]
+		if idx.size() > 0:
+			total += int(idx.size() / 3)
+		else:
+			total += int(verts.size() / 3)
+	return total
+
+
+func _categorize(rel_path: String) -> String:
+	var p := rel_path.to_lower()
+	if "terrain" in p or "ground" in p:
+		return "terrain"
+	if "foliage" in p or "grass" in p or "tree" in p or "rock" in p:
+		return "foliage"
+	if "prop" in p or "scatter" in p or "dresser" in p:
+		return "props"
+	if "road" in p or "track" in p or "rail" in p:
+		return "roads"
+	if "car" in p or "vehicle" in p or "wheel" in p:
+		return "vehicles"
+	return "other"
+
 
 func _apply_preset_from_env() -> void:
 	var raw := OS.get_environment("PERF_QUALITY").strip_edges()

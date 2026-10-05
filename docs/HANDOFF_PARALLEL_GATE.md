@@ -553,7 +553,10 @@ similar `wait`. The right target is the 9.7 ms figure, not 73 fps.
 ### 9.10 `todraw` is GEOMETRY-bound, not fill-bound - this kills half the plan permanently
 
 Two leave-one-out-style experiments on the now-trustworthy `todraw` metric
-(it repeats within +-0.1 ms at a fixed config, which fps never did).
+(it repeats within about **+-0.9 ms** at a fixed config, which fps never did -
+fps swings 34-75 for identical content). Note the precision honestly: an early
+reading of 9.7/9.5/9.6 suggested +-0.1 ms, but later baselines came in at 8.8,
+so treat ~1 ms as the noise floor and only trust deltas clearly larger than it.
 
 **(a) Gameplay script CPU is worth < 0.5 ms.** Disabling ALL of it at once -
 `PERF_DISABLE=chunk_streamer,terrain_stream,traffic,living,collectibles,events,
@@ -597,9 +600,9 @@ consistent with 476 draw calls and 650k primitives/frame at High.
 
 The realistic ceiling is therefore ~8 ms of geometry cost, not ~1.3 ms of
 fragment. Getting under the 16.7 ms contract needs **fewer primitives and fewer
-draw calls**, and the next useful measurement is a breakdown of *where* the 650k
-primitives and 476 calls come from (Terrain3D tiles vs foliage MultiMeshes vs
-props vs vehicles).
+draw calls**. Where that cost sits is now measured in 9.14: **roads ~2.8 ms
+(83% of visible mesh primitives, 91 draws)**, terrain ~1.7 ms, everything else
+~4 ms.
 
 ### 9.12 The perf gate suite false-REDs under background load (environmental, not a regression)
 
@@ -632,25 +635,75 @@ wall-clock benchmark.** Diagnosis for a future red here: re-run that suite alone
 before investigating anything else. It is a false-red source, so do not "fix" it
 by editing `SERIAL_SUITES` — that mechanism is already right.
 
-### 9.13 Open items
+### 9.14 WHERE the geometry cost actually is (roads win, and they are ours)
 
-1. **Attribute the 650k primitives / 476 draw calls.** Highest-value remaining
-   measurement, and now cheap because `todraw` is a stable metric. Look at
-   Terrain3D tile count, `foliage.gd` MultiMesh instance counts, `PropScatterer`
-   counts, and anything drawn per-frame. `RegionDresser` already budgets
-   spawn/free and per-band density, so it is the obvious starting point - but
-   note (a): that is about *cost*, and its *budget* still governs primitive
-   count.
-2. **Only then re-test batching/LOD against `todraw`**, never fps.
+Two new probe facilities, both verified against ClassDB before use:
+`_report_primitive_breakdown()` (mesh prims x visible instances, grouped by
+category; per-mesh primitive counts cached by RID because `surface_get_arrays`
+allocates - and note `surface_get_array_len` does NOT exist in Godot 4) and
+`PERF_HIDE=<substring,...>`, a RENDER-side ablation that hides whole subtrees.
+`PERF_HIDE` is what makes Terrain3D measurable at all: its tiles are not
+`MeshInstance3D` children, so they never appear in the primitive breakdown.
+
+Visible-mesh attribution at High:
+
+| category | prims | instances | draws |
+|---|---|---|---|
+| **roads** | **90,150 (83%)** | 91 | **91** |
+| other | 15,122 | 41 | 41 |
+| vehicles | 2,784 | 9 | 9 |
+| terrain | 2 (plugin tiles, not walked) | 1 | 1 |
+| **total** | **108,058** across 142 unique meshes | | |
+
+Render-cost A/B via `PERF_HIDE` (baseline `todraw` 8.8 ms):
+
+| hidden | todraw | **cost** |
+|---|---|---|
+| nothing | 8.8 | - |
+| `terrain` (5 nodes) | 7.1 | **~1.7 ms** |
+| `road` (200 nodes) | 6.0 | **~2.8 ms** |
+
+**Roads are the single largest identified geometry cost (~32% of `todraw`) and
+they are our own code.** `build_track` emits ~5-7 separate `MeshInstance3D` per
+road - surface, two edges, per-divider dashed meshes and up to two rails - which
+is exactly the 91 draws across ~19 corridors. Terrain is second at ~1.7 ms.
+
+Candidate road levers, in order of expected value, **none implemented yet**
+because the ROAD/CORRIDOR layer has a large test surface (a previous
+`corridor_planner.gd` change broke 26 suites) and each of these is individually
+close to the ~1 ms measurement noise floor:
+
+1. **Merge each road's sub-meshes into one draw** (91 -> ~19-25 draws). Pure
+   draw-call reduction, no visual change; the cheapest and safest of the three.
+2. **Distance-cull rails and dashed dividers.** Thin geometry that reads as
+   detail only up close; should cut primitive count hard, and rails are separate
+   nodes so they can be toggled without touching the surface mesh.
+3. **Decimate the visual spline density** while keeping collision at full
+   density - cuts triangles with no physics or lane-topology change.
+
+Realistic expectation: halving road cost buys ~1.4 ms, i.e. frame 13.4 -> ~12 ms
+(~74 -> ~83 fps at the quiet floor). Worth doing, but it will NOT be dramatic,
+and it will be hard to verify per-change given the ~1 ms `todraw` noise floor.
+
+### 9.15 Open items
+
+1. **DONE - attribution closed.** Superseded by 9.14: roads ~2.8 ms / 90,150
+   prims / 91 draws, terrain ~1.7 ms, rest ~4 ms. The unaccounted ~540k of the
+   server-side 650k primitive figure is Terrain3D's own tiles, which cost only
+   ~1.7 ms to draw, so do not go looking for a hidden primitive explosion there.
+2. **Road geometry work is the only real lever left.** Start with lever 1 in9.14
+   (merge sub-meshes, 91 -> ~19-25 draws), then lever 2 (distance-cull rails and
+   dashed dividers). Verify each on `todraw`, never fps, and accept that deltas
+   near ~1 ms are inside the noise floor. Expect ~+9 fps for a lot of work.
 3. **Confirm fullscreen (n=2), now suspect.** 9.9(a) attributes `wait` to OS
    scheduling, so fullscreen's apparent benefit may be coincidence. Re-test with
    load sampled; if it does not hold, drop it.
 4. **The bad case is the real case.** 73-75 fps healthy vs 34-61 fps when the
    box is busy. Player-facing targets must be set against the busy case.
 5. **FSR2 sharpness** - `Viewport.fsr_sharpness` VERIFIED real float (default
-   0.2). Quality only, and under (b) sharpening is close to free. Needs
+   0.2). Quality only, and near-free under a geometry-bound frame. Needs
    `settings.tscn` work since the menu binds `%UniqueName` nodes.
-6. Delete `reports/load_sampler.ps1` and `reports/verify_scaling.gd`
-   (throwaways; `reports/` is gitignored).
+6. Delete `reports/load_sampler.ps1`, `reports/verify_scaling.gd` and
+   `reports/verify_mesh.gd` (throwaways; `reports/` is gitignored).
 7. CI still deliberately deferred (section 6). 
 
