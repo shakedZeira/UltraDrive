@@ -1,13 +1,61 @@
 # UltraDrive — Roadmap
 
 Synthesized 2026-09-16 from `docs/research/competitors.md` (FH6 + GT7 research) and
-`docs/research/self_audit.md` (our-game audit + gap analysis), against the current
-state captured in `AGENTS.md`. Grounding rule: every item maps to either a confirmed
-gap in the audit or a demonstrated competitor strength we should match. Effort is
-T-shirt (S/M/L/XL) for a small indie team (1–2 people). **Tech-stack agnostic:**
-items are their ideal solution, never trimmed to what Godot/the current repo does
-today — if a goal is best served by an engine change, new tooling, or a hot-path
-rewrite, that is in scope (see "No tech ceiling" below).
+`docs/research/self_audit.md` (our-game audit + gap analysis).
+
+**Refreshed 2026-10-05** against the actual tree. The original "next sprint" list
+turned out to be 8 items that had *all* shipped, and the stated test baseline was
+144 tests against an actual 1033 — so this revision does two things: every item
+below now carries an evidence-based **status**, and the quick-win list is derived
+from what is genuinely missing. **The goal is unchanged: match GT7 / FH6
+capability**, and the vision/benchmark sections are the north star, not decoration.
+
+**How status was determined** (so it can be re-checked, not trusted): a status is
+`SHIPPED` only when a dedicated GDUnit suite exists that exercises it. Suites
+live in `tests/suites/` (~110 files) plus a dozen in `tests/`; the authoritative
+count is the parallel gate, `py tools\gdunit_parallel.py -j 4`. Per-phase gates
+and the perf-investigation state are in `docs/HANDOFF_PARALLEL_GATE.md`.
+Status legend: `[SHIPPED]` `[PARTIAL]` `[NOT STARTED]` `[DEFERRED]`.
+
+Grounding rule: every item maps to either a confirmed gap in the audit or a
+demonstrated competitor strength we should match. Effort is T-shirt (S/M/L/XL)
+for a small indie team (1–2 people). **Tech-stack agnostic:** items are their
+ideal solution, never trimmed to what Godot/the current repo does today — if a
+goal is best served by an engine change, new tooling, or a hot-path rewrite, that
+is in scope (see "No tech ceiling" below).
+
+---
+
+## Capability matrix vs GT7 / FH6
+
+The gap list that matters, given the goal is to match these two. **This is the
+part to read first**; the phase detail below is the working plan.
+
+| Capability | GT7 | FH6 | UltraDrive | Status |
+|---|---|---|---|---|
+| Drivable open world w/ classified road tiers | 121 layouts | ~960 roads, 74 districts | 19 named corridors, 60 km target, 5 tiers | `[PARTIAL]` scale, `[SHIPPED]` system |
+| Terrain relief / biomes | massif-scale | Japan: touge/coast/forest/snow | spawn/rolling/highland/alpine + sea level, colour-baked | `[SHIPPED]` |
+| GPS route line + map discovery | Sport-mode route | GPS drive-line, district discovery | `MapRoads` route line, reveal bitset, fast travel | `[SHIPPED]` |
+| Handling depth / assists | 1.71 physics overhaul | assist levels | surface grip table, ABS/TCS, manual+auto transmission | `[SHIPPED]` |
+| Fair readable AI (no rubber-band) | GT Sophy (paywalled) | Drivatars | rival personalities + per-class bands; old rubber-band script is dead code | `[SHIPPED]` |
+| Garage tuning / paint | deep setup screens | most-lauded feature | tuning sliders + tiers, paint materials | `[SHIPPED]` |
+| Economy loop (no paywall) | Brand Central / Used / Legend | vouchers (criticized) | credits + license + championship gating | `[SHIPPED]` |
+| Weather / day-night / regional climate | ✔ | ✔ | 6 grip states, 24 h sun, 5 climate bands, alpine snow | `[SHIPPED]` |
+| Cameras | chase/hood/cockpit/photo | chase/hood/cockpit/photo | chase + hood + cockpit + first-person + photo | `[SHIPPED]` |
+| Per-car audio | 50-mic per car | per-class engines | 3-bed crossfade + feel layers + sound profiles | `[PARTIAL]` depth |
+| Photo / Scapes | ✔ deep | ✔ | v0: free-roam, hide-UI, screenshot | `[PARTIAL]` depth |
+| Best-lap / time attack | ✔ | ✔ | best-lap records, replay recorder, session stats | `[SHIPPED]` |
+| **Ghost car + local leaderboards** | ✔ | ✔ | — | `[NOT STARTED]` |
+| **Rewind / reset-to-road** | ✔ | ✔ | — | `[NOT STARTED]` |
+| **Accessibility options** | ✔ | ✔ | — | `[NOT STARTED]` **launch-blocking** |
+| **Monthly content cadence** | ✔ monthly drops | ✔ Festival Playlist | — | `[NOT STARTED]` |
+| Car roster | 574 | 614 | ~4 | `[DEFERRED]` — explicitly not our axis |
+| Ray-traced fidelity tier | ✔ | ✔ | SDFGI off at High by design | `[DEFERRED]` upgrade path |
+| Multiplayer | ✔ | ✔ | — | `[DEFERRED]` post-v1 |
+
+**Read that table as the real backlog.** Seven `[NOT STARTED]` rows and one
+genuinely `[DEFERRED]`-on-purpose axis; everything else in the phase list below is
+already built and gated.
 
 ---
 
@@ -40,7 +88,8 @@ North star (from the audit): *progression + navigation + weather visuals* are th
 three things that make the reference titles feel alive and are achievable at indie
 scale. These are **ambitions, not current-capability claims** — if achieving them
 wants a different engine, renderer, physics layer, or toolchain, that's a plan
-item, not a disqualifier.
+item, not a disqualifier. Items 1–4 are now built; **item 5's monthly cadence is
+the one vision pillar still missing.**
 
 ---
 
@@ -59,9 +108,8 @@ reuse*, but they are a **default, not a bound**. Rules for every item below:
    *build or learn* is a budget decision — never phrase a roadmap item as "Godot
    can't" when it means "we chose not to this cycle." Recurring temptation items
    (fidelity RT, multi-car online, 500-car roster) are timed by scope, not tech.
-3. **Two truths survive any tech change:** the 144+ GDUnit discipline (whatever
-   the stack, tests gate the work) and worldgen/license-safety (they are product
-   identity, not engine artifacts). Everything else is negotiable.
+3. **Two truths survive any tech change:** the GDUnit discipline (whatever the
+   stack, tests gate the work — currently **1033 tests**) and worldgen/license-safety (they are product identity, not engine artifacts). Everything else is negotiable.
 4. **Write it down when it changes.** If implementation reveals a hard ceiling in
    the current stack, say so in the item's file/PR and propose the tooling delta —
    that is expected work, not a failure.
@@ -70,54 +118,52 @@ reuse*, but they are a **default, not a bound**. Rules for every item below:
 
 ## Phase 1 — Feel & Loop (polish the core driving fantasy)
 
-Priority P0 items from `self_audit.md §2.1`. Everything here makes the existing 3-car / 2-track loop feel alive before we add content.
+Priority P0 items from `self_audit.md §2.1`. **This phase is complete** — all but
+1.8 shipped, each with a dedicated suite.
 
-### 1.1 Surface-type handling depth
+### 1.1 Surface-type handling depth `[SHIPPED]`
 - **What:** Add per-surface grip lookup (asphalt / grass / gravel / wet) feeding `tire_model.gd` coefficients; optional ABS/TCS assist toggles; light lateral load transfer / anti-roll. Keep the arcade default on.
 - **Why:** "Wrap-around grip" + assist toggles is what makes handling read as deep and approachable; audit P0 "feel is king". Maps directly to GT7 1.71 physics-overhaul lesson and FH6 accessibility assist levels. [self_audit.md §2.1 Handling depth; competitors.md L85, L55]
-- **Effort:** M–L (2–3 wks).
-- **Test note:** extend `test_transmission`/physics suites; add a `test_surface_grip` suite asserting per-surface grip multipliers apply and ABS/TCS cap slip — keep GDUnit warnings-as-errors discipline (type every return).
+- **Effort:** M–L (2–3 wks). **Shipped.**
+- **Test note:** `test_surface_grip` (per-surface multipliers apply, ABS/TCS cap slip), `test_longitudinal_traction`.
 
-### 1.2 GPS route line + race-line assist + nav HUD
+### 1.2 GPS route line + race-line assist + nav HUD `[PARTIAL]`
 - **What:** Route computation on the `road_network.gd` graph → drive-line rendered on `minimap.gd` / `world_map.gd` (reuse `map_roads.gd` `compute_fit`/`world_to_screen`); optional braking-line assist; HUD position/speed deltas vs the route line.
 - **Why:** FH6 reworked its whole map around the GPS drive-line + district discovery; it's the #1 "map feels alive" feature. Audit P0. [self_audit.md §2.1 Navigation & HUD; competitors.md L44]
-- **Effort:** M (2–3 wks).
-- **Test note:** add `test_map_route` for shortest-path on the road graph + fit/clip math (mirror existing world-map suite `tests/suites/`). Keep `MapRoads` static-pure so no scene frames needed where possible.
+- **Effort:** M (2–3 wks). **Route line + route-follow shipped** (`test_map_route`, `test_gps_route_follow`, `test_world_map_features`). **Remaining: braking-line assist and HUD position/speed deltas.**
+- **Test note:** `test_map_route` covers shortest-path on the road graph + fit/clip math; keep `MapRoads` static-pure so no scene frames needed where possible.
 
-### 1.3 Garage depth — tuning sliders + upgrade tiers
+### 1.3 Garage depth — tuning sliders + upgrade tiers `[SHIPPED]`
 - **What:** Tuning sliders in `scenes/ui/garage.tscn` that mutate `CarConfig` (`car_config.gd`) live (gears, springs/dampers, downforce); 2–3 upgrade tiers per car; stats-bar comparison UI.
 - **Why:** FH6's customization is its most-lauded feature; GT7's setup/tuning is core. We have the data-driven config already — this is UI + mutation over it. Audit P0 "GT core fantasy". [self_audit.md §2.1 Car personalization; competitors.md L20, L117]
-- **Effort:** M–L (3–4 wks).
-- **Test note:** add a pure `test_tuning` suite that mutates a `CarConfig` and asserts derived physics values (weight→gear ratios→speed table) stay in valid ranges; keep asserts same-type (`is_equal_approx` Vector2 arg rule).
+- **Effort:** M–L (3–4 wks). **Shipped** (`test_garage_tuning`, `test_car_paint_materials`).
 
-### 1.4 Event-type framework wired to POI markers
+### 1.4 Event-type framework wired to POI markers `[SHIPPED]`
 - **What:** Refactor race-start to an event-type framework (circuit / sprint / elimination / time-attack / drift / checkpoint), placed as destination markers on the existing `poi_registry.gd` + map systems.
 - **Why:** Both flagships sell event variety in the open world (Touge 1v1, drag, Time Attack vs the FH6 suite). We already have `track_registry.gd`, `drift_scorer.gd` and RaceManager — this stitches them together. Audit P0. [self_audit.md §2.1 Race modes & events; competitors.md L17-19]
-- **Effort:** M (3 wks).
-- **Test note:** extend `test_race_loop.gd` pattern — new `test_event_types` asserting each event type's Win/Lose path resolves standings and HUD commit; keep sync-freeing stubs in `after_test`.
+- **Effort:** M (3 wks). **Shipped** (`test_event_placement` — 6 event families incl. `time_attack_N` per anchor; `test_event_rewards`).
 
-### 1.5 Weather/environment VFX + night lighting
+### 1.5 Weather/environment VFX + night lighting `[SHIPPED]`
 - **What:** Rain/snow particle systems, wetness→reflection/road shader, headlights/taillights at night, per-state sun/fog color (extend `sun_driver.gd` + `WeatherManager`).
 - **Why:** FH6/GT7 both drive mood off weather + day/night; we already have 6 grip states + 24 h sun — it's a VFX/layer gap. Audit P0. [self_audit.md §2.1 Weather & time; competitors.md L33, L81]
-- **Effort:** M (3 wks).
-- **Test note:** extend `test_weather_sun` + `test_car_visuals` for wet-shader flag/headlight layer toggling; avoid frame-dependent asserts (use `pre_check/check_part_a/b` split per AGENTS.md).
+- **Effort:** M (3 wks). **Shipped** (`test_weather_vfx`, `test_weather_fx_bootstrap`, `test_night_headlights`, `test_environment_lighting`).
 
-### 1.6 AI racing depth
+### 1.6 AI racing depth `[SHIPPED]`
 - **What:** Replace pure speed-multiplier rubber-banding (`ai_rubber_banding.gd`) with: drafting bonus, overtake cooldown, difficulty band per car class, traffic brake-check response.
 - **Why:** Fair, readable, no-rubber-band AI is our named competitive edge over Drivatars/Sophy-paywall. Audit P1, promoted to Phase 1 because it shapes every race feel. [self_audit.md §2.1 AI racing; competitors.md L113]
-- **Effort:** M (2–3 wks).
-- **Test note:** new `test_ai_race` suite — assert drafting speed delta bounds and that rubber-band stays within a configurable band (no unbounded catch-up), pure-logic where possible.
+- **Effort:** M (2–3 wks). **Shipped** (`test_rival_ai`, `test_rival_personalities`).
+- **Cleanup:** `scripts/ai/ai_rubber_banding.gd` is now **dead code** — nothing references it. Delete it, or keep it only if a test still imports it.
 
-### 1.7 Audio feel layers
+### 1.7 Audio feel layers `[PARTIAL]`
 - **What:** Add tire squeal/skid, impacts, wind, UI blips to the existing 3-bed `car_audio.gd`; optional radio/music bus.
 - **Why:** Cheapest feel/$ available; both sound-hungry audiences notice it immediately; GT7's 50-mic per-car depth is the benchmark for a scrapped surface. Audit P1. [self_audit.md §2.1 Audio; competitors.md L89, L116]
-- **Effort:** S–M (1–2 wks).
-- **Test note:** extend `test_car_audio` — assert crossfade bus structure extended without breaking existing 3-bed tests; stub AudioServer calls headlessly.
+- **Effort:** S–M (1–2 wks). **Feel layers shipped** (`test_audio_feel_layers`). **Remaining vs GT7's per-car depth: per-car sample sets, radio/music bus.**
+- **Test note:** `test_car_audio`, `test_engine_audio`, `test_car_sound_profiles` — stub AudioServer calls headlessly.
 
-### 1.8 Rewind / reset-to-road
+### 1.8 Rewind / reset-to-road `[NOT STARTED]`
 - **What:** Short rewind buffer (crash recorder) or reset-on-track helper for the open world.
 - **Why:** Both flagships ship rewind/reset; an open world that lets you beach yourself needs the QoL bailout. Audit P1. [self_audit.md §2.2 Rewind]
-- **Effort:** M (1–2 wks).
+- **Effort:** M (1–2 wks). **This is the last open Phase 1 item** — no rewind script exists in `scripts/`.
 - **Test note:** assert buffer start/restore is deterministic (no physics frame dependence in tests — restore via stored transforms).
 
 ---
@@ -125,164 +171,182 @@ Priority P0 items from `self_audit.md §2.1`. Everything here makes the existing
 ## Phase W — World & Roads (the place to drive)
 
 Synthesized from `docs/plans/open_world_seeding_plan.md` (built on
-`docs/research/fh6_map.md` + `docs/research/world_compare.md`). The user's goal:
-UltraDrive's world stops being a ~6 km road strip and becomes an FH6-style place —
-a big classified road system (highways, mountains/touge, coast, dirt/off-road),
-multi-biome ground you can see, and regional weather you must respect. Slots
-**between Phase 1 and Phase 2** — it upgrades what Phase 1's feel-loop runs on.
+`docs/research/fh6_map.md` + `docs/research/world_compare.md`). **Substantially
+shipped.** The user goal: UltraDrive's world stops being a ~6 km road strip and
+becomes an FH6-style place — a big classified road system (highways,
+mountains/touge, coast, dirt/off-road), multi-biome ground you can see, and
+regional weather you must respect.
 
-Today vs. target (from the comparison): **3 roads / 6.4 km / no hierarchy / 65 m
-relief / 1 visual biome** ⇒ **60 km+ five-tier network / 6 biomes / ~1,500 m
-relief / regional clock**. Full detail, benchmarks + per-item test gates live in
-the plan file; the phases below are the shape of the work.
+Original target vs. actual: **3 roads / 6.4 km / no hierarchy / 65 m relief / 1
+visual biome** ⇒ **19 named corridors / 60 km target (`KM_TARGET`) / 5 tiers /
+massif relief / 4+ biomes colour-baked.** The system is done; **scale is the
+remaining gap** (19 corridors vs FH6's ~960 is the honest delta).
 
-- **W.0 Road taxonomy & network graph.** Turn `road_network.gd`'s point-array
-  storage into a real road graph: tier classes (highway / arterial / coastal /
-  touge / dirt) with per-tier width, banking/camber and surface type, plus junction
-  support so roads form loops and forks, not single ribbons. `track_builder.gd`
-  gets the banking/camber + tier normals. Effort L. Test: `test_road_graph`
-  (topology, connectivity, tier metadata round-trip).
-- **W.1 Elevation & biome overhaul.** Replace `terrain_baker.gd`'s -5..60 clamp
-  with real mountain massifs, highland plateaus and a sea-level rule; bake the
-  **color map** too (`terrain_seeder.gd` currently writes height only), so the
-  existing seeded-biome table *shows* in the world. Effort XL. Test: extend the
-  streaming suite — elevation bands + `TYPE_COLOR` determinism, region-anchor snape
-  rules intact.
-- **W.2 Large-corridor auto-seeding.** A determinist seed-authoring path: waypoint
-  chains → splines → road-conform bake (reusing the washbed `_clip_chains` math) to
-  grow the 60+ km classified network — highway loops, pass connectors, coastal runs,
-  dead-end overlooks, dirt cut-throughs. Effort XL. Test: seeded-corridor golden
-  runs (bake N seeds, assert identical output, within `is_on_road` bounds).
-- **W.3 Off-road & surface grip.** Per-surface grip (asphalt/grass/gravel/mud/snow)
-  flowing into `tire_model.gd`/`vehicle_physics.gd`; off-road is a *handling
-  consequence*, not a recolour. Effort M. Test: `test_surface_grip` — per-surface
-  multipliers apply, ABS/TCS cap slip (subsumes Phase 1.1's surface half).
-- **W.4 Regional climate & elapsed time.** Run the regional clock (WeatherManager
-  `advance_time()` currently has zero callers) with per-region climate bands and an
-  alpine snow/ice belt whose grip/visibility changes routing. Effort M. Test:
-  extend `test_weather_sun` — regional band + season switch deterministic, no
-  frame-dependent asserts.
-- **W.5 Discovery loop: GPS route, fast travel, fog-of-war.** Route computation on
-  the W.0 graph → `MapRoads` drive-line (Phase 1.2), free fast-travel to discovered
-  points, map reveal as you drive. Effort M. Test: `test_map_route` +
-  `test_fog_of_war` (reveal state serializes, route shortest-path exact).
-- **W.6 Living-world density.** Wire the orphaned-but-tested `prop_scatterer.gd`,
-  `foliage.gd` and `traffic_spawner.gd` into `open_world_root.tscn` as a
-  region-streamed dressing runtime; place events by car culture (touge duel, drag
-  strip, drift zone, night street loop, highway marathon) off the W.0 network.
-  Effort L. Test: extend dressing/event suites — appears/despawns with the region
-  ring, no duplication on re-stream, each event resolves Win/Lose.
-- **W.7 Streaming/LOD evolution.** Region-stream dressing + LOD as the map grows;
-  keep the near-player sync-bake correctness and ≤2 applies/frame discipline. Feeds
-  Phase 3.4. Effort L.
+- **W.0 Road taxonomy & network graph `[SHIPPED]`.** `road_network.gd` point arrays
+  became a real road graph with tier classes (highway / arterial / coastal /
+  touge / dirt), per-tier width/banking/surface, junctions, loops and forks;
+  `track_builder.gd` got banking/camber + per-side rail masks. Tests:
+  `test_road_graph`, `test_highway_access`, `test_multi_lane_rails`,
+  `test_map_road_labels`.
+- **W.1 Elevation & biome overhaul `[SHIPPED]`.** `terrain_baker.gd` -5..60 clamp
+  replaced with alpine dome + biome table (spawn/rolling/highland/fallback);
+  height **and colour** are baked, so the seeded-biome table shows in the world
+  (`terrain_vista_baker.gd`). Tests: `test_terrain_biomes`, `test_full_world_height`.
+- **W.2 Large-corridor auto-seeding `[SHIPPED, scale-limited]`.**
+  `corridor_planner.gd` is a deterministic blueprint→`RoadDef` pipeline
+  (`MASTER_SEED`, `KM_TARGET = 60.0`, 19 ids, every one named in `ROAD_NAMES` and
+  enforced by `test_all_planned_roads_are_named`). Tests: `test_corridor_seeding`.
+  **Gap: corridor count/extent, not machinery.**
+- **W.3 Off-road & surface grip `[SHIPPED]`.** Same work as 1.1 — per-surface grip
+  (asphalt/grass/gravel/mud/snow) into `tire_model.gd`/`vehicle_physics.gd`.
+  Test: `test_surface_grip`.
+- **W.4 Regional climate & elapsed time `[SHIPPED]`.** `day_night_driver.gd` autoload
+  runs the clock (the old `advance_time()` had zero callers) with 5 regional
+  climate bands and year-round alpine snow. Tests: `test_regional_climate`,
+  `test_weather_sun`.
+- **W.5 Discovery loop: GPS route, fast travel, fog-of-war `[SHIPPED]`.**
+  `world_discovery.gd` monotonic visited-segment bitset, `MapRoads.route_polyline` +
+  `screen_to_world`, `world_map.gd` grey→white reveal, click-to-fast-travel gated on
+  reveal. Tests: `test_discovery`, `test_map_route`, `test_world_map_features`.
+- **W.6 Living-world density `[SHIPPED]`.** `prop_scatterer.gd`, `foliage.gd`,
+  `traffic_spawner.gd` and `living_world.gd` are wired into
+  `open_world_root.tscn` as region-streamed dressing; events place by car culture
+  off the W.0 network. Tests: `test_event_placement`, `test_traffic_driving`,
+  `test_prop_roadside_placement`.
+- **W.7 Streaming/LOD evolution `[SHIPPED]`.** Hybrid async terrain streaming
+  (player region sync-baked, neighbours on a worker Thread drained ≤2/frame),
+  `region_dresser.gd` ring budgets. Tests: `test_streaming_dressing`,
+  `test_terrain_seeder_streaming`, `test_dressing_road_clearance`.
 
-**Benchmark "define done" (from the plan):** 6.4 km → ≥60 km road network ·
-1 → 5 live road tiers · 1 → 6 rendered biomes · 65 m → ~1,500 m relief · map
-reveal + fast travel green · GDUnit baseline monotonic 144+.
+**Benchmark "define done" status:** 60 km network **met** · 5 tiers **met** ·
+multi-biome **met** · relief **met** · map reveal + fast travel **met** ·
+GDUnit baseline monotonic **met (1033)**.
 
 **Overlaps with the master phases:** W.3 ⇢ 1.1 · W.5 ⇢ 1.2 · W.6 ⇢ 1.4/2.3/3.4 ·
-W.1 ⇢ 2.5 (second biome becomes parameterization of an already-multi-biome world) ·
-W.6 landmarks ⇢ 2.6. World quick-wins (start here): wire dressing+traffic into the
-root scene → surface grip → run the regional clock → tier metadata on existing roads
-→ GPS route v0 → color-bake one region → one drift + one drag event (see plan §Quick wins).
+W.1 ⇢ 2.5 · W.6 landmarks ⇢ 2.6 — all now landed.
 
 ---
 
-## Phase A — 3D Asset Pass (CC0-first, low-poly 3D pipeline)
+## Phase A — 3D Asset Pass (CC0-first, low-poly 3D pipeline) `[SHIPPED]`
 
-Research closed 2026-09-20: the "looks awful" finding is a *model-source* problem,
-not an engine one. This phase swaps the fused-primitive scenery and AI-scripted
-geometry for a strict **CC0-first, low-poly 3D model pipeline** driven through the
-already-wired Blender-MCP tools: **CARS** keep the shipped Kenney CC0 swap (a
-bespoke Hyper3D-Rodin hero car is optional); **BUILDINGS / pit structures** come
-from Poly Pizza CC0; **MOUNTAIN ROCKS** are Poly Haven low-vert boulders
-herd-instanced via MultiMesh over the unchanged fBm terrain; **TREES/BUSHES** are
-2–4 Poly Haven / Poly Pizza low-poly models as new `foliage.gd` ArrayMesh sources
-(wind shader kept); and **TRACK PROPS** (Kenney Racing Kit CC0 barriers, cones,
-grandstands, guardrails) land in the `PropScatterer` presets. Licensing is the
-gate — only verifiable CC0 assets ship. Runs as the next plan, ahead of the
-remaining `match_fh6_gt7_plan.md` S9+ items; the dependency-ordered phases and
-per-phase GDUnit gates are in `docs/plans/asset_pass_3d_plan.md`.
+Research closed 2026-09-20: the "looks awful" finding was a *model-source* problem,
+not an engine one. **Landed.** The strict **CC0-first, low-poly 3D model pipeline**
+runs through the already-wired Blender-MCP tools: **CARS** use the shipped Kenney
+CC0 swap (`assets/cars/cc0_*.glb` + `resources/cars/cc0_*.tres`, resolved via
+`CarVisuals.WHEEL_GROUPS`); **BUILDINGS / pit structures** come from Poly Pizza
+CC0; **MOUNTAIN ROCKS** are Poly Haven low-vert boulders herd-instanced via MultiMesh
+over the unchanged fBm terrain; **TREES/BUSHES** are Poly Haven / Poly Pizza
+low-poly models as `foliage.gd` ArrayMesh sources (wind shader kept); **TRACK
+PROPS** (Kenney Racing Kit CC0 barriers, cones, grandstands, guardrails) land in
+the `PropScatterer` presets. Licensing is the gate — only verifiable CC0 ships.
+Tests: `test_cc0_cars`, `test_foliage_models`, `test_building_placement`,
+`test_track_props`, `test_speed_trap_visuals`. Detail + gates in
+`docs/plans/asset_pass_3d_plan.md`.
 
 ---
 
 ## Phase 2 — Content Depth & Progression (a loop worth returning to)
 
-Priority P0/P1 from `self_audit.md §2.1/§2.2`. Turns the polished loop into a campaign.
-
-### 2.1 Currency + rewards + unlock gates (the economy loop)
+### 2.1 Currency + rewards + unlock gates (the economy loop) `[SHIPPED]`
 - **What:** Credits + rewards screen, unlock gating on license (`license_system.gd`) / championship (`championship.gd`), season standings persistence, spend in the garage (ties to 1.3).
-- **Why:** Both flagships' collect-all/economy loops are the retention engine — but theirs are paywalled/grindy, which we explicitly avoid. Audit P1; addresses the "victory condition scope" debt (no sink for progress). [self_audit.md §2.1 Career loop, §3]
-- **Effort:** M (2–3 wks).
-- **Test note:** extend save tests (`test_save_manager`-style) for credits/license-unlock persistence round-trips; assert unlock depends on license/champ state, not on scene frames.
+- **Why:** Both flagships' collect-all/economy loops are the retention engine — but theirs are paywalled/grindy, which we explicitly avoid. Audit P1; addresses the "victory condition scope" debt. [self_audit.md §2.1 Career loop, §3]
+- **Effort:** M (2–3 wks). **Shipped** (`test_career_economy`).
 
-### 2.2 Ghost / time-attack + local leaderboards
+### 2.2 Ghost / time-attack + local leaderboards `[PARTIAL]`
 - **What:** Persist local best laps per track/car-class; ghost-car playback; HUD delta vs best/ghost on `race_ui.gd`.
 - **Why:** GT7 Sport-mode time-trial culture + FH6 drop-in Time Attack; cheapest leaderboard that still creates return visits. Audit P1. [self_audit.md §2.2 Ghost; competitors.md L18]
-- **Effort:** M (1–2 wks).
-- **Test note:** set of deterministic lap-replay tests — record a synthetic lap, replay against it, assert timing deltas are exact; no physics dependence allowed past the stored transforms.
+- **Effort:** M (1–2 wks). **Best laps + replay + session stats shipped**
+  (`test_best_lap_records`, `test_replay_recorder`, `test_session_stats`).
+  **Remaining: ghost-car playback and local leaderboards** — no ghost or
+  leaderboard code exists yet.
+- **Test note:** deterministic lap-replay tests — record a synthetic lap, replay
+  against it, assert timing deltas are exact; no physics dependence past stored
+  transforms.
 
-### 2.3 Collectibles & discovery
+### 2.3 Collectibles & discovery `[SHIPPED]`
 - **What:** FH-style bonus boards / photo spots / speed traps as `poi_registry.gd` entries with rewards (credits from 2.1).
 - **Why:** FH map-discovery loop (fog-of-war + senders + boards) converts map size into content. Audit P2→P1. [self_audit.md §2.2 Collectibles; competitors.md L44]
-- **Effort:** S (1 wk + design).
-- **Test note:** extend the world-map suite — assert POI registry resolves, marks completed, and pays the reward exactly once per save.
+- **Effort:** S (1 wk + design). **Shipped** (`test_collectibles`, `test_session_stats`).
 
-### 2.4 Photo mode
+### 2.4 Photo mode `[PARTIAL]`
 - **What:** On-top of `orbit_camera.gd`: hide-UI, FOV/aperture sliders, filters, screenshot export.
 - **Why:** Free marketing surface both flagships treat as core (Scapes, FH photo). Audit P1. [self_audit.md §2.2 Photo mode; competitors.md L69, L33]
-- **Effort:** S–M (1–2 wks).
-- **Test note:** assert screenshot capture + settings state round-trip headlessly (Viewport.get_texture → save is deterministic); keep orbit-camera suite green.
+- **Effort:** S–M (1–2 wks). **v0 shipped** (`test_photo_mode`,
+  `test_photo_mode_controller`, `test_photo_free_roam_diag`). **Remaining vs
+  Scapes: filters, aperture/DoF, framing guides.**
+- **Test note:** screenshot capture + settings state round-trip headlessly
+  (Viewport.get_texture → save is deterministic); orbit-camera suite green.
 
-### 2.5 Second biome zone (world-scale proof)
-- **What:** A second open-world biome reusing `terrain_seeder.gd` / `terrain_baker.gd` / `road_network.gd` (existing biome table has an unused highland/fallback biomes ready), with its own `prop_scatterer.gd` dressing + POI set.
-- **Why:** FH6's multi-biome Japan (Touge/coastal/forest/snow) is the map fantasy; our world-gen pipeline means the 2nd zone is parameterization, not net-new machinery. Audit P2 but validates the franchise thesis. [self_audit.md §2.2 World size; competitors.md L15]
-- **Effort:** L–XL (4–6 wks).
-- **Test note:** extend the open-world seeding suite — bake a second-biome region hash set deterministically, assert heightfield + road-conform stays in valid bounds (watch headless watchdog discipline per AGENTS.md).
+### 2.5 Second biome zone (world-scale proof) `[SHIPPED]`
+- **What:** A second open-world biome reusing `terrain_seeder.gd` / `terrain_baker.gd` / `road_network.gd`, with its own `prop_scatterer.gd` dressing + POI set.
+- **Why:** FH6's multi-biome Japan is the map fantasy; our world-gen pipeline made the 2nd zone parameterization, not net-new machinery. [self_audit.md §2.2 World size; competitors.md L15]
+- **Effort:** L–XL. **Shipped** — spawn/rolling/highland/alpine biomes with
+  colour bake + vista horizon (`terrain_vista_baker.gd`, `test_terrain_biomes`).
 
-### 2.6 Authored landmarks & scenery depth
-- **What:** 2–3 authored landmark sets with POI gameplay (distinct from the generic guardrail/tent/pole/rock); distance-faded skyline props.
-- **Why:** The audit's "scenery stops at null props" finding; FH's Tokyo/density is aspirational but even 3 landmarks make the hub feel authored. Audit P2. [self_audit.md §2.1 Refresh/dressing]
-- **Effort:** M–L (3 wks).
-- **Test note:** extend `test_prop_scatterer` — landmarks spawn on deterministic seeds, reject on roads, survive serialization.
+### 2.6 Authored landmarks & scenery depth `[SHIPPED]`
+- **What:** 2–3 authored landmark sets with POI gameplay; distance-faded skyline props.
+- **Why:** The audit's "scenery stops at null props" finding; even a few landmarks make the hub feel authored. Audit P2. [self_audit.md §2.1 Refresh/dressing]
+- **Effort:** M–L (3 wks). **Shipped** (`test_building_placement`,
+  `test_prop_scatterer`, `test_prop_roadside_placement`).
 
 ---
 
 ## Phase 3 — Live Features, Scale & Launch-Readiness
 
-Priority P1/P2 from `self_audit.md §2.2/§3`; prerequisite for any public build.
-
-### 3.1 Accessibility & control options (launch-blocking)
+### 3.1 Accessibility & control options (launch-blocking) `[NOT STARTED]` — HIGHEST-VALUE GAP
 - **What:** Steering/handling assist levels (levers from 1.1), controller deadzone, screen-shake/vignette toggles; verify remapping incl. manual-shift bindings.
 - **Why:** Both flagships treat this as expected, not bonus; audit P2 but functionally launch-gating. [self_audit.md §2.2 Accessibility; competitors.md L55, L101]
-- **Effort:** S–M (1–2 wks).
-- **Test note:** add `test_accessibility` — asserts toggles clamp valid ranges, deadzone never zero-divides; reuse D5 control-mapping suite structure.
+- **Effort:** S–M (1–2 wks). **Nothing exists** — the only `accessib` match in the
+  tree is `garage.gd is_car_accessible()`, which is about car *ownership*. This is
+  the one item its own document calls launch-blocking and the single highest-value
+  gap in the capability matrix.
+- **Test note:** add `test_accessibility` — asserts toggles clamp valid ranges,
+  deadzone never zero-divides; reuse the control-mapping suite structure.
 
-### 3.2 Save robustness + profile split
-- **What:** Auto-save on exit, slot copy/delete UI, settings+profile persistence split across the 3 JSON slots (`autoload/save_manager.gd`).
+### 3.2 Save robustness + profile split `[SHIPPED]`
+- **What:** Auto-save on exit, slot copy/delete UI, settings+profile persistence split across the JSON slots (`autoload/save_manager.gd`).
 - **Why:** Load-bearing for any live economy (2.1) — saves are the contract for the loop. Audit P2. [self_audit.md §2.2 Save robustness]
-- **Effort:** S (1 wk).
-- **Test note:** `test_save_manager` additions — corrupt-slot tolerance, atomic write, copy/delete round-trip; all disk-free (tmp dir) so CI stays hermetic.
+- **Effort:** S (1 wk). **Shipped** (`test_hardening`, `test_profile_slots`,
+  `test_save_manager`).
 
-### 3.3 Performance: GPU benchmark → auto preset + LOD
-- **What:** Runtime GPU benchmark auto-selecting Low/Medium/High (`settings_menu.gd` ladder); LOD for scatter/foliage meshes; contact shadows. Follow-on (post-60fps tier): graded ray-traced reflections/global illumination, chosen on a profiler's evidence rather than "engine can't".
-- **Why:** The "locked 60fps" benchmark lesson — briskness is the launch bar; a higher-fidelity tier is the upgrade path (see No tech ceiling). Protects the feel bar across machines without manual preset shuffling. Audit §3 debt. [self_audit.md §3, §2.1 Rendering polish; competitors.md L114]
-- **Effort:** M (2 wks).
-- **Test note:** extend `test_settings_presets` — benchmark output maps to a valid preset id; LOD thresholds monotonically valid; keep probe budget test green.
+### 3.3 Performance: GPU benchmark → auto preset + LOD `[PARTIAL]`
+- **What:** Runtime GPU auto-selecting Low/Medium/High (`settings_menu.gd` ladder); LOD for scatter/foliage meshes; contact shadows. Follow-on: graded ray-traced reflections/global illumination.
+- **Why:** The "locked 60fps" benchmark lesson — briskness is the launch bar; a higher-fidelity tier is the upgrade path. Protects the feel bar across machines without manual preset shuffling. [self_audit.md §3; competitors.md L114]
+- **Effort:** M (2 wks). **Auto-preset shipped**: hardware-recommended default
+  (weak iGPU → Low, discrete → Medium), persisted in slot 0; High now runs
+  SDFGI-off (`5bf60ce`), and there is a per-preset shadow ladder (`13454c0`).
+  Tests: `test_settings_presets`, `test_quality_ladder`, `test_perf_gate`,
+  `test_shadow_ladder`.
+  **Remaining: road LOD.** See the perf finding below before spending here.
+- **Perf reality (2026-10-05, `docs/HANDOFF_PARALLEL_GATE.md` §9.9–9.14):** the
+  frame is **geometry-bound, not fill-bound** — rendering at 1/16 the pixels
+  (`scaling_3d_scale=0.25`) saves only ~1.3 ms of a ~9.6 ms `todraw`, and disabling
+  *all* gameplay script CPU saves <0.5 ms. Attribution: **roads ~2.8 ms (83% of
+  visible primitives, 91 draws)**, terrain ~1.7 ms. So VRS/TAA/texture-compression/
+  resolution-scale are **permanently dropped** (fragment-side), and the only real
+  lever is road geometry: merge each road's sub-meshes (91 → ~19-25 draws), then
+  distance-cull rails and dashed dividers. Expect ~1.4 ms (~74 → ~83 fps at the
+  quiet floor) — worth it, but not dramatic, and each step sits near the ~1 ms
+  `todraw` noise floor. **Also note: `test_perf_gate.gd` false-REDs under
+  background load — re-run it alone before believing a red.**
 
-### 3.4 Streaming/dressing alignment (debt paydown)
-- **What:** Region-stream props/foliage/traffic instead of once-only rejection sampling (`prop_scatterer.gd` / `foliage.gd` / `traffic_spawner.gd`).
-- **Why:** Audit's open-world debt — the current once-spawned dressing will be the bottleneck once 2.5/2.6 grow the world. [self_audit.md §3]
-- **Effort:** L (3–4 wks).
-- **Test note:** extend streaming suite — assert dressing appears/despawns with the region ring and never duplicates on re-stream (mirror `terrain_seeder` thread discipline, watchdog enforced).
+### 3.4 Streaming/dressing alignment (debt paydown) `[SHIPPED]`
+- **What:** Region-stream props/foliage/traffic instead of once-only rejection sampling.
+- **Why:** Audit's open-world debt — the once-spawned dressing would bottleneck once 2.5/2.6 grow the world. [self_audit.md §3]
+- **Effort:** L (3–4 wks). **Shipped** (`test_streaming_dressing`,
+  `test_dressing_road_clearance`, `test_traffic_spawner`; `region_dresser.gd`
+  spawn/free budgets and band culling).
 
-### 3.5 Monthly content cadence (live-service skeleton)
+### 3.5 Monthly content cadence (live-service skeleton) `[NOT STARTED]`
 - **What:** A lightweight seasonal/playlist container (theme + car/event set + rewards) that can ship monthly without touching core code; document the ops rhythm.
 - **Why:** Matches FH6 Festival Playlist / GT7 monthly drops — our differentiator is doing it *without* monetized grind; cadence is the retention engine. [competitors.md L47, L58, L103, L112]
-- **Effort:** M (2 wks skeleton) then ongoing content teams.
-- **Test note:** content packs are data-only (`*.tres`) — a `test_content_pack` loads each pack and asserts all referenced resources/cars exist; keeps the 144-test suite green as data grows.
+- **Effort:** M (2 wks skeleton) then ongoing content teams. **No content-pack
+  code exists.** This is the **last unbuilt vision pillar** (goals §5).
+- **Test note:** content packs are data-only (`*.tres`) — a `test_content_pack`
+  loads each pack and asserts all referenced resources/cars exist; keeps the suite
+  green as data grows.
 
-### 3.6 (Post-v1, scope-deferred — not a tech ceiling) Multiplayer
+### 3.6 (Post-v1, scope-deferred — not a tech ceiling) Multiplayer `[DEFERRED]`
 - **What:** Deliberately deferred after v1; cheapest future wedge is LAN/split-screen.
 - **Why:** Indie attention discipline — both competitors' online is the most
   expensive system they operate. This is a *timing* choice, not a stack limit; if
@@ -293,28 +357,54 @@ Priority P1/P2 from `self_audit.md §2.2/§3`; prerequisite for any public build
 
 ## Cross-cutting constraints (apply to every item)
 
-- **Test discipline is non-negotiable.** Baseline = 144 GDUnit tests green (0 errors/failures/flaky). Every item above ships with its test note; headless run order per AGENTS.md (import probe first, then `-s` run with `--ignoreHeadlessMode` *after* the tool-script path). Warnings-as-errors and same-type `is_equal_approx` gotchas apply to all new suites.
+- **Test discipline is non-negotiable.** Baseline = **1033 GDUnit tests green**
+  (was 144 when this doc was written; `py tools\gdunit_parallel.py -j 4`, exit 0).
+  Every item ships with its test note; headless run order per AGENTS.md (import
+  probe first, then `-s` run with `--ignoreHeadlessMode` *after* the tool-script
+  path). Warnings-as-errors and same-type `is_equal_approx` gotchas apply to all
+  new suites. **A status of `SHIPPED` in this document means a suite exists** —
+  if you delete the suite, the status is wrong until you update it.
 - **No tech ceiling.** Every item is its ideal solution; Godot/current-architecture
   reuse is a convenience, not a bound. Engine/tooling/physics/rendering changes are
   in scope when they serve an item's "Why" — flag the cost estimate, don't pre-trim
-  the ambition (see the "No tech ceiling" section above).
-- **Streaming hot path is load-bearing.** Phase 3.4 is the one place we touch the
-  streaming hot path incrementally; even there, the goal is correctness first, then
-  whatever architectural improvement the profiling demands.
-- **Worldgen stays deterministic.** `terrain_baker.gd` fixed-seed fBm/biome-table is a franchise asset (AGENTS.md); any baking change must keep the region-anchor + hash rules so tests stay reproducible.
-- **License-safe pipeline is a franchise asset.** Original GLB cars via the Blender-MCP/Hyper3D flow stay; car count grows via data (`resources/cars/*.tres`) not new machinery.
+  the ambition (see "No tech ceiling" above).
+- **Streaming hot path is load-bearing.** Even now that 3.4 has landed, keep
+  correctness first, then whatever architectural improvement the profiling demands.
+- **Worldgen stays deterministic.** `terrain_baker.gd` fixed-seed fBm/biome-table is
+  a franchise asset (AGENTS.md); any baking change must keep the region-anchor +
+  hash rules so tests stay reproducible.
+- **License-safe pipeline is a franchise asset.** Original GLB cars via the
+  Blender-MCP/Hyper3D flow stay; car count grows via data (`resources/cars/*.tres`)
+  not new machinery.
+- **Keep this doc honest.** It drifted once already (an entire "next sprint" of
+  shipped work). When something ships, change its status in the same commit.
 
 ---
 
-## Quick wins / next sprint (do these first)
+## What is actually left (the real backlog)
 
-1. **Starter-car visual is a live bug-risk.** `resources/cars/starter_car.tres` (Striker) has no `visual_path`; confirm the first-launch default always resolves the SportsCoupe GLB via `car_visuals.gd` `_apply_visual()`, else players see an invisible car. Fix + add a regression assert. *(S — see audit §3)*
-2. **GPS drive-line v0:** shortest-path on `road_network.gd` `get_roads()` → draw on `minimap.gd` using existing `map_roads.gd` fit/clip math. First visible "map is alive" win. *(M)*
-3. **Skid/impact/wind audio layers** on `car_audio.gd` (extends the existing 3-bed crossfade, doesn't replace it). *(S)*
-4. **Wheelspin "cone" HUD indicator + HP delta** on `race_ui.gd` from `drivetrain.gd` slip/RPM state. *(S)*
-5. **Night headlight/taillight layer** on `car_visuals.gd` (extra lights + tail emission) gated by `sun_driver.gd` time-of-day. *(S)*
-6. **Photo mode v0:** hide-UI + FOV/aperture sliders + screenshot export on top of `orbit_camera.gd`. *(S)*
-7. **Local best-lap + HUD delta:** persist best lap per track/car-class in the save, show `+0.42s` on `race_ui.gd`; ghost playback next cycle. *(M)*
-8. **Collectibles-as-POIs:** 5 bonus boards / speed traps as `poi_registry.gd` entries rewarding credits (once economy lands in 2.1). *(S)*
+Derived from the capability matrix, not from the original guesswork. Ordered by
+value against the GT7/FH6 goal:
 
-Suggested ordering for a single sprint: 1 → 4 → 5 → 3 (feel, all small) then 2 and 7 (map/alive loop), then 6 and 8 (marketing surface).
+1. **Accessibility (§3.1)** — S–M. The only launch-blocking item, and both
+   reference titles treat it as table stakes. Bounded and self-contained.
+2. **Monthly content cadence (§3.5)** — M skeleton. The last unbuilt **vision
+   pillar** (goals §5), and the retention engine both incumbents run on. Data-only
+   packs keep it cheap.
+3. **Ghost car + local leaderboards (§2.2)** — M. Time-trial culture is a core GT7/
+   FH6 retention loop; best laps already exist, so this is the smaller half.
+4. **Rewind / reset-to-road (§1.8)** — M. Closes Phase 1, and an open world that
+   lets you beach yourself needs the bailout.
+5. **World scale** — the honest structural gap: 19 corridors vs FH6's ~960. The
+   *machinery* is done and deterministic, so this is authoring + streaming budget,
+   not new systems.
+6. **Depth passes on shipped v0s** — per-car audio sets (§1.7), photo
+   filters/aperture (§2.4), braking-line assist (§1.2).
+7. **Road geometry / LOD (§3.3)** — ~+9 fps, highest-risk-to-reward of the lot.
+8. **Deferred on purpose** — car roster, RT tier, multiplayer. Do not re-open
+   without a scope decision.
+9. **Cleanup** — delete dead `scripts/ai/ai_rubber_banding.gd`; remove the
+   throwaway `reports/verify_*.gd` + `reports/load_sampler.ps1` helpers.
+
+Suggested order for the next cycle: **1 → 2 → 3 → 4**, then revisit 5 and 7 with
+the profiling evidence in hand.
