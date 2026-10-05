@@ -436,13 +436,46 @@ collapse with flat script timings is not something load averaging explains.
 Until that is resolved, the only safe perf work is code-justified changes, and
 the `test_perf_gate.gd` CPU budget is the only trustworthy gate signal.
 
-### 9.7 Open items
+### 9.7 Thermal / power throttling is RULED OUT (measured, not guessed)
 
-1. **Re-baseline all 3 presets on a quiet machine** (blocks any further perf work).
-2. **CPU attribution, properly this time** - `phys_bodies=2` points at per-frame
-   callbacks, not solving. Candidates: terrain streaming (`TerrainSeeder` sync
-   player-region bake ~3.3 s plus worker-thread ring), `RegionDresser`,
-   `traffic` (8 cars). Needs a quiet box to rank.
+Sampled the GPU with `nvidia-smi --query-gpu=... --format=csv,noheader -lms 2000`
+in a detached loop while a probe ran in the foreground
+(`reports/perf/gpu_telemetry.txt`, 32 samples; the first 18 are world-load idle,
+the last 14 are the measured window):
+
+- `clocks_throttle_reasons.active` = **`0x0` (none)** for the entire active window
+- SM clock **steady 1278 MHz** (max 1418) - no clock drop
+- Temperature **46 -> 52 C** - cool, and it *rose* during load, so it is not
+  sitting in a thermal ceiling
+- Power **120-149 W** against a **160 W** limit - not power limited
+- **GPU utilization only 47-88% (avg ~68%)** - the GPU is NOT saturated
+
+So the 10x fps collapse is **not** thermal and **not** power/clock limited, and
+the GPU is not the bottleneck. Combined with 9.6's flat `process_ms`/`physics_ms`,
+the stall is CPU- or present/driver-side. Low GPU util at low fps means the frame
+is *waiting*, not computing - which is the signature to chase next.
+
+Reproduction recipe (works; note `timeout /t N >nul` fails here with "Input
+redirection is not supported", and `start /b` did not launch Godot - launch
+`nvidia-smi` detached and run the probe in the foreground instead):
+
+```
+start "" /b cmd /c "nvidia-smi --query-gpu=temperature.gpu,clocks.sm,power.draw,utilization.gpu,clocks_throttle_reasons.active --format=csv,noheader -lms 2000 > reports\perf\gpu_telemetry.txt"
+<run probe in foreground>
+taskkill /im nvidia-smi.exe /f
+```
+
+### 9.8 Open items
+
+1. **Chase the wait, not the work.** GPU util ~68% and flat script timings with
+   fps swinging 7-73 means frames are blocked on something outside script CPU:
+   most likely render-thread present/stall, a driver-level swapchain wait, or the
+   windowed/composited path (DWM). Next step is Godot's own frame breakdown
+   (`render`/`physics`/`process` vs total, or `--profil`) rather than more A/B.
+   Thermal and power causes are excluded per 9.7.
+2. **CPU attribution, unattempted.** `phys_bodies` 1-4. Terrain streaming
+   (`TerrainSeeder` sync bake ~3.3 s + worker-thread ring), `RegionDresser`,
+   traffic. Unmeasurable until item 1 is understood.
 3. **Medium is dominated** - 62.1 fps vs High's 73.3, so High looks strictly
    better. Medium is CPU-bound on MSAA 4x at full resolution. Product call.
 4. **FSR2 sharpness** - `Viewport.fsr_sharpness` was VERIFIED to exist as a real
