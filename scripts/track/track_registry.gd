@@ -19,6 +19,13 @@ static var tracks: Dictionary = {
 		"difficulty": "B",
 		"circuit_type": "CIRCUIT",
 	},
+	"northern_isle": {
+		"display_name": "Northern Isle Speedway",
+		"scene_path": "res://scenes/track/northern_isle.tscn",
+		"laps_default": 5,
+		"difficulty": "D",
+		"circuit_type": "OVAL",
+	},
 }
 
 static func get_track_ids() -> Array:

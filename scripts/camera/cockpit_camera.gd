@@ -148,16 +148,15 @@ func get_cockpit_fov() -> float:
 func get_seat_anchor() -> Vector3:
 	if target == null:
 		return global_position
-	var s_h := seat_height
-	var s_f := seat_forward
-	var cfg := _car_config()
-	if cfg != null:
-		if cfg.cockpit_seat_height > 0.0:
-			s_h = cfg.cockpit_seat_height
-		if cfg.cockpit_seat_forward > 0.0:
-			s_f = cfg.cockpit_seat_forward
-	return target.global_position + Vector3.UP * s_h \
-		- target.global_basis.z * s_f
+	# Shared with CockpitRig._sync_to_seat_anchor (Sec 4.4): height/forward/
+	# lateral come from ONE helper so eye and interior can never disagree. The
+	# lateral term is basis.x (car-local +X = car's left), so an RHD car's
+	# negative lateral moves the eye toward the driver's door. With lateral 0
+	# the extra term is an exact +0 and the 0.55/0.55 math is unchanged.
+	var seat := CockpitRig.seat_anchor_for(_car_config(), seat_height, seat_forward)
+	return target.global_position + Vector3.UP * seat.x \
+		- target.global_basis.z * seat.y \
+		+ target.global_basis.x * seat.z
 
 func get_last_pos_offset() -> Vector3:
 	return _last_pos_offset

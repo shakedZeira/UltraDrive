@@ -3,9 +3,10 @@ extends GdUnitTestSuite
 
 ## Graphics-gap ladder gate (docs/plans/graphics_gap_plan.md items 4 + 8):
 ## the SSAO/SDFGI tuning applied per preset for a GT7-style contact-shading
-## look, plus the Low AA/scaling change so the default preset stops aliasing.
-## Complements test_settings_presets (preset tables + mixed application) with
-## AO/GI-value bands and the GPU-name default seam.
+## look, plus the per-tier AA stack (TAA for Low/Medium, FSR2 + FXAA for
+## High) so the presets stop aliasing. Complements test_settings_presets
+## (preset tables + mixed application) with AO/GI-value bands and the
+## GPU-name default seam.
 
 const SettingsMenuScript: GDScript = preload("res://scripts/ui/settings_menu.gd")
 
@@ -31,14 +32,19 @@ func test_low_has_msaa_on_and_feature_effects_off() -> void:
 	assert_that(preset["glow_enabled"]).is_false()
 	assert_that(preset["scaling_3d_mode"]).is_equal(0)
 	assert_that(preset["scaling_3d_scale"]).is_equal_approx(1.0, 0.001)
+	assert_that(preset["use_taa"]).is_true()
 
-## (b) Medium: SSAO carries the GT7 contact-shading knobs (tight radius AO on
-## the car-to-ground gap), SDFGI stays on with its defaults.
+## (b) Medium: SSAO carries the GT7 contact-shading knobs — a sub-metre
+## radius on the tire contact patch, intensity/power tuned for a tight crease,
+## and ssao_light_affect > 0 so the AO still applies in DIRECT sun (the engine
+## default 0.0 is indirect-only). SDFGI stays on with its defaults.
 func test_medium_has_tuned_ssao_and_sdfgi_on() -> void:
 	var preset: Dictionary = SettingsMenuScript.preset_for(1)
 	assert_that(preset["ssao_enabled"]).is_true()
-	assert_that(preset["ssao_intensity"]).is_between(1.5, 2.5)
-	assert_that(preset["ssao_radius"]).is_between(0.03, 0.08)
+	assert_that(preset["ssao_intensity"]).is_between(2.5, 3.5)
+	assert_that(preset["ssao_radius"]).is_between(0.4, 0.8)
+	assert_that(preset["ssao_power"]).is_between(1.5, 2.5)
+	assert_that(preset["ssao_light_affect"]).is_between(0.2, 0.6)
 	assert_that(preset["ssao_ao_channel_affect"]).is_between(0.05, 0.2)
 	assert_that(preset["sdfgi_enabled"]).is_true()
 	assert_that(preset.has("sdfgi_energy")).is_false()
@@ -53,8 +59,10 @@ func test_medium_has_tuned_ssao_and_sdfgi_on() -> void:
 func test_high_has_full_stack_without_sdfgi_and_fsr() -> void:
 	var preset: Dictionary = SettingsMenuScript.preset_for(2)
 	assert_that(preset["ssao_enabled"]).is_true()
-	assert_that(preset["ssao_intensity"]).is_between(1.5, 2.5)
-	assert_that(preset["ssao_radius"]).is_between(0.03, 0.08)
+	assert_that(preset["ssao_intensity"]).is_between(2.5, 3.5)
+	assert_that(preset["ssao_radius"]).is_between(0.4, 0.8)
+	assert_that(preset["ssao_power"]).is_between(1.5, 2.5)
+	assert_that(preset["ssao_light_affect"]).is_between(0.2, 0.6)
 	assert_that(preset["ssao_ao_channel_affect"]).is_between(0.05, 0.2)
 	assert_that(preset["sdfgi_enabled"]).is_false()
 	# Fog and SSR are what High trades GI FOR — they must stay on.
@@ -67,6 +75,10 @@ func test_high_has_full_stack_without_sdfgi_and_fsr() -> void:
 	assert_that(preset["scaling_3d_mode"]).is_equal(1)
 	# AAA-2 lever (settings_menu.gd): High FSR scale 0.9 -> 0.85.
 	assert_that(preset["scaling_3d_scale"]).is_equal_approx(0.85, 0.001)
+	# High's AA: FSR2 temporal (TAA off — the engine suppresses it under a
+	# temporal upscaler) + FXAA spatial, with MSAA 0.
+	assert_that(preset["use_taa"]).is_false()
+	assert_that(preset["screen_space_aa"]).is_equal(Viewport.SCREEN_SPACE_AA_FXAA)
 
 ## (d) Default preset decision: the /graphics-gap rig's "GeForce GTX 970"
 ## resolves to Low via _legacy_geforce (expected — documented in
@@ -85,8 +97,10 @@ func test_apply_medium_lands_ao_knobs() -> void:
 	_managed.append(env)
 	SettingsMenuScript.apply_quality_preset(env, null, SettingsMenuScript.preset_for(1))
 	assert_that(env.ssao_enabled).is_true()
-	assert_that(env.ssao_intensity).is_between(1.5, 2.5)
-	assert_that(env.ssao_radius).is_between(0.03, 0.08)
+	assert_that(env.ssao_intensity).is_between(2.5, 3.5)
+	assert_that(env.ssao_radius).is_between(0.4, 0.8)
+	assert_that(env.ssao_power).is_between(1.5, 2.5)
+	assert_that(env.ssao_light_affect).is_between(0.2, 0.6)
 	assert_that(env.ssao_ao_channel_affect).is_between(0.05, 0.2)
 	assert_that(env.sdfgi_enabled).is_true()
 
@@ -119,6 +133,7 @@ func test_apply_high_lands_fog_and_fsr_without_gi() -> void:
 	# AAA-2: High FSR scale 0.9 -> 0.85 (settings_menu.gd) — applied mapping
 	# must land the new lever.
 	assert_that(viewport.scaling_3d_scale).is_equal_approx(0.85, 0.001)
+	assert_that(viewport.use_taa).is_false()
 
 ## (e3) Applying the Low preset on a fresh Environment runs the AO/GI path
 ## without error (both branches disabled) and the viewport gets MSAA.
@@ -131,3 +146,4 @@ func test_apply_low_runs_clean_with_msaa() -> void:
 	assert_that(env.ssao_enabled).is_false()
 	assert_that(env.sdfgi_enabled).is_false()
 	assert_that(viewport.msaa_3d).is_equal(Viewport.MSAA_4X)
+	assert_that(viewport.use_taa).is_true()

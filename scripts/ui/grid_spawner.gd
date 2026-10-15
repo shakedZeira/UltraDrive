@@ -36,12 +36,12 @@ func build_grid(
 			(float(col) - 0.5) * COL_SPACING,
 			START_Y,
 			ANCHOR_AHEAD + float(row) * ROW_SPACING)
-		var car := _build_car(specs[i], player.global_position + offset)
+		var car := _build_car(specs[i], player.global_position + offset, i)
 		if car != null:
 			cars.append(car)
 	return cars
 
-func _build_car(spec: Dictionary, position: Vector3) -> VehiclePhysics:
+func _build_car(spec: Dictionary, position: Vector3, index: int = 0) -> VehiclePhysics:
 	if scene == null:
 		return null
 	var cfg := spec.get("car_config") as CarConfig
@@ -51,6 +51,9 @@ func _build_car(spec: Dictionary, position: Vector3) -> VehiclePhysics:
 		return null
 	if cfg != null:
 		car.config = cfg
+	# Real car GLB, cycled per grid slot so the field is mixed (not N boxes).
+	# Before add_child, so RivalCarVisual builds once in its _ready.
+	CarVisuals.assign_rival_visual(car, index, tier)
 	car.global_position = position
 	car.global_rotation = Vector3.ZERO
 	add_child(car)
@@ -64,7 +67,24 @@ func _build_car(spec: Dictionary, position: Vector3) -> VehiclePhysics:
 	return car
 
 func _apply_tier_color(car: VehiclePhysics, tier: String) -> void:
-	var body := car.get_node_or_null("CarBody") as MeshInstance3D
+	apply_tier_color(car, tier)
+
+## Paints a rival car's body with its skill-tier color (shared by the spawner
+## path and RaceManager's own rival spawn). Static so RaceManager can color the
+## cars it builds directly without instantiating a GridSpawner child.
+##
+## CarBody is a RivalCarVisual (a Node3D hosting a real car GLB), so the tier
+## tint is applied through that node's paint profile. The legacy MeshInstance3D
+## branch is kept for any custom scene that still ships a box body.
+static func apply_tier_color(car: VehiclePhysics, tier: String) -> void:
+	if car == null:
+		return
+	var body_node := car.get_node_or_null("CarBody")
+	var visual := body_node as RivalCarVisual
+	if visual != null:
+		visual.set_tier(tier)
+		return
+	var body := body_node as MeshInstance3D
 	if body == null or body.mesh == null:
 		return
 	var material := StandardMaterial3D.new()

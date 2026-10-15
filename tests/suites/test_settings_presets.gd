@@ -18,6 +18,8 @@ const REQUIRED_KEYS: Array = [
 	"probe_enabled",
 	"scaling_3d_mode",
 	"scaling_3d_scale",
+	"use_taa",
+	"screen_space_aa",
 ]
 
 const ACES: int = Environment.TONE_MAPPER_ACES
@@ -53,6 +55,9 @@ func test_low_preset_spot_check() -> void:
 	assert_that(preset["probe_enabled"]).is_false()
 	assert_that(preset["scaling_3d_mode"]).is_equal(0)
 	assert_that(preset["scaling_3d_scale"]).is_equal_approx(1.0, 0.001)
+	# Low's AA stack: MSAA 4X (asserted above) + TAA, no FXAA on top.
+	assert_that(preset["use_taa"]).is_true()
+	assert_that(preset["screen_space_aa"]).is_equal(Viewport.SCREEN_SPACE_AA_DISABLED)
 
 func test_medium_preset_spot_check() -> void:
 	var preset: Dictionary = SettingsMenuScript.preset_for(1)
@@ -66,6 +71,8 @@ func test_medium_preset_spot_check() -> void:
 	assert_that(preset["probe_enabled"]).is_false()
 	assert_that(preset["scaling_3d_mode"]).is_equal(0)
 	assert_that(preset["scaling_3d_scale"]).is_equal_approx(1.0, 0.001)
+	assert_that(preset["use_taa"]).is_true()
+	assert_that(preset["screen_space_aa"]).is_equal(Viewport.SCREEN_SPACE_AA_DISABLED)
 
 func test_high_preset_spot_check() -> void:
 	var preset: Dictionary = SettingsMenuScript.preset_for(2)
@@ -83,6 +90,10 @@ func test_high_preset_spot_check() -> void:
 	# AAA-2 lever (settings_menu.gd): High FSR scale 0.9 -> 0.85 is the
 	# GTX-970 57->60 fps close, without touching the SDFGI/SSR/volumetrics stack.
 	assert_that(preset["scaling_3d_scale"]).is_equal_approx(0.85, 0.001)
+	# High's AA stack: FSR2 is the temporal pass (TAA suppressed by the engine
+	# while a temporal upscaler runs), FXAA is the spatial backstop with MSAA 0.
+	assert_that(preset["use_taa"]).is_false()
+	assert_that(preset["screen_space_aa"]).is_equal(Viewport.SCREEN_SPACE_AA_FXAA)
 
 func test_preset_for_one_matches_medium_defaults() -> void:
 	var preset: Dictionary = SettingsMenuScript.preset_for(1)
@@ -115,6 +126,8 @@ func test_apply_high_preset_sets_env_and_viewport() -> void:
 	# AAA-2: High FSR scale 0.9 -> 0.85 (settings_menu.gd) — applied mapping
 	# must land the new lever.
 	assert_that(viewport.scaling_3d_scale).is_equal_approx(0.85, 0.001)
+	assert_that(viewport.use_taa).is_false()
+	assert_that(viewport.screen_space_aa).is_equal(Viewport.SCREEN_SPACE_AA_FXAA)
 
 func test_fresh_environment_defaults_differ_from_high() -> void:
 	var env := Environment.new()
@@ -141,6 +154,8 @@ func test_apply_low_preset_flips_values() -> void:
 	assert_that(viewport.msaa_3d).is_equal(Viewport.MSAA_4X)
 	assert_that(viewport.scaling_3d_mode).is_equal(Viewport.SCALING_3D_MODE_BILINEAR)
 	assert_that(viewport.scaling_3d_scale).is_equal_approx(1.0, 0.001)
+	assert_that(viewport.use_taa).is_true()
+	assert_that(viewport.screen_space_aa).is_equal(Viewport.SCREEN_SPACE_AA_DISABLED)
 
 func test_apply_medium_maps_msaa_to_4x_and_no_scaling() -> void:
 	var env := Environment.new()
@@ -151,6 +166,8 @@ func test_apply_medium_maps_msaa_to_4x_and_no_scaling() -> void:
 	assert_that(viewport.msaa_3d).is_equal(Viewport.MSAA_4X)
 	assert_that(viewport.scaling_3d_mode).is_equal(Viewport.SCALING_3D_MODE_BILINEAR)
 	assert_that(viewport.scaling_3d_scale).is_equal_approx(1.0, 0.001)
+	assert_that(viewport.use_taa).is_true()
+	assert_that(viewport.screen_space_aa).is_equal(Viewport.SCREEN_SPACE_AA_DISABLED)
 
 func test_apply_quality_preset_tolerates_null_env_and_viewport() -> void:
 	SettingsMenuScript.apply_quality_preset(null, null, SettingsMenuScript.preset_for(1))
@@ -189,9 +206,11 @@ func test_apply_to_scene_tree_pushes_preset_onto_scene_env() -> void:
 	# High no longer runs SDFGI (measured 9.3 ms/frame on the GTX 970).
 	assert_that(we.environment.sdfgi_enabled).is_false()
 	assert_that(viewport.msaa_3d).is_equal(Viewport.MSAA_DISABLED)
+	assert_that(viewport.use_taa).is_false()
 	SettingsMenuScript.apply_to_scene_tree(0, root, viewport)
 	assert_that(we.environment.ssao_enabled).is_false()
 	assert_that(we.environment.glow_enabled).is_false()
 	assert_that(we.environment.volumetric_fog_enabled).is_false()
 	assert_that(we.environment.ssr_enabled).is_false()
 	assert_that(we.environment.sdfgi_enabled).is_false()
+	assert_that(viewport.use_taa).is_true()

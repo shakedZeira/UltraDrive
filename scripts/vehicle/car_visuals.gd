@@ -15,24 +15,40 @@ extends RefCounted
 const CAR_ORIENT_BASIS := Basis(Vector3(-1.0, 0.0, 0.0), Vector3(0.0, 1.0, 0.0), Vector3(0.0, 0.0, -1.0))
 const CAR_ORIENT := Transform3D(CAR_ORIENT_BASIS, Vector3.ZERO)
 
-## GT7/FH6-style clearcoat-over-colored-metallic paint. The moderate metallic
+## GT7/FH6-style clearcoat-over-colored-metallic paint. The mid metallic
 ## blends the swatch albedo into the specular/reflections ("colored metal
-## reflections" from the C2 reference) so body paint carries its color under the
-## directional sun; the clearcoat layer adds the glossy showroom response.
-## Rim uses StandardMaterial3D.rim_tint to push a soft albedo-colored grazing
-## highlight toward the light. Roughness stays >= 0.25 to keep the response
-## headless/test-stable across every quality preset.
+## reflections" from the C2 reference) so body paint carries its color under
+## the directional sun; metallic_specular lifts the dielectric fresnel lobe
+## so panel edges catch a bright grazing highlight instead of reading matte;
+## the clearcoat layer adds the glossy showroom response over a near-mirror
+## coat roughness. The base splits into two deterministic roughness bands
+## (sharp primary panels vs slightly rougher secondary bodywork) so a shell
+## never reads as one uniform sheet. Rim uses StandardMaterial3D.rim_tint to
+## push a soft albedo-colored grazing highlight toward the light. Both
+## roughness bands stay >= 0.25 to keep the response headless/test-stable
+## across every quality preset.
 const DEFAULT_PAINT := {
-	"metallic": 0.25,
-	"roughness": 0.35,
+	"metallic": 0.5,
+	"roughness": 0.25,
+	"roughness_secondary": 0.34,
 	"clearcoat": 1.0,
-	"clearcoat_roughness": 0.08,
-	"rim": 0.15,
+	"clearcoat_roughness": 0.04,
+	"metallic_specular": 0.75,
+	"rim": 0.22,
 	"rim_tint": 0.6,
 	"glass_metallic": 0.9,
 	"glass_roughness": 0.05,
 	"tail_emission_strength": 5.0,
 }
+
+## Painted aero/secondary bodywork keywords. A surface whose material OR mesh
+## node name contains one of these takes the profile's roughness_secondary
+## band; everything else (hood, roof, doors, the main 'body' shell) takes the
+## sharp roughness band. Pure case-insensitive name lookup — deterministic
+## across runs, machines and quality presets, with no seeded randomness.
+const SECONDARY_PAINT_PARTS: Array[String] = [
+	"spoiler", "wing", "bumper", "splitter", "diffuser", "skirt", "valance"
+]
 
 ## Per-car body paint colors for the CC0/Kenney garage line. Any car id keyed
 ## here gets its albedo painted at runtime through paint_profile_for(); ids
@@ -82,6 +98,43 @@ const RIVAL_PALETTE := {
 	"Skilled": Color(0.16, 0.51, 0.87, 1.0),
 	"Expert": Color(0.88, 0.24, 0.12, 1.0),
 }
+
+## Rival GLB rotation list. Rivals cycle this at spawn (RaceManager
+## _assign_rival_visual -> RivalCarVisual) so the grid reads as a mixed field
+## rather than N identical boxes. Each entry pairs a real car GLB from
+## assets/cars/ with the WHEEL_GROUPS id that names its corner wheel nodes.
+const RIVAL_VISUALS: Array[Dictionary] = [
+	{"visual_path": "res://assets/cars/sports_coupe.glb", "car_id": "starter_car"},
+	{"visual_path": "res://assets/cars/muscle_car.glb", "car_id": "muscle_car"},
+	{"visual_path": "res://assets/cars/rally_hatch.glb", "car_id": "rally_hatch"},
+]
+
+## Deterministic per-slot rival visual: wraps `index` over RIVAL_VISUALS, so
+## grid slot 0..n gets a stable-but-varied GLB with no RNG anywhere.
+static func rival_visual_for(index: int) -> Dictionary:
+	var slot := posmod(index, RIVAL_VISUALS.size())
+	return RIVAL_VISUALS[slot]
+
+## Paint profile for a rival: the car's stock profile with the skill-tier
+## RIVAL_PALETTE color layered on as the shell albedo. An empty/unknown tier
+## falls back to the "Skilled" swatch so a rival is always concretely colored.
+static func rival_paint_profile(car_id: String, tier: String) -> Dictionary:
+	var profile := paint_profile_for(car_id)
+	profile["color"] = RIVAL_PALETTE.get(RacingLine.normalize_tier(tier), RIVAL_PALETTE["Skilled"])
+	return profile
+
+## Applies a cycled rival GLB + tier paint to a spawned rival. Shared by
+## RaceManager._spawn_rival_car and GridSpawner._build_car so every spawn path
+## produces the same mixed, tier-colored grid. No-ops when the car exposes no
+## RivalCarVisual body (a custom rival_spawner scene), keeping the seam safe.
+static func assign_rival_visual(car: Node, index: int, tier: String) -> void:
+	if car == null:
+		return
+	var body := car.get_node_or_null("CarBody")
+	if body == null or not body.has_method("apply_visual"):
+		return
+	var visual := rival_visual_for(index)
+	body.call("apply_visual", String(visual["visual_path"]), String(visual["car_id"]), tier)
 
 ## Tint + transparency applied to CC0 glass that arrives flat-white through the
 ## Kenney 'colormap' fallback (the integrated GLBs carry no real glass mesh, but
@@ -173,6 +226,15 @@ const WHEEL_GROUPS := {
 		"fr": ["wheel-front-right"],
 		"rl": ["wheel-back-left"],
 		"rr": ["wheel-back-right"],
+	},
+	## Builder-generated car: one Wheel_* hub empty per corner (the game
+	## overwrites hub.rotation with (spin, steer, 0), so all corner geometry
+	## lives under the hub).
+	"nissan_gt_r35_2017": {
+		"fl": ["Wheel_FL"],
+		"fr": ["Wheel_FR"],
+		"rl": ["Wheel_RL"],
+		"rr": ["Wheel_RR"],
 	},
 }
 
@@ -514,8 +576,9 @@ static func _make_override(mesh_instance: MeshInstance3D, mesh: Mesh, surface_in
 	if standard == null:
 		return null
 	var name := _surface_name(mesh_instance, mesh, surface_index)
+	var part_key := name + " " + String(mesh_instance.name).to_lower()
 	if name.contains("paint") or standard.clearcoat_enabled:
-		return _paint_clone(standard, profile)
+		return _paint_clone(standard, profile, part_key)
 	if name.contains("glass") or name.contains("window") or name.contains("windshield"):
 		return _glass_clone(standard, profile)
 	if name.contains("headlight") or name.contains("taillight"):
@@ -526,7 +589,7 @@ static func _make_override(mesh_instance: MeshInstance3D, mesh: Mesh, surface_in
 		return _trim_clone(standard)
 	if name.contains("rim"):
 		return _rim_clone(standard)
-	var cc0_override := _cc0_override(mesh_instance, name, standard, profile)
+	var cc0_override := _cc0_override(mesh_instance, name, standard, profile, part_key)
 	if cc0_override != null:
 		return cc0_override
 	return null
@@ -537,7 +600,7 @@ static func _make_override(mesh_instance: MeshInstance3D, mesh: Mesh, surface_in
 ## glass keeps the glass clone, and everything else on the shell is clearcoated
 ## paint. Gated on the 'colormap' material name, so AI-built cars (which never
 ## use it) are untouched.
-static func _cc0_override(mesh_instance: MeshInstance3D, material_name: String, standard: StandardMaterial3D, profile: Dictionary) -> StandardMaterial3D:
+static func _cc0_override(mesh_instance: MeshInstance3D, material_name: String, standard: StandardMaterial3D, profile: Dictionary, part_key: String) -> StandardMaterial3D:
 	if material_name != "colormap":
 		return null
 	var node_name := String(mesh_instance.name).to_lower()
@@ -549,7 +612,7 @@ static func _cc0_override(mesh_instance: MeshInstance3D, material_name: String, 
 		return _rim_clone(standard)
 	if node_name.contains("wheel"):
 		return _cc0_wheel_clone(standard)
-	return _paint_clone(standard, profile)
+	return _paint_clone(standard, profile, part_key)
 
 static func _resolved_surface_material(mesh_instance: MeshInstance3D, mesh: Mesh, surface_index: int) -> Material:
 	var override_material: Material = mesh_instance.get_surface_override_material(surface_index)
@@ -566,7 +629,23 @@ static func _surface_name(mesh_instance: MeshInstance3D, mesh: Mesh, surface_ind
 		return embedded.resource_name.to_lower()
 	return ""
 
-static func _paint_clone(source: StandardMaterial3D, profile: Dictionary) -> StandardMaterial3D:
+## Deterministic per-surface paint roughness: primary body panels take the
+## sharp profile["roughness"] band, secondary aero/bodywork (see
+## SECONDARY_PAINT_PARTS) takes profile["roughness_secondary"]. Pure name
+## lookup, so the same mesh always resolves to the same band.
+static func paint_roughness_for(profile: Dictionary, part_key: String) -> float:
+	if _is_secondary_paint_part(part_key):
+		return float(profile.get("roughness_secondary", profile["roughness"]))
+	return float(profile["roughness"])
+
+static func _is_secondary_paint_part(part_key: String) -> bool:
+	var key := part_key.to_lower()
+	for keyword: String in SECONDARY_PAINT_PARTS:
+		if key.contains(keyword):
+			return true
+	return false
+
+static func _paint_clone(source: StandardMaterial3D, profile: Dictionary, part_key: String = "") -> StandardMaterial3D:
 	var cloned: StandardMaterial3D = source.duplicate() as StandardMaterial3D
 	if profile.has("color"):
 		cloned.albedo_color = profile["color"]
@@ -574,7 +653,9 @@ static func _paint_clone(source: StandardMaterial3D, profile: Dictionary) -> Sta
 	cloned.clearcoat = profile["clearcoat"]
 	cloned.clearcoat_roughness = profile["clearcoat_roughness"]
 	cloned.metallic = profile["metallic"]
-	cloned.roughness = profile["roughness"]
+	cloned.roughness = paint_roughness_for(profile, part_key)
+	if profile.has("metallic_specular"):
+		cloned.metallic_specular = profile["metallic_specular"]
 	if profile.has("rim"):
 		cloned.rim_enabled = true
 		cloned.rim = profile["rim"]
@@ -594,7 +675,7 @@ static func _glass_clone(source: StandardMaterial3D, profile: Dictionary) -> Sta
 static func _light_clone(source: StandardMaterial3D) -> StandardMaterial3D:
 	var cloned: StandardMaterial3D = source.duplicate() as StandardMaterial3D
 	cloned.metallic = 0.0
-	cloned.roughness = 0.4
+	cloned.roughness = 0.12
 	return cloned
 
 static func _tire_clone(source: StandardMaterial3D, profile: Dictionary) -> StandardMaterial3D:
@@ -614,11 +695,14 @@ static func _rim_clone(source: StandardMaterial3D) -> StandardMaterial3D:
 static func _cc0_wheel_clone(source: StandardMaterial3D) -> StandardMaterial3D:
 	var cloned: StandardMaterial3D = source.duplicate() as StandardMaterial3D
 	cloned.albedo_color = CC0_WHEEL_COLOR
-	cloned.metallic = 0.35
-	cloned.roughness = 0.4
+	cloned.metallic = 0.5
+	cloned.roughness = 0.32
 	cloned.clearcoat_enabled = true
-	cloned.clearcoat = 0.6
-	cloned.clearcoat_roughness = 0.2
+	cloned.clearcoat = 0.85
+	cloned.clearcoat_roughness = 0.12
+	cloned.rim_enabled = true
+	cloned.rim = 0.18
+	cloned.rim_tint = 0.5
 	return cloned
 
 static func _trim_clone(source: StandardMaterial3D) -> StandardMaterial3D:
@@ -714,7 +798,8 @@ static func _material_cockpit_role(mesh_instance: MeshInstance3D, material: Stan
 		return CockpitRole.SHELL
 	if material_name.contains("headlight") or material_name.contains("taillight") \
 		or material_name.contains("tire") or material_name.contains("rim") \
-		or material_name.contains("trim") or material_name.contains("graphite"):
+		or material_name.contains("trim") or material_name.contains("graphite") \
+		or material_name.contains("brake") or material_name.contains("caliper"):
 		return CockpitRole.OTHER
 	return CockpitRole.SHELL
 

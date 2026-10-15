@@ -105,11 +105,16 @@ func test_every_cc0_visual_paints_body_with_profile_color_and_dark_wheels() -> v
 		assert_that(body_paint).is_not_null()
 		assert_that(body_paint.albedo_color).is_equal(CarVisuals.PAINT_COLORS[car_id])
 		assert_that(body_paint.clearcoat_enabled).is_true()
-		assert_that(body_paint.metallic).is_equal_approx(0.25, 0.001)
-		assert_that(body_paint.roughness).is_equal_approx(0.35, 0.001)
+		assert_that(body_paint.metallic).is_equal_approx(0.5, 0.001)
+		assert_that(body_paint.roughness).is_equal_approx(0.25, 0.001)
+		assert_that(body_paint.clearcoat_roughness).is_equal_approx(0.04, 0.001)
+		assert_that(body_paint.metallic_specular).is_equal_approx(0.75, 0.001)
 		for wheel_name in CC0_WHEEL_NODES:
 			var wheel := instance.get_node_or_null(wheel_name) as MeshInstance3D
 			assert_that(wheel).is_not_null()
 			var wheel_material: StandardMaterial3D = wheel.get_surface_override_material(0) as StandardMaterial3D
 			assert_that(wheel_material).is_not_null()
 			assert_that(wheel_material.albedo_color).is_equal(CarVisuals.CC0_WHEEL_COLOR)
+			assert_that(wheel_material.clearcoat_enabled).is_true()
+			assert_that(wheel_material.metallic).is_equal_approx(0.5, 0.001)
+			assert_that(wheel_material.roughness).is_equal_approx(0.32, 0.001)

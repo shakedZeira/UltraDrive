@@ -37,6 +37,18 @@ func get_engine_bed_set() -> String:
 @export var idle_rpm: float = 800.0
 @export var engine_brake_torque: float = 50.0  # Nm of engine braking
 
+# --- Turbo (presentation-only boost state, v1) ---
+# turbo_max_boost_bar > 0 opts the car into the turbo layer: Drivetrain
+# simulates boost build/vent into boost_bar / boost_fraction, EngineAudio
+# plays the spool/BOV/flutter voices on top of the engine bed, and the HUD
+# boost gauge appears. Defaults are NA (0 = no turbo layer anywhere), so
+# every existing car stays byte-identical. No torque/feel coupling in v1.
+@export var turbo_max_boost_bar: float = 0.0   # bar peak boost; 0 = naturally aspirated
+@export var turbo_spool_time: float = 0.9  # s first-order time constant building boost
+@export var turbo_blowdown_time: float = 0.35  # s first-order time constant venting boost
+@export var turbo_whine_gain: float = 1.0  # scale on the compressor-whine voice
+@export var turbo_has_wastegate: bool = true  # upshift boost dip + flutter voice
+
 # --- Transmission ---
 @export var gear_ratios: Array[float] = [3.5, 2.1, 1.4, 1.0, 0.75, 0.6]
 @export var final_drive_ratio: float = 3.7
@@ -53,6 +65,21 @@ func get_engine_bed_set() -> String:
 # lower than up points so the box does not hunt between gears.
 @export var upshift_speeds_kmh: Array[float] = [25.0, 55.0, 85.0, 120.0, 160.0]
 @export var downshift_speeds_kmh: Array[float] = [15.0, 38.0, 60.0, 90.0, 120.0]
+
+# --- Drivetrain Layout ---
+## Which axle(s) receive engine torque. RWD (0) is the DEFAULT and reproduces
+## the historical all-rear behavior exactly - every existing car drives
+## byte-for-byte the same. AWD (1) splits torque across both axles per
+## awd_front_torque_split; FWD (2) drives the front axle only.
+@export_enum("RWD", "AWD", "FWD") var drivetrain_layout: int = 0
+## AWD front-axle share of drive torque (0..1). 0.3 = 30% front / 70% rear -
+## the classic rear-biased AWD stance (real GT-R torque spools ~30:70).
+## Ignored unless drivetrain_layout == AWD.
+@export var awd_front_torque_split: float = 0.4
+
+const DRIVETRAIN_RWD := 0
+const DRIVETRAIN_AWD := 1
+const DRIVETRAIN_FWD := 2
 
 # --- Differential ---
 @export_enum("Open", "LSD", "Locked") var diff_type: int = 1
@@ -96,6 +123,12 @@ func get_engine_bed_set() -> String:
 @export var hood_cam_forward: float = 0.0
 @export var cockpit_seat_height: float = 0.0
 @export var cockpit_seat_forward: float = 0.0
+@export var cockpit_seat_lateral: float = 0.0
+
+# --- Cockpit interior (optional per-car override) ---
+# null keeps the literal cockpit_rig.tscn tree byte-identical for every car;
+# a resource with an interior_scene swaps in an authored cabin (R35 first).
+@export var interior: InteriorResource
 
 # --- Aerodynamics ---
 @export var drag_coefficient: float = 0.35

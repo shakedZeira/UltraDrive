@@ -48,6 +48,7 @@ const BEST_LAP_DELTA_EPSILON := 0.005
 @onready var nav_arrow: Label = %NavArrow
 @onready var nav_distance: Label = %NavDistance
 @onready var nav_hint: Label = %NavHint
+@onready var boost_gauge: BoostGauge = %BoostGauge
 
 ## Scene-navigation seam (mirrors TrackSelect): tests stub this to capture the
 ## launched path without actually swapping scenes.
@@ -109,6 +110,12 @@ func _process(delta: float) -> void:
 	if _pending_laps > 0:
 		var laps := _pending_laps
 		_pending_laps = 0
+		# S5 production roster: on a track that published a rival centerline the
+		# player races the configured field. Only build the DEFAULT field when no
+		# roster was configured explicitly (track-select events / tests may have
+		# set one already), so an explicit roster is never clobbered.
+		if RaceManager.rival_roster.is_empty():
+			RaceManager.configure_default_rivals()
 		RaceManager.start_race(VehicleManager.get_all_cars(), laps)
 		_start_capture()
 	_drive_countdown(delta)
@@ -119,6 +126,7 @@ func _process(delta: float) -> void:
 		# the last frame that had one.
 		_refresh_traction_lamp(null)
 		_refresh_power_readout({}, null)
+		_refresh_boost_gauge({}, null)
 		return
 	_refresh_lap_tracking(car)
 	_refresh_standings()
@@ -144,6 +152,7 @@ func _process(delta: float) -> void:
 		cluster.set_car_class(cfg.car_class)
 	_refresh_traction_lamp(car)
 	_refresh_power_readout(info, cfg)
+	_refresh_boost_gauge(info, cfg)
 	_refresh_nav_assist(car)
 	if _race_over:
 		return
@@ -446,6 +455,15 @@ func _refresh_power_readout(info: Dictionary, cfg: CarConfig) -> void:
 	var text := PowerGauge.format_text(cfg, float(info.get("rpm", 0.0)))
 	if power_value.text != text:
 		power_value.text = text
+
+## Boost gauge beside the cluster: fed from the drive info's additive turbo
+## keys. set_boost_bar() auto-hides on max_bar <= 0, so NA cars keep the gauge
+## out of the way without a visibility special-case here.
+func _refresh_boost_gauge(info: Dictionary, cfg: CarConfig) -> void:
+	if boost_gauge == null:
+		return
+	var max_bar: float = cfg.turbo_max_boost_bar if cfg != null else 0.0
+	boost_gauge.set_boost_bar(float(info.get("boost_bar", 0.0)), max_bar)
 
 func _g_from_speed_delta(delta: float, speed_kmh: float) -> float:
 	if delta <= 0.0:

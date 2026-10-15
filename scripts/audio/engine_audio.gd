@@ -42,6 +42,7 @@ const BAND_RPMS: Array[float] = [800.0, 2000.0, 3500.0, 5500.0, 6900.0]
 const TIMBRE_SPORT: String = "sport"
 const TIMBRE_MUSCLE: String = "muscle"
 const TIMBRE_RALLY: String = "rally"
+const TIMBRE_GTR: String = "gtr"
 
 const BAND_FILES_MUSCLE: Dictionary = {
 	"idle": "res://assets/audio/engine/muscle/engine_idle.wav",
@@ -57,18 +58,31 @@ const BAND_FILES_RALLY: Dictionary = {
 	"high": "res://assets/audio/engine/rally/engine_high.wav",
 	"max": "res://assets/audio/engine/rally/engine_max.wav",
 }
+const BAND_FILES_GTR: Dictionary = {
+	"idle": "res://assets/audio/engine/gtr/engine_idle.wav",
+	"low": "res://assets/audio/engine/gtr/engine_low.wav",
+	"mid": "res://assets/audio/engine/gtr/engine_mid.wav",
+	"high": "res://assets/audio/engine/gtr/engine_high.wav",
+	"max": "res://assets/audio/engine/gtr/engine_max.wav",
+}
 const BAND_RPMS_MUSCLE: Array[float] = [800.0, 1700.0, 3000.0, 4500.0, 6000.0]
 const BAND_RPMS_RALLY: Array[float] = [800.0, 2200.0, 4000.0, 6000.0, 7900.0]
+const BAND_RPMS_GTR: Array[float] = [800.0, 1800.0, 3200.0, 4800.0, 6800.0]
 ## Family nominal idle/redline used to place each band ladder on the 0..1 RPM
-## axis (build_curves_for): muscle V8 peaks at 6200, the rally 4-pot at 8200.
+## axis (build_curves_for): muscle V8 peaks at 6200, the rally 4-pot at 8200,
+## the GT-R twin-turbo V6 at 7000.
 const RPM_SPAN_MUSCLE: Vector2 = Vector2(800.0, 6200.0)
 const RPM_SPAN_RALLY: Vector2 = Vector2(800.0, 8200.0)
+const RPM_SPAN_GTR: Vector2 = Vector2(800.0, 7000.0)
 const PITCH_MIN_MUSCLE: float = 0.55
 const PITCH_MAX_MUSCLE: float = 1.6
 const PITCH_MIN_RALLY: float = 0.45
 const PITCH_MAX_RALLY: float = 1.9
+const PITCH_MIN_GTR: float = 0.45
+const PITCH_MAX_GTR: float = 1.5
 const MASTER_TRIM_DB_MUSCLE: float = 1.0
 const MASTER_TRIM_DB_RALLY: float = -1.0
+const MASTER_TRIM_DB_GTR: float = -2.0
 
 const TRAFFIC_AUDIO_RANGE: float = 300.0
 const MASTER_TRIM_DB: float = -3.0
@@ -100,6 +114,28 @@ const SHIFT_BLIP_GAIN: float = 1.18
 const LIFT_ENV_SECONDS: float = 0.22
 const LIFT_GAIN_DB: float = 3.0
 
+## Turbo audio layer (v1, presentation-only): three additive voices on top of
+## the gtr engine bed, driven by the Drivetrain's live boost state through
+## get_drive_info()'s boost_bar / boost_fraction / has_turbo keys. The whine
+## is a whole-file loop (spool); the BOV psh and the wastegate "stutu" are
+## one-shots fired on the throttle-lift (gas-off) edge. Created only for turbo
+## cars (turbo_max_boost_bar > 0) and never under the headless display server
+## (same guard as CarAudio's feel players).
+const TURBO_ASSETS: Dictionary = {
+	"whine": "res://assets/audio/engine/gtr/turbo_whine.wav",
+	"bov": "res://assets/audio/engine/gtr/bov_tail.wav",
+	"flutter": "res://assets/audio/engine/gtr/flutter_hits.wav",
+}
+const TURBO_LAYER_ORDER: Array[String] = ["whine", "bov", "flutter"]
+const TURBO_LAYER_NAMES: Array[String] = ["TurboWhine", "TurboBOV", "TurboFlutter"]
+## Minimum boost fraction (0..1) at which the gas-off edge fires the blow-off
+## valve / the wastegate "stutu" (flutter) after-effect.
+const TURBO_BOV_MIN_FRACTION: float = 0.25
+const TURBO_FLUTTER_MIN_FRACTION: float = 0.4
+const TURBO_WHINE_TRIM_DB: float = 6.0
+const TURBO_BOV_TRIM_DB: float = 6.0
+const TURBO_FLUTTER_TRIM_DB: float = 6.0
+
 ## Optional editor override for the per-band RPM crossfade curves. When left
 ## empty, _ready installs build_default_curves(), which exactly reproduces
 ## band_weights() so runtime and pure-static math always agree.
@@ -130,6 +166,10 @@ var _pitch_min: float = PITCH_MIN
 var _pitch_max: float = PITCH_MAX
 var _trim_db: float = 0.0
 var _auto_curves: bool = true
+var _turbo_streams: Dictionary = {}
+var _turbo_players: Array[AudioStreamPlayer3D] = []
+var _turbo_vol_ema: Array[float] = []
+var _prev_boost_fraction: float = 0.0
 
 
 func _ready() -> void:
@@ -142,6 +182,7 @@ func _ready() -> void:
 	_create_band_players()
 	for player in _band_players:
 		player.play()
+	_ensure_turbo_layer(_get_config())
 
 
 func _exit_tree() -> void:
@@ -194,11 +235,82 @@ func _create_band_players() -> void:
 		_vol_ema.append(MUTE_FLOOR_DB)
 
 
+func _create_turbo_players() -> void:
+	if _turbo_players.size() > 0:
+		return
+	if not should_create_turbo_players(_get_config(), DisplayServer.get_name()):
+		return
+	if _turbo_streams.is_empty():
+		_turbo_streams = load_turbo_assets()
+	for i in range(TURBO_LAYER_ORDER.size()):
+		var player := AudioStreamPlayer3D.new()
+		player.name = TURBO_LAYER_NAMES[i]
+		player.unit_size = unit_size
+		player.max_distance = max_distance
+		add_child(player)
+		player.stream = _turbo_streams.get(TURBO_LAYER_ORDER[i]) as AudioStream
+		player.volume_db = MUTE_FLOOR_DB
+		_turbo_players.append(player)
+		_turbo_vol_ema.append(MUTE_FLOOR_DB)
+	# The whine is a whole-file loop: start it now (muted until boost arrives).
+	# The BOV/flutter one-shots fire on the gas-off edge in _update_turbo().
+	if _turbo_players.size() > 0:
+		_turbo_players[0].play()
+
+
+## Lazily creates the turbo layer once a turbo config is available (it may be
+## assigned after this node's _ready by a controller or spawner, same contract
+## as _apply_profile). No-op for NA cars and under the headless display server.
+func _ensure_turbo_layer(cfg: CarConfig) -> void:
+	if _turbo_players.size() > 0:
+		return
+	if not should_create_turbo_players(cfg, DisplayServer.get_name()):
+		return
+	_create_turbo_players()
+
+
+## Per-frame turbo voice update: the spool whine chases the boost fraction x
+## rpm position; the blow-off valve fires once on the lift edge while boost was
+## built; the wastegate flutter fires on a gear-change edge while boost is up.
+func _update_turbo(cfg: CarConfig, info: Dictionary, rpm_norm: float, throttle: float) -> void:
+	if _turbo_players.is_empty():
+		return
+	var boost := clampf(float(info.get("boost_fraction", 0.0)), 0.0, 1.0)
+	var whine := _turbo_players[0]
+	var bov := _turbo_players[1]
+	var flutter := _turbo_players[2]
+	var whine_gain := turbo_whine_gain_db(boost, rpm_norm)
+	if cfg != null:
+		whine_gain += linear_to_db(maxf(cfg.turbo_whine_gain, 0.001))
+	var whine_target := clampf(whine_gain, MUTE_FLOOR_DB, 6.0)
+	var whine_vol: float = move_toward(_turbo_vol_ema[0], whine_target, VOL_SLEW_DB)
+	_turbo_vol_ema[0] = whine_vol
+	whine.volume_db = whine_vol
+	if not whine.playing:
+		whine.play()
+	# BOV: same lift edge as the lift-off pop, gated on boost actually built.
+	if _prev_throttle > 0.5 and throttle < 0.15 and _prev_boost_fraction > TURBO_BOV_MIN_FRACTION:
+		bov.volume_db = bov_gain_db(_prev_boost_fraction)
+		bov.play()
+	# Wastegate flutter ("stutu"): the after-effect of LETTING OFF the gas --
+	# same lift edge as the BOV (throttle drops through 0.5 -> 0.15 while boost
+	# was built), gated on a wastegate being fitted. It is a gas-off reaction,
+	# not a gear-change reaction, so a steady throttle holds a clean whistle.
+	if _prev_throttle > 0.5 and throttle < 0.15 and _prev_boost_fraction > TURBO_FLUTTER_MIN_FRACTION \
+			and (cfg == null or cfg.turbo_has_wastegate):
+		flutter.volume_db = flutter_gain_db(_prev_boost_fraction)
+		flutter.play()
+	_prev_boost_fraction = boost
+
+
 func _physics_process(delta: float) -> void:
 	if _band_players.is_empty():
 		return
 	if _culled:
 		for player in _band_players:
+			if player.playing:
+				player.stop()
+		for player in _turbo_players:
 			if player.playing:
 				player.stop()
 		return
@@ -231,6 +343,14 @@ func _physics_process(delta: float) -> void:
 		_shift_elapsed = 0.0
 	else:
 		_shift_elapsed = minf(_shift_elapsed + delta, SHIFT_DURATION)
+
+	# Turbo layer (presentation-only): create lazily in case the config was
+	# assigned after _ready, then fire the per-frame spool/BOV/flutter voices.
+	# Must run BEFORE the lift-edge block below: _update_turbo() reads
+	# _prev_throttle (last frame's value) for the BOV edge, exactly like the
+	# lift-off pop does one block later.
+	_ensure_turbo_layer(cfg)
+	_update_turbo(cfg, info, rpm_norm, throttle)
 
 	if _prev_throttle > 0.5 and throttle < 0.15:
 		_lift_env = LIFT_ENV_SECONDS
@@ -285,6 +405,14 @@ func set_audio_active(active: bool) -> void:
 			_vol_ema[i] = MUTE_FLOOR_DB
 			if player.playing:
 				player.stop()
+	for i in range(_turbo_players.size()):
+		var turbo_player := _turbo_players[i]
+		turbo_player.volume_db = MUTE_FLOOR_DB
+		_turbo_vol_ema[i] = MUTE_FLOOR_DB
+		if turbo_player.playing:
+			turbo_player.stop()
+	if active:
+		_prev_boost_fraction = 0.0
 
 
 func cull_by_distance(camera_pos: Vector3, range_m: float) -> void:
@@ -330,7 +458,7 @@ static func load_beds_for(files: Dictionary) -> Array[Dictionary]:
 
 ## Unknown or empty timbres fall back to the shipped V10 sport family.
 static func normalize_timbre(timbre: String) -> String:
-	if timbre == TIMBRE_MUSCLE or timbre == TIMBRE_RALLY:
+	if timbre == TIMBRE_MUSCLE or timbre == TIMBRE_RALLY or timbre == TIMBRE_GTR:
 		return timbre
 	return TIMBRE_SPORT
 
@@ -343,6 +471,8 @@ static func bed_files_for_timbre(timbre: String) -> Dictionary:
 			return BAND_FILES_MUSCLE
 		TIMBRE_RALLY:
 			return BAND_FILES_RALLY
+		TIMBRE_GTR:
+			return BAND_FILES_GTR
 	return BAND_FILES
 
 
@@ -353,6 +483,8 @@ static func band_rpms_for_timbre(timbre: String) -> Array[float]:
 			return BAND_RPMS_MUSCLE.duplicate()
 		TIMBRE_RALLY:
 			return BAND_RPMS_RALLY.duplicate()
+		TIMBRE_GTR:
+			return BAND_RPMS_GTR.duplicate()
 	return BAND_RPMS.duplicate()
 
 
@@ -363,6 +495,8 @@ static func pitch_window_for_timbre(timbre: String) -> Vector2:
 			return Vector2(PITCH_MIN_MUSCLE, PITCH_MAX_MUSCLE)
 		TIMBRE_RALLY:
 			return Vector2(PITCH_MIN_RALLY, PITCH_MAX_RALLY)
+		TIMBRE_GTR:
+			return Vector2(PITCH_MIN_GTR, PITCH_MAX_GTR)
 	return Vector2(PITCH_MIN, PITCH_MAX)
 
 
@@ -374,6 +508,8 @@ static func master_trim_db_for_timbre(timbre: String) -> float:
 			return MASTER_TRIM_DB_MUSCLE
 		TIMBRE_RALLY:
 			return MASTER_TRIM_DB_RALLY
+		TIMBRE_GTR:
+			return MASTER_TRIM_DB_GTR
 	return 0.0
 
 
@@ -384,6 +520,8 @@ static func rpm_span_for_timbre(timbre: String) -> Vector2:
 			return RPM_SPAN_MUSCLE
 		TIMBRE_RALLY:
 			return RPM_SPAN_RALLY
+		TIMBRE_GTR:
+			return RPM_SPAN_GTR
 	return Vector2(IDLE_RPM, REDLINE_RPM)
 
 
@@ -580,6 +718,68 @@ static func transient_gain_db(shift_elapsed: float, lift_env: float = 0.0) -> fl
 	if lift_env > 0.0:
 		db += LIFT_GAIN_DB * lift_pop(lift_env)
 	return db
+
+
+## Compressor-spool whine command: scales with the boost fraction and the rpm
+## position (the spool screams harder higher in the rev range). 0 boost => the
+## mute floor, monotonic in boost_fraction for a fixed rpm.
+static func turbo_whine_gain_db(boost_fraction: float, rpm_norm: float) -> float:
+	if boost_fraction <= 0.001:
+		return MUTE_FLOOR_DB
+	var b := clampf(boost_fraction, 0.0, 1.0)
+	var linear := pow(b, 1.4) * lerpf(0.35, 1.0, clampf(rpm_norm, 0.0, 1.0))
+	return clampf(linear_to_db(linear) + TURBO_WHINE_TRIM_DB, MUTE_FLOOR_DB, 6.0)
+
+
+## Blow-off valve command: louder the more boost was built when the throttle
+## lifted. 0 boost => the mute floor, monotonic.
+static func bov_gain_db(boost_fraction: float) -> float:
+	if boost_fraction <= 0.001:
+		return MUTE_FLOOR_DB
+	return clampf(linear_to_db(clampf(boost_fraction, 0.0, 1.0)) + TURBO_BOV_TRIM_DB, MUTE_FLOOR_DB, 6.0)
+
+
+## Wastegate flutter command: a little quieter than the BOV at the same boost.
+## 0 boost => the mute floor, monotonic.
+static func flutter_gain_db(boost_fraction: float) -> float:
+	if boost_fraction <= 0.001:
+		return MUTE_FLOOR_DB
+	return clampf(linear_to_db(clampf(boost_fraction, 0.0, 1.0) * 0.8) + TURBO_FLUTTER_TRIM_DB, MUTE_FLOOR_DB, 6.0)
+
+
+## True when the turbo players should exist for this config on this display
+## server: a turbo car (turbo_max_boost_bar > 0) NOT running headless (the
+## headless guard mirrors CarAudio.is_player_creation_culled). Pure static for
+## testability.
+static func should_create_turbo_players(cfg: CarConfig, display_name: String) -> bool:
+	if cfg == null or cfg.turbo_max_boost_bar <= 0.0:
+		return false
+	return display_name != "headless"
+
+
+## Loads the three turbo layer streams. The whine is forced to seamless
+## LOOP_FORWARD with the same QOA loop_end snap load_beds_for() applies (the
+## whole file is the loop); the one-shots are left unlooped. Missing files
+## degrade to a null stream (silence) instead of crashing. Pure static for
+## testability.
+static func load_turbo_assets() -> Dictionary:
+	var streams := {}
+	for key: String in TURBO_ASSETS:
+		var path: String = TURBO_ASSETS[key]
+		var stream: AudioStream = null
+		if ResourceLoader.exists(path):
+			var res := load(path) as AudioStream
+			if res != null:
+				stream = res
+				if key == "whine":
+					var wav := res as AudioStreamWAV
+					if wav != null:
+						wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
+						wav.loop_begin = 0
+						var frames := int(round(wav.get_length() * wav.mix_rate))
+						wav.loop_end = maxi(frames - 1, 1)
+		streams[key] = stream
+	return streams
 
 
 static func load_shaping(load: float) -> Dictionary:

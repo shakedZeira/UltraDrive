@@ -9,6 +9,9 @@ extends Control
 ## AAA-16: nearby unclaimed collectibles (bonus boards, speed traps, photo
 ## spots) draw as small dots over the roads; the layer no-ops with the road
 ## source, so it never shows on a circuit.
+## Live rivals: RaceManager's spawned field draws as small orange heading
+## triangles (MapRoads rival blips) under the player chevron, sourced live each
+## frame — an empty roster / free roam simply draws nothing.
 
 @export var minimap_radius: float = 100.0
 @export var zoom: float = 0.2  # world units to pixel
@@ -44,6 +47,11 @@ const MARKER_ACCENT := MapRoads.MARKER_ACCENT
 const MARKER_OUTLINE := MapRoads.MARKER_OUTLINE
 const MARKER_SIZE := MapRoads.MARKER_SIZE
 
+## Shared rival-blip accents (same single-source-of-truth rule as the marker).
+const RIVAL_FILL := MapRoads.RIVAL_FILL
+const RIVAL_OUTLINE := MapRoads.RIVAL_OUTLINE
+const RIVAL_SIZE := MapRoads.RIVAL_SIZE
+
 const _CULL_OVERLAP := 1.1
 const _ROUTE_CACHE_CELL := 25.0
 
@@ -65,6 +73,16 @@ var _route_cache: Array[Vector3] = []
 var _collectible_dots: Array = []  # each {"id", "kind", "position": Vector3}
 var _collectible_source: CollectibleField = null
 
+## Live rival layer. `rival_source` is an optional Callable() -> Array of car
+## nodes (tests inject one); when empty the roster comes from RaceManager's
+## spawn grid via MapRoads.live_rivals. The cached `_rivals` handle is refreshed
+## every frame and the metre-rounded `_rival_sig` is what decides whether a
+## rival moved, so the roads/route pass is never rebuilt just to move a blip.
+@export var show_rivals: bool = true
+var rival_source: Callable = Callable()
+var _rivals: Array = []
+var _rival_sig := ""
+
 func _ready() -> void:
 	_player_car = VehicleManager.get_player_car()
 	_road_source = MapRoads.resolve_road_source(self) as Node
@@ -72,6 +90,8 @@ func _ready() -> void:
 	_scene_roads = MapRoads.get_roads(_road_source)
 	_discovery_source = MapRoads.resolve_discovery_source(self) as WorldDiscovery
 	_collect_collectibles()
+	_rivals = MapRoads.live_rivals(rival_source)
+	_rival_sig = _roster_signature(_rivals)
 
 ## Resolves the collectible half of the POI registry into a flat draw list.
 ## Gated on the road source so circuit scenes pay nothing.
@@ -98,11 +118,61 @@ func _draw() -> void:
 	_draw_roads(center)
 	_draw_route(center)
 	_draw_collectibles(center)
+	_draw_rivals(center)
 
 	# Player chevron: the same marker the pause map uses, so the player reads as
 	# one unmistakable object on the HUD minimap. Pointing the way the car faces.
 	MapRoads.draw_player_marker(self, center, _marker_angle, _pulse_time, MARKER_SIZE)
 	draw_arc(center, minimap_radius, 0.0, TAU, 64, ring_color, 1.5)
+
+## Live rival blips: the shared orange heading triangle at the SAME world->screen
+## mapping the roads use (MapRoads.minimap_point_screen is a single-vertex
+## world_to_local_points), culled to the disc. The layer sits under the player
+## chevron on purpose: the player must always dominate its own minimap.
+func _draw_rivals(center: Vector2) -> void:
+	for entry in rival_blips(center):
+		var blip: Dictionary = entry
+		var screen: Vector2 = blip["screen"]
+		var angle := float(blip["angle"])
+		MapRoads.draw_rival_blip(self, screen, angle)
+
+## The rival blips the draw pass would put on the minimap for the current
+## roster, as {"screen": Vector2, "angle": float} entries in draw order.
+## Public so the headless gate can assert the projection (screen position and
+## heading angle) and the graceful skips without a render pass. No player car,
+## no roster, or show_rivals off => an empty list, never a crash.
+func rival_blips(center: Vector2) -> Array:
+	var out: Array = []
+	if not show_rivals or _player_car == null:
+		return out
+	var player_pos := _player_car.global_position
+	var player_xz := Vector2(player_pos.x, player_pos.z)
+	var radius_world := minimap_radius / zoom * _CULL_OVERLAP
+	var radius_world_sq := radius_world * radius_world
+	for entry in MapRoads.rival_entries(_rivals):
+		var world_pos: Vector3 = entry["position"]
+		if not _point_inside(player_xz, world_pos, radius_world_sq):
+			continue
+		var screen := MapRoads.minimap_point_screen(world_pos, player_pos, center, zoom)
+		if screen.distance_to(center) > minimap_radius:
+			continue
+		out.append({
+			"screen": screen,
+			"angle": MapRoads.marker_minimap_angle(entry["facing"] as Vector3),
+		})
+	return out
+
+## Cheap "did any rival move" signature: roster size plus each blip's
+## metre-rounded XZ, the same trick MapRoads.signature() uses for roads. A
+## metre of rounding is what keeps a stationary field from redrawing the HUD
+## every frame while a moving one still updates the moment it goes.
+func _roster_signature(cars: Array) -> String:
+	var parts := PackedStringArray()
+	parts.append(str(cars.size()))
+	for entry in MapRoads.rival_entries(cars):
+		var p: Vector3 = entry["position"]
+		parts.append("%d,%d" % [roundi(p.x), roundi(p.z)])
+	return "|".join(parts)
 
 func _draw_roads(center: Vector2) -> void:
 	if _road_source == null:
@@ -274,6 +344,9 @@ func _cached_route_world() -> Array[Vector3]:
 
 func _process(delta: float) -> void:
 	_player_car = VehicleManager.get_player_car()
+	# Rivals are LIVE data: re-read the roster every frame so a race that spawns
+	# its grid after the HUD (or a rival that is freed) is reflected at once.
+	_rivals = MapRoads.live_rivals(rival_source)
 	if _road_source == null:
 		_road_source = MapRoads.resolve_road_source(self) as Node
 	if _discovery_source == null and get_tree() != null:
@@ -293,13 +366,16 @@ func _process(delta: float) -> void:
 	var car_facing: Vector3 = -_player_car.global_basis.z
 	var heading := atan2(car_facing.x, car_facing.z)
 	_marker_angle = MapRoads.marker_minimap_angle(car_facing)
-	# Redraw only when the player moved enough or turned, or when the halo pulse
-	# crossed its redraw cadence, so the marker stays live without rebuilding
-	# the road polylines every frame.
+	# Redraw only when the player moved enough or turned, when a rival moved, or
+	# when the halo pulse crossed its redraw cadence, so the marker and the field
+	# stay live without rebuilding the road polylines every frame.
 	_pulse_time += delta
 	var tick := int(_pulse_time / MapRoads.MARKER_PULSE_STEP)
+	var rival_sig := _roster_signature(_rivals) if show_rivals else ""
+	var rival_moved := rival_sig != _rival_sig
+	_rival_sig = rival_sig
 	if _last_redraw_pos.distance_to(pos) > 4.0 or absf(heading - _last_heading) > 0.05 \
-			or tick != _last_pulse_tick:
+			or tick != _last_pulse_tick or rival_moved:
 		_last_redraw_pos = pos
 		_last_heading = heading
 		_last_pulse_tick = tick

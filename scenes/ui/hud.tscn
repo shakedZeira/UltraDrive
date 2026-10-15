@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=3]
+[gd_scene load_steps=17 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/minimap.gd" id="2_minimap"]
 [ext_resource type="Script" path="res://scripts/race/race_ui.gd" id="1_race"]
@@ -6,6 +6,7 @@
 [ext_resource type="Script" path="res://scripts/race/results_confetti.gd" id="4_confetti"]
 [ext_resource type="Script" path="res://scripts/ui/speed_overlay.gd" id="5_overlay"]
 [ext_resource type="Script" path="res://scripts/race/traction_lamp.gd" id="8_tlamp"]
+[ext_resource type="Script" path="res://scripts/race/boost_gauge.gd" id="9_boost"]
 [ext_resource type="PackedScene" path="res://scenes/ui/cockpit_dash.tscn" id="6_cdash"]
 [ext_resource type="PackedScene" path="res://scenes/ui/rear_view_mirror.tscn" id="7_mirror"]
 
@@ -384,6 +385,16 @@ theme_override_colors/font_color = Color(0.62, 0.86, 1, 1)
 theme_override_colors/font_outline_color = Color(0.02, 0.04, 0.09, 1)
 theme_override_constants/outline_size = 3
 theme_override_font_sizes/font_size = 20
+
+[node name="BoostGauge" type="Control" parent="Root/Cluster"]
+unique_name_in_owner = true
+visible = false
+offset_left = 370.0
+offset_top = 92.0
+offset_right = 470.0
+offset_bottom = 200.0
+mouse_filter = 2
+script = ExtResource("9_boost")
 
 [node name="CountdownOverlay" type="Control" parent="Root"]
 unique_name_in_owner = true

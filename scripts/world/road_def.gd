@@ -68,6 +68,21 @@ enum RailSide {
 ## half-width; 0 keeps the strip flat. Banking direction is derived from
 ## curvature by TrackBuilder.
 @export var banking: float = 0.0
+## Per-point bank angles in RADIANS, one SIGNED entry per centerline point, in
+## TrackBuilder._frame's sign space (negative = left turn: the LEFT edge drops
+## and the RIGHT edge lifts -- the mirrored convention of the curvature path,
+## which yields a negative angle for a left turn too). When the array holds
+## exactly one entry per point, TrackBuilder uses it VERBATIM and ignores
+## `banking` entirely, so the profile is spacing-independent and can ease over as
+## many points as it spans (a speedway bank ramp is not one segment wide). An
+## EMPTY array -- the default -- is the legacy path: TrackBuilder derives the
+## angle from `banking` x the local per-point curvature exactly as it always did.
+@export var bank_angles: PackedFloat32Array = PackedFloat32Array()
+## When false, TrackBuilder skips ONLY the dashed lane-divider meshes; the
+## surface strip and the red/white edge lines are untouched (a speedway has no
+## lane paint inside the curb, only the edge lines). Default true preserves every
+## road authored before this field existed.
+@export var show_lane_dividers: bool = true
 ## Which rail sides this road carries. Defaults to BOTH, so the tier table alone
 ## decides rails as it always did; a merge lane that must stay open on ONE side
 ## (an on-ramp running parallel to the road it merges onto) masks that side out

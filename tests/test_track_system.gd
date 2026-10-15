@@ -2,7 +2,7 @@ extends GdUnitTestSuite
 
 func test_registry_contains_expected_tracks() -> void:
 	var ids := TrackRegistry.get_track_ids()
-	assert_array(ids).contains_exactly(["oval", "mountain_pass"])
+	assert_array(ids).contains_exactly(["oval", "mountain_pass", "northern_isle"])
 	for track_id: String in ids:
 		var data := TrackRegistry.get_track(track_id)
 		assert_that(data.has("display_name")).is_true()

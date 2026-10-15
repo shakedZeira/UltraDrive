@@ -2,12 +2,14 @@
 extends GdUnitTestSuite
 
 ## Graphics-gap plan item 5 gate: GT7/FH6-style clearcoat paint response. Pins the
-## retuned CarVisuals paint band (metallic 0.15-0.30, roughness 0.30-0.40, clearcoat,
-## albedo-tinted rim highlight), the glossy mirrored-glass element response
+## retuned CarVisuals paint band (metallic 0.40-0.60, roughness 0.20-0.30 primary
+## panel band, clearcoat, raised metallic_specular fresnel, albedo-tinted rim
+## highlight), the glossy mirrored-glass element response
 ## (metallic 0.9 / roughness 0.05, transmission-free, environment reflection on),
 ## taillight resolution preservation, and that rivals inherit the same tuned paint
-## both from rival_car.tscn and the GridSpawner tier-color builder. Pure material
-## inspection, fully manual node construction — headless-safe, no frames.
+## through both the rival_car.tscn RivalCarVisual GLB body and the GridSpawner
+## tier-color builder. Pure material inspection, fully manual node construction —
+## headless-safe, no frames.
 
 const RIVAL_SCENE := "res://scenes/vehicle/rival_car.tscn"
 
@@ -46,6 +48,18 @@ func _new_mesh_instance(material: StandardMaterial3D, material_name: String) -> 
 	_managed_nodes.append(mesh_instance)
 	return mesh_instance
 
+## Total MeshInstance3D descendants under a node (0 for null). Proves the rival
+## CarBody actually instanced real GLB geometry, not an empty box.
+func _count_meshes(root: Node) -> int:
+	if root == null:
+		return 0
+	var count := 0
+	if root is MeshInstance3D:
+		count += 1
+	for child in root.get_children():
+		count += _count_meshes(child)
+	return count
+
 func test_paint_carries_swatch_color_in_the_clearcoat_metallic_band() -> void:
 	var root := _new_root()
 	var paint := StandardMaterial3D.new()
@@ -58,11 +72,12 @@ func test_paint_carries_swatch_color_in_the_clearcoat_metallic_band() -> void:
 	var override: StandardMaterial3D = paint_mi.get_surface_override_material(0) as StandardMaterial3D
 	assert_that(override).is_not_null()
 	assert_that(override.albedo_color).is_equal(CarVisuals.PAINT_COLORS["cc0_sedan_sports"])
-	assert_that(override.metallic).is_between(0.15, 0.3)
-	assert_that(override.roughness).is_between(0.3, 0.4)
+	assert_that(override.metallic).is_between(0.4, 0.6)
+	assert_that(override.roughness).is_between(0.2, 0.3)
+	assert_that(override.metallic_specular).is_equal_approx(0.75, 0.001)
 	assert_that(override.clearcoat_enabled).is_true()
 	assert_that(override.clearcoat).is_equal_approx(1.0, 0.001)
-	assert_that(override.clearcoat_roughness).is_less_equal(0.1)
+	assert_that(override.clearcoat_roughness).is_less_equal(0.05)
 
 func test_paint_rim_highlight_is_enabled_and_tinted_with_the_swatch() -> void:
 	var root := _new_root()
@@ -73,7 +88,7 @@ func test_paint_rim_highlight_is_enabled_and_tinted_with_the_swatch() -> void:
 
 	var override: StandardMaterial3D = paint_mi.get_surface_override_material(0) as StandardMaterial3D
 	assert_that(override.rim_enabled).is_true()
-	assert_that(override.rim).is_equal_approx(0.15, 0.001)
+	assert_that(override.rim).is_equal_approx(0.22, 0.001)
 	assert_that(override.rim_tint).is_equal_approx(0.6, 0.001)
 
 func test_window_and_windshield_names_get_the_glossy_glass_response() -> void:
@@ -108,7 +123,7 @@ func test_taillight_material_still_resolves_and_emits_after_paint() -> void:
 	assert_that(found).is_not_null()
 	var light_override: StandardMaterial3D = root.get_child(0).get_surface_override_material(0) as StandardMaterial3D
 	assert_that(light_override.metallic).is_equal_approx(0.0, 0.001)
-	assert_that(light_override.roughness).is_equal_approx(0.4, 0.001)
+	assert_that(light_override.roughness).is_equal_approx(0.12, 0.001)
 	CarVisuals.apply_brake_glow(found, 1.0)
 	assert_that(found.emission_enabled).is_true()
 	assert_that(found.emission_energy_multiplier).is_equal_approx(CarVisuals.BRAKE_GLOW_MAX, 0.001)
@@ -124,22 +139,28 @@ func test_cc0_wheel_already_painted_keeps_its_glossy_wheel_response() -> void:
 	var override: StandardMaterial3D = wheel_mi.get_surface_override_material(0) as StandardMaterial3D
 	assert_that(override).is_not_null()
 	assert_that(override.albedo_color).is_equal(CarVisuals.CC0_WHEEL_COLOR)
-	assert_that(override.metallic).is_equal_approx(0.35, 0.001)
-	assert_that(override.roughness).is_equal_approx(0.4, 0.001)
+	assert_that(override.metallic).is_equal_approx(0.5, 0.001)
+	assert_that(override.roughness).is_equal_approx(0.32, 0.001)
 	assert_that(override.clearcoat_enabled).is_true()
+	assert_that(override.clearcoat).is_equal_approx(0.85, 0.001)
 
-func test_rival_car_scene_embeds_the_tuned_paint_response() -> void:
-	var rival := (load(RIVAL_SCENE) as PackedScene).instantiate() as Node3D
+func test_rival_car_scene_hosts_a_real_glb_visual_not_a_box() -> void:
+	var rival := (load(RIVAL_SCENE) as PackedScene).instantiate() as VehiclePhysics
 	_managed_nodes.append(rival)
-	var body := rival.get_node_or_null("CarBody") as MeshInstance3D
+	add_child(rival)
+	var body := rival.get_node_or_null("CarBody") as RivalCarVisual
 	assert_that(body).is_not_null()
-	var material := body.mesh.surface_get_material(0) as StandardMaterial3D
-	assert_that(material).is_not_null()
-	assert_that(material.metallic).is_equal_approx(0.25, 0.001)
-	assert_that(material.roughness).is_equal_approx(0.35, 0.001)
-	assert_that(material.clearcoat_enabled).is_true()
-	assert_that(material.clearcoat).is_equal_approx(1.0, 0.001)
-	assert_that(material.clearcoat_roughness).is_equal_approx(0.08, 0.001)
+	if body == null:
+		return
+	# The placeholder BoxMesh is gone: CarBody instanced a real car GLB under
+	# CAR_ORIENT with the shared tuned clearcoat paint profile applied.
+	assert_that(body.visual_root()).is_not_null()
+	assert_that(_count_meshes(body.visual_root())).is_greater(0)
+	var profile := body.paint_profile()
+	assert_that(float(profile["metallic"])).is_equal_approx(0.5, 0.001)
+	assert_that(float(profile["roughness"])).is_equal_approx(0.25, 0.001)
+	assert_that(float(profile["clearcoat"])).is_equal_approx(1.0, 0.001)
+	assert_that(float(profile["clearcoat_roughness"])).is_equal_approx(0.04, 0.001)
 
 func test_grid_spawner_paints_rivals_with_the_tuned_paint_response() -> void:
 	var spawner := GridSpawner.new()
@@ -157,13 +178,16 @@ func test_grid_spawner_paints_rivals_with_the_tuned_paint_response() -> void:
 	assert_that(cars.size()).is_equal(1)
 	if cars.is_empty():
 		return
-	var body := cars[0].get_node_or_null("CarBody") as MeshInstance3D
+	var body := cars[0].get_node_or_null("CarBody") as RivalCarVisual
 	assert_that(body).is_not_null()
-	var material := body.material_override as StandardMaterial3D
-	assert_that(material).is_not_null()
-	assert_that(material.albedo_color).is_equal(CarVisuals.RIVAL_PALETTE["Expert"])
-	assert_that(material.metallic).is_equal_approx(0.25, 0.001)
-	assert_that(material.roughness).is_equal_approx(0.35, 0.001)
-	assert_that(material.clearcoat_enabled).is_true()
-	assert_that(material.clearcoat).is_equal_approx(1.0, 0.001)
-	assert_that(material.clearcoat_roughness).is_equal_approx(0.08, 0.001)
+	if body == null:
+		return
+	# The tier color now rides the GLB visual's paint profile (CarBody is a
+	# RivalCarVisual, not a MeshInstance3D with material_override).
+	assert_that(body.visual_root()).is_not_null()
+	var profile := body.paint_profile()
+	assert_that(profile["color"]).is_equal(CarVisuals.RIVAL_PALETTE["Expert"])
+	assert_that(float(profile["metallic"])).is_equal_approx(0.5, 0.001)
+	assert_that(float(profile["roughness"])).is_equal_approx(0.25, 0.001)
+	assert_that(float(profile["clearcoat"])).is_equal_approx(1.0, 0.001)
+	assert_that(float(profile["clearcoat_roughness"])).is_equal_approx(0.04, 0.001)

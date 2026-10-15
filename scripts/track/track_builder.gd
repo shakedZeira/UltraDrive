@@ -21,6 +21,14 @@ var _track_points: Array[Vector3] = []
 var _track_closed := true
 var _track_def: RoadDef = null
 var _rail_gaps: Array = []  # Array of Dicts {"start": Vector3, "end": Vector3} or legacy Vector3 points
+## Explicit per-point bank angles (radians, signed, see RoadDef.bank_angles) for
+## the road currently built. build_track sets it ONLY when the def carries
+## exactly one angle per point; otherwise it stays EMPTY and _frame falls back to
+## the legacy `banking` x curvature math. Because _frame is the single frame
+## supplier for the surface strip, the edge/divider meshes, the rails and the
+## trimesh collision, this one member upgrades all of them consistently -- and
+## configure_rails() rebuilds read the same member.
+var _bank_angles := PackedFloat32Array()
 
 ## Edge strip colors per RoadDef.Tier key: [accent_edge, outer_edge].
 ## Out-of-range tiers (and the def == null default) fall back to ARTERIAL.
@@ -80,6 +88,13 @@ func build_track(points: Array[Vector3], closed: bool = true, def: RoadDef = nul
     var banking: float = def.banking if def != null else 0.0
     var rails_enabled: bool = def.rail_side_count() > 0 if def != null else false
 
+    # Per-point bank profile: honoured only when the def carries EXACTLY one
+    # angle per centerline point (a wrong-sized array is ignored and leaves the
+    # legacy curvature path byte-identical). _frame reads this member.
+    _bank_angles = PackedFloat32Array()
+    if def != null and def.bank_angles.size() == points.size():
+        _bank_angles = def.bank_angles
+
     var road_mesh := _build_mesh(points, false, closed, width, banking, 0.0)
     var mesh_instance := MeshInstance3D.new()
     mesh_instance.name = "RoadSurface"
@@ -107,14 +122,15 @@ func build_track(points: Array[Vector3], closed: bool = true, def: RoadDef = nul
         add_child(edge_instance)
 
     var lane_count: int = RoadDef.lane_count_for(width)
-    for boundary in range(1, lane_count):
-        var divider_offset := -width * 0.5 + width * float(boundary) / float(lane_count)
-        var divider_mesh := _build_dashed_edge_mesh(points, divider_offset, LANE_DIVIDER_WIDTH, closed, banking)
-        var divider_instance := MeshInstance3D.new()
-        divider_instance.name = "LaneDivider%d" % (boundary - 1)
-        divider_instance.mesh = divider_mesh
-        divider_instance.material_override = _lane_divider_material()
-        add_child(divider_instance)
+    if def == null or def.show_lane_dividers:
+        for boundary in range(1, lane_count):
+            var divider_offset := -width * 0.5 + width * float(boundary) / float(lane_count)
+            var divider_mesh := _build_dashed_edge_mesh(points, divider_offset, LANE_DIVIDER_WIDTH, closed, banking)
+            var divider_instance := MeshInstance3D.new()
+            divider_instance.name = "LaneDivider%d" % (boundary - 1)
+            divider_instance.mesh = divider_mesh
+            divider_instance.material_override = _lane_divider_material()
+            add_child(divider_instance)
 
     if rails_enabled:
         _build_rails(points, closed, banking, width, rail_gaps, not rail_gaps.is_empty())
@@ -255,6 +271,12 @@ func _rail_material() -> StandardMaterial3D:
 ## forward axis by the signed curvature-scaled banking angle, so the vertex on
 ## the inside of a turn sits lower (cross.lift = -sin(angle) along the right
 ## edge), and banking <= 0 keeps the section flat.
+##
+## Precedence: when _bank_angles carries one entry per point (RoadDef.bank_angles,
+## set by build_track) the angle is taken VERBATIM from the profile and the
+## banking/curvature math below is skipped entirely -- so a profile banks a
+## straight road and is independent of point spacing. Otherwise the legacy path
+## runs, untouched.
 func _frame(points: Array[Vector3], i: int, closed: bool, banking: float) -> Dictionary:
     var n := points.size()
     var p := points[i]
@@ -263,7 +285,9 @@ func _frame(points: Array[Vector3], i: int, closed: bool, banking: float) -> Dic
     var forward := (next - prev).normalized()
     var right := forward.cross(Vector3.UP).normalized()
     var angle := 0.0
-    if banking > 0.0:
+    if _bank_angles.size() > 0:
+        angle = float(_bank_angles[i])
+    elif banking > 0.0:
         var t1 := (p - prev).normalized()
         var t2 := (next - p).normalized()
         var curvature := -t1.cross(t2).y

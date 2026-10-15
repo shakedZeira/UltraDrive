@@ -101,6 +101,9 @@ _poly*.txt
 _road_network_dump.txt
 _poly_pizza.txt
 
+# Raw video sources (large binary; the transcoded .ogv stays tracked)
+assets/videos/source/
+
 # Godot regenerated asset metadata
 *.import
 *.godot
@@ -113,3 +116,5 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 .DS_Store
+  
+.uv-cache/  

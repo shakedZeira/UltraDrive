@@ -17,6 +17,20 @@ enum TransmissionMode { AUTO, MANUAL }
 ## persisted the mode) -> MANUAL, the new default.
 const TRANSMISSION_SAVE_KEY := "transmission_mode"
 
+## Rival field size + AI difficulty (S5 production roster). Persisted in the
+## slot-0 save the same additive way as the transmission preference: a missing
+## key means a fresh install (or a pre-feature save), which lands on the
+## defaults below. `opponents` is the number of AI cars a race fields; 0 is solo
+## practice. `ai_difficulty` is the anchor skill tier the field is spread around.
+const OPPONENTS_SAVE_KEY := "opponents"
+const AI_DIFFICULTY_SAVE_KEY := "ai_difficulty"
+const DEFAULT_OPPONENTS := 5
+const MAX_OPPONENTS := 7
+## Valid difficulty labels, ordered Novice < Skilled < Expert (mirrors
+## RacingLine.TIER_PACE and the RIVAL_PALETTE keys).
+const AI_DIFFICULTIES: Array[String] = ["Novice", "Skilled", "Expert"]
+const DEFAULT_AI_DIFFICULTY := "Skilled"
+
 var current_mode: GameMode = GameMode.MAIN_MENU
 var transmission_mode: TransmissionMode = TransmissionMode.MANUAL
 var quality_preset: int = 1
@@ -33,6 +47,13 @@ var nav_assist_enabled: bool = true
 ## Novice / traffic AI get a multiplier offset — the player and Skilled/Expert
 ## racers always run their exact no-rubber-band pace.
 var rubber_band_assist: bool = true
+
+## S5 production roster: how many AI rivals a race fields (0 = solo practice)
+## and the anchor skill tier the field is spread around (Novice/Skilled/Expert).
+## Restored from the slot-0 save; a race commits these through
+## RaceManager.configure_default_rivals() at the HUD's start seam.
+var opponents: int = DEFAULT_OPPONENTS
+var ai_difficulty: String = DEFAULT_AI_DIFFICULTY
 
 func _ready() -> void:
     process_mode = Node.PROCESS_MODE_ALWAYS
@@ -52,6 +73,8 @@ func _ready() -> void:
     else:
         season = _default_season()
     transmission_mode = transmission_mode_from_save(data)
+    opponents = opponents_from_save(data)
+    ai_difficulty = difficulty_from_save(data)
     WeatherManager.set_season(season)
     call_deferred("_apply_quality_to_current_scene")
 
@@ -63,6 +86,32 @@ static func transmission_mode_from_save(data: Dictionary) -> TransmissionMode:
     if data.has(TRANSMISSION_SAVE_KEY):
         return TransmissionMode.MANUAL if int(data[TRANSMISSION_SAVE_KEY]) == 1 else TransmissionMode.AUTO
     return TransmissionMode.MANUAL
+
+## Field-size clamp: 0 = solo practice, MAX_OPPONENTS = the widest grid the
+## Northern Isle grid layout places without spilling off the front straight.
+static func clamp_opponents(value: int) -> int:
+    return clampi(value, 0, MAX_OPPONENTS)
+
+## Canonicalizes a difficulty label to an AI_DIFFICULTIES entry; case/whitespace
+## tolerant, unknown -> DEFAULT_AI_DIFFICULTY (matches RacingLine.normalize_tier).
+static func normalize_difficulty(value: String) -> String:
+    var v := value.strip_edges().to_lower()
+    for difficulty in AI_DIFFICULTIES:
+        if difficulty.to_lower() == v:
+            return difficulty
+    return DEFAULT_AI_DIFFICULTY
+
+static func opponents_from_save(data: Dictionary) -> int:
+    if data.has(OPPONENTS_SAVE_KEY):
+        return clamp_opponents(int(data[OPPONENTS_SAVE_KEY]))
+    return DEFAULT_OPPONENTS
+
+## Difficulty from the slot save. A missing key means a fresh install (or a
+## pre-feature save) and lands on the default, exactly like transmission_mode.
+static func difficulty_from_save(data: Dictionary) -> String:
+    if data.has(AI_DIFFICULTY_SAVE_KEY):
+        return normalize_difficulty(String(data[AI_DIFFICULTY_SAVE_KEY]))
+    return DEFAULT_AI_DIFFICULTY
 
 ## Season from the system's real-world week number (P4): the 52-week year
 ## rotates through WINTER/SPRING/SUMMER/FALL.
@@ -133,6 +182,25 @@ func set_transmission_mode(mode: TransmissionMode) -> void:
     var data := SaveManager.load_game(0)
     data[TRANSMISSION_SAVE_KEY] = int(mode)
     SaveManager.save_game(0, data)
+
+## Persists the rival field size to the slot-0 save (clamped), the same additive
+## way the transmission preference is stored.
+func set_opponents(value: int) -> void:
+    opponents = clamp_opponents(value)
+    var data := SaveManager.load_game(0)
+    data[OPPONENTS_SAVE_KEY] = opponents
+    SaveManager.save_game(0, data)
+
+## Persists the AI difficulty anchor to the slot-0 save (canonicalized).
+func set_ai_difficulty(value: String) -> void:
+    ai_difficulty = normalize_difficulty(value)
+    var data := SaveManager.load_game(0)
+    data[AI_DIFFICULTY_SAVE_KEY] = ai_difficulty
+    SaveManager.save_game(0, data)
+
+## Index of the active difficulty in AI_DIFFICULTIES (settings OptionButton read).
+func difficulty_index() -> int:
+    return AI_DIFFICULTIES.find(ai_difficulty)
 
 func set_quality_preset(preset: int) -> void:
     quality_preset = preset

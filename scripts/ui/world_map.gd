@@ -27,6 +27,13 @@ extends Control
 ## from the curated RoadDef.name (CorridorPlanner.ROAD_NAMES) with road_label() as
 ## the fallback. show_road_labels turns the whole layer off without touching the
 ## lines.
+##
+## Live rivals: the RaceManager field draws as small orange heading triangles
+## (MapRoads rival blips) over the cached content. This layer is deliberately
+## NOT part of the cached rebuild -- rival positions are read live on every draw
+## pass and _process re-queues a draw when a blip moves, so an open paused map
+## can never show stale cars. The fit stays cached, so the zoom never jitters
+## as the field spreads out.
 
 const ROAD_COLOR := Color(0.5, 0.62, 0.85, 0.88)
 const UNVISITED_ROAD_COLOR := Color(0.42, 0.44, 0.48, 0.72)
@@ -39,6 +46,10 @@ const MARKER_CORE := MapRoads.MARKER_CORE
 const MARKER_ACCENT := MapRoads.MARKER_ACCENT
 const MARKER_OUTLINE := MapRoads.MARKER_OUTLINE
 const MARKER_SIZE := MapRoads.MARKER_SIZE * 1.15
+## Shared rival-blip accents (same single-source-of-truth rule as the marker).
+const RIVAL_FILL := MapRoads.RIVAL_FILL
+const RIVAL_OUTLINE := MapRoads.RIVAL_OUTLINE
+const RIVAL_SIZE := MapRoads.RIVAL_SIZE
 const POI_COLOR := Color(0.75, 0.85, 1.0, 0.85)
 const POI_OUTLINE := Color(0.02, 0.04, 0.09, 0.95)
 const POI_CORE := Color(0.97, 0.97, 1.0, 0.95)
@@ -153,19 +164,27 @@ var show_landmarks: bool = true
 var show_events: bool = true
 var show_collectibles: bool = true
 var show_travel: bool = true
+## Live rivals are their own gate for the same reason collectibles are: a player
+## who wants a clean solo map can drop the field without losing anything else.
+var show_rivals: bool = true
 ## Road names are their own gate for the same reason collectibles are: a player
 ## who wants the network clean can drop the text without losing the lines.
 var show_road_labels: bool = true
 var region_filter: String = ""
 var _travel_gate: Callable = Callable()
 
+## Live rival source override: a Callable() -> Array of car nodes (tests inject
+## one). Empty = MapRoads.live_rivals reads RaceManager's spawn grid.
+var rival_source: Callable = Callable()
+var _last_rival_sig := ""
+
 ## AAA-3 filter API: flags keys are "pois" / "landmarks" / "events" /
-## "collectibles" / "travel" / "road_labels" (bools, the shipped all-on defaults)
-## plus "region" (String substring on the POI's stage name, "" = any). Only the
-## keys present are touched, so a partial update never silently resets another
-## gate. Marks the map dirty and queues a redraw, so the dot set is rebuilt
-## against the active gates on the next draw pass (headless gates call
-## _rebuild() directly).
+## "collectibles" / "travel" / "road_labels" / "rivals" (bools, the shipped
+## all-on defaults) plus "region" (String substring on the POI's stage name,
+## "" = any). Only the keys present are touched, so a partial update never
+## silently resets another gate. Marks the map dirty and queues a redraw, so the
+## dot set is rebuilt against the active gates on the next draw pass (headless
+## gates call _rebuild() directly).
 func set_category_filters(flags: Dictionary) -> void:
 	if flags.has("pois"):
 		show_pois = bool(flags["pois"])
@@ -177,6 +196,8 @@ func set_category_filters(flags: Dictionary) -> void:
 		show_collectibles = bool(flags["collectibles"])
 	if flags.has("travel"):
 		show_travel = bool(flags["travel"])
+	if flags.has("rivals"):
+		show_rivals = bool(flags["rivals"])
 	if flags.has("road_labels"):
 		show_road_labels = bool(flags["road_labels"])
 	if flags.has("region"):
@@ -193,6 +214,7 @@ func reset_category_filters() -> void:
 		"collectibles": true,
 		"travel": true,
 		"road_labels": true,
+		"rivals": true,
 		"region": "",
 	})
 
@@ -244,11 +266,19 @@ func _ready() -> void:
 	# player marker's halo pulse stays alive on screen.
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
-## Animates the player marker's halo while the pause map is open. Redraws are
-## throttled to MapRoads.MARKER_PULSE_STEP so the pulse stays alive without
-## re-running the full cached terrain draw every frame.
+## Animates the player marker's halo while the pause map is open and keeps the
+## LIVE rival blips current. Redraws are throttled to MapRoads.MARKER_PULSE_STEP
+## so the pulse stays alive without re-running the full cached terrain draw every
+## frame; a roster that actually moved re-queues a draw on top of that.
 func _process(delta: float) -> void:
-	if not _has_player or not is_visible_in_tree():
+	if not is_visible_in_tree():
+		return
+	var rival_sig := _roster_signature() if show_rivals else ""
+	var rivals_moved := rival_sig != _last_rival_sig
+	_last_rival_sig = rival_sig
+	if rivals_moved:
+		queue_redraw()
+	if not _has_player:
 		return
 	_pulse_time += delta
 	var tick := int(_pulse_time / MapRoads.MARKER_PULSE_STEP)
@@ -289,6 +319,14 @@ func _draw() -> void:
 	_draw_road_labels()
 	for entry in _poi_entries:
 		_draw_poi(entry["screen"], entry["poi"])
+	# Live rival blips: read from the CURRENT roster on every pass (never cached
+	# with the content above), drawn under the player marker so the player still
+	# reads as the most obvious object on the map.
+	for entry in rival_blips():
+		var blip: Dictionary = entry
+		var screen: Vector2 = blip["screen"]
+		var angle := float(blip["angle"])
+		MapRoads.draw_rival_blip(self, screen, angle)
 	if _has_player:
 		# The player has no reveal gate: draw the chevron over everything (it is
 		# always known, so it must be the most obvious thing on the map).
@@ -300,6 +338,36 @@ func _draw() -> void:
 func _draw_road_path(path: PackedVector2Array, color: Color, width: float) -> void:
 	draw_polyline(path, ROAD_CASING, width + 2.5)
 	draw_polyline(path, color, width)
+
+## The live rival blips in screen space ({"screen": Vector2, "angle": float}),
+## recomputed from the CURRENT roster on every draw pass: the fit is cached, the
+## cars are not. Public so the headless gate can assert the projection (same
+## world_to_screen as the roads), the heading angle and the empty-roster skip
+## without a render pass. No fit yet, no roster, or show_rivals off => [].
+func rival_blips() -> Array:
+	var out: Array = []
+	if not show_rivals or _fit.is_empty():
+		return out
+	for entry in MapRoads.rival_entries(MapRoads.live_rivals(rival_source)):
+		var world_pos: Vector3 = entry["position"]
+		out.append({
+			"screen": MapRoads.world_to_screen(world_pos, _fit),
+			"angle": MapRoads.marker_world_angle(entry["facing"] as Vector3),
+		})
+	return out
+
+## Cheap "did any rival move" signature: roster size plus each blip's
+## metre-rounded XZ, the same trick MapRoads.signature() uses for roads. Rounding
+## to whole metres is what keeps a parked field from re-queueing the full cached
+## terrain draw every frame while a moving one still updates immediately.
+func _roster_signature() -> String:
+	var parts := PackedStringArray()
+	var cars := MapRoads.live_rivals(rival_source)
+	parts.append(str(cars.size()))
+	for entry in MapRoads.rival_entries(cars):
+		var p: Vector3 = entry["position"]
+		parts.append("%d,%d" % [roundi(p.x), roundi(p.z)])
+	return "|".join(parts)
 
 ## Draws the placed road names (see place_road_labels). Each name is centred on
 ## its own road, rotated to that road's screen angle so the text follows the

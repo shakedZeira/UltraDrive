@@ -3,7 +3,8 @@ extends GdUnitTestSuite
 
 ## CarVisuals runtime paint-override coverage: DEFAULT_PAINT sanity, the
 ## recursive tree walk across a two-level hierarchy, per-part matching
-## (paint/glass/rim/tire/trim/graphite), rally clearcoat forcing and unknown
+## (paint/glass/rim/tire/trim/graphite), the two-band paint roughness split
+## (primary panels vs secondary aero), rally clearcoat forcing and unknown
 ## materials left untouched. Fully manual node construction — no scene or GLB
 ## instantiation (fast, deterministic, leak-free).
 
@@ -49,10 +50,11 @@ func test_apply_paint_on_two_level_tree_applies_clearcoat_paint_and_glass() -> v
 
 	var paint_override: StandardMaterial3D = body_mi.get_surface_override_material(0) as StandardMaterial3D
 	assert_that(paint_override).is_not_null()
-	assert_that(paint_override.metallic).is_equal_approx(0.25, 0.001)
-	assert_that(paint_override.roughness).is_equal_approx(0.35, 0.001)
+	assert_that(paint_override.metallic).is_equal_approx(0.5, 0.001)
+	assert_that(paint_override.roughness).is_equal_approx(0.25, 0.001)
+	assert_that(paint_override.metallic_specular).is_equal_approx(0.75, 0.001)
 	assert_that(paint_override.clearcoat).is_equal_approx(1.0, 0.001)
-	assert_that(paint_override.clearcoat_roughness).is_equal_approx(0.08, 0.001)
+	assert_that(paint_override.clearcoat_roughness).is_equal_approx(0.04, 0.001)
 	assert_that(paint_override.clearcoat_enabled).is_true()
 	assert_that(paint_override.albedo_color).is_equal(Color(1.0, 0.2, 0.2, 1.0))
 
@@ -111,9 +113,9 @@ func test_apply_paint_forces_clearcoat_on_rally_paint() -> void:
 	assert_that(override).is_not_null()
 	assert_that(override.clearcoat_enabled).is_true()
 	assert_that(override.clearcoat).is_equal_approx(1.0, 0.001)
-	assert_that(override.clearcoat_roughness).is_equal_approx(0.08, 0.001)
-	assert_that(override.metallic).is_equal_approx(0.25, 0.001)
-	assert_that(override.roughness).is_equal_approx(0.35, 0.001)
+	assert_that(override.clearcoat_roughness).is_equal_approx(0.04, 0.001)
+	assert_that(override.metallic).is_equal_approx(0.5, 0.001)
+	assert_that(override.roughness).is_equal_approx(0.25, 0.001)
 	assert_that(paint.clearcoat_enabled).is_false()
 
 func test_apply_paint_leaves_unknown_materials_untouched() -> void:
@@ -142,27 +144,32 @@ func test_apply_paint_paints_colormap_cc0_body_and_dark_wheels() -> void:
 	var body_override: StandardMaterial3D = body_mi.get_surface_override_material(0) as StandardMaterial3D
 	assert_that(body_override).is_not_null()
 	assert_that(body_override.albedo_color).is_equal(CarVisuals.PAINT_COLORS["cc0_sedan_sports"])
-	assert_that(body_override.metallic).is_equal_approx(0.25, 0.001)
-	assert_that(body_override.roughness).is_equal_approx(0.35, 0.001)
+	assert_that(body_override.metallic).is_equal_approx(0.5, 0.001)
+	assert_that(body_override.roughness).is_equal_approx(0.25, 0.001)
+	assert_that(body_override.clearcoat_roughness).is_equal_approx(0.04, 0.001)
 	assert_that(body_override.clearcoat_enabled).is_true()
 
 	var spoiler_override: StandardMaterial3D = spoiler_mi.get_surface_override_material(0) as StandardMaterial3D
 	assert_that(spoiler_override).is_not_null()
 	assert_that(spoiler_override.albedo_color).is_equal(CarVisuals.PAINT_COLORS["cc0_sedan_sports"])
+	assert_that(spoiler_override.metallic).is_equal_approx(0.5, 0.001)
+	assert_that(spoiler_override.roughness).is_equal_approx(0.34, 0.001)
 
 	var wheel_override: StandardMaterial3D = wheel_mi.get_surface_override_material(0) as StandardMaterial3D
 	assert_that(wheel_override).is_not_null()
 	assert_that(wheel_override.albedo_color).is_equal(CarVisuals.CC0_WHEEL_COLOR)
-	assert_that(wheel_override.metallic).is_equal_approx(0.35, 0.001)
-	assert_that(wheel_override.roughness).is_equal_approx(0.4, 0.001)
+	assert_that(wheel_override.metallic).is_equal_approx(0.5, 0.001)
+	assert_that(wheel_override.roughness).is_equal_approx(0.32, 0.001)
 	assert_that(wheel_override.clearcoat_enabled).is_true()
+	assert_that(wheel_override.clearcoat).is_equal_approx(0.85, 0.001)
+	assert_that(wheel_override.rim_enabled).is_true()
 
 func test_paint_profile_for_adds_color_only_for_known_cc0_cars() -> void:
 	var cc0: Dictionary = CarVisuals.paint_profile_for("cc0_race")
 	assert_that(cc0.has("color")).is_true()
 	assert_that(cc0["color"]).is_equal(CarVisuals.PAINT_COLORS["cc0_race"])
 	assert_that(cc0.has("glass_color")).is_true()
-	assert_that(cc0["metallic"]).is_equal_approx(0.25, 0.001)
+	assert_that(cc0["metallic"]).is_equal_approx(0.5, 0.001)
 	var ai: Dictionary = CarVisuals.paint_profile_for("starter_car")
 	assert_that(ai.has("color")).is_false()
 	assert_that(ai.has("glass_color")).is_false()
@@ -170,15 +177,47 @@ func test_paint_profile_for_adds_color_only_for_known_cc0_cars() -> void:
 
 func test_default_paint_profile_values_are_sane() -> void:
 	var profile: Dictionary = CarVisuals.DEFAULT_PAINT
-	assert_that(profile["metallic"]).is_between(0.15, 0.3)
-	assert_that(profile["roughness"]).is_between(0.3, 0.4)
+	assert_that(profile["metallic"]).is_between(0.4, 0.6)
+	assert_that(profile["roughness"]).is_between(0.2, 0.3)
+	assert_that(profile["roughness_secondary"]).is_between(0.3, 0.4)
+	assert_that(profile["roughness_secondary"]).is_greater(profile["roughness"])
 	assert_that(profile["clearcoat"]).is_equal_approx(1.0, 0.001)
-	assert_that(profile["clearcoat_roughness"]).is_less_equal(0.1)
+	assert_that(profile["clearcoat_roughness"]).is_less_equal(0.05)
+	assert_that(profile["metallic_specular"]).is_equal_approx(0.75, 0.001)
 	assert_that(profile["rim"]).is_between(0.1, 0.3)
 	assert_that(profile["rim_tint"]).is_between(0.0, 1.0)
 	assert_that(profile["glass_metallic"]).is_equal_approx(0.9, 0.001)
 	assert_that(profile["glass_roughness"]).is_less_equal(0.1)
 	assert_that(profile["tail_emission_strength"]).is_greater_equal(5.0)
+
+func test_paint_roughness_splits_primary_panels_from_secondary_bodywork() -> void:
+	assert_that(CarVisuals.paint_roughness_for(CarVisuals.DEFAULT_PAINT, "body")).is_equal_approx(0.25, 0.001)
+	assert_that(CarVisuals.paint_roughness_for(CarVisuals.DEFAULT_PAINT, "Paint")).is_equal_approx(0.25, 0.001)
+	assert_that(CarVisuals.paint_roughness_for(CarVisuals.DEFAULT_PAINT, "spoiler")).is_equal_approx(0.34, 0.001)
+	assert_that(CarVisuals.paint_roughness_for(CarVisuals.DEFAULT_PAINT, "Rear Bumper")).is_equal_approx(0.34, 0.001)
+	var no_secondary: Dictionary = CarVisuals.DEFAULT_PAINT.duplicate()
+	no_secondary.erase("roughness_secondary")
+	assert_that(CarVisuals.paint_roughness_for(no_secondary, "spoiler")).is_equal_approx(0.25, 0.001)
+
+func test_apply_paint_splits_roughness_between_body_and_spoiler() -> void:
+	var root := _new_root()
+	var body_mi := _new_mesh_instance(StandardMaterial3D.new(), "colormap")
+	body_mi.name = "body"
+	root.add_child(body_mi)
+	var spoiler_mi := _new_mesh_instance(StandardMaterial3D.new(), "colormap")
+	spoiler_mi.name = "spoiler"
+	root.add_child(spoiler_mi)
+
+	CarVisuals.apply_paint(root, CarVisuals.paint_profile_for("cc0_sedan_sports"))
+
+	var body_override: StandardMaterial3D = body_mi.get_surface_override_material(0) as StandardMaterial3D
+	assert_that(body_override).is_not_null()
+	assert_that(body_override.roughness).is_equal_approx(0.25, 0.001)
+	var spoiler_override: StandardMaterial3D = spoiler_mi.get_surface_override_material(0) as StandardMaterial3D
+	assert_that(spoiler_override).is_not_null()
+	assert_that(spoiler_override.roughness).is_equal_approx(0.34, 0.001)
+	assert_that(spoiler_override.metallic).is_equal_approx(body_override.metallic, 0.001)
+	assert_that(spoiler_override.clearcoat_roughness).is_equal_approx(body_override.clearcoat_roughness, 0.001)
 
 func test_paint_surface_count_reports_set_overrides() -> void:
 	var root := _new_root()

@@ -1,0 +1,82 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+nissan_gt-r_r35_2017  visible=true
+  Body  MESH surfaces=1 [0:CarPaint a=1.00 tr=0]  visible=true
+  Glass  MESH surfaces=1 [0:Glass a=1.00 tr=0]  visible=true
+  Wheel_FL  visible=true
+    BrakeDisc_FL  MESH surfaces=1 [0:BrakeDisc a=1.00 tr=0]  visible=true
+    HubCap_FL  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Rim_FL  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_FL_0  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_FL_1  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_FL_2  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_FL_3  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_FL_4  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Tyre_FL  MESH surfaces=1 [0:Tyre a=1.00 tr=0]  visible=true
+  Wheel_FR  visible=true
+    BrakeDisc_FR  MESH surfaces=1 [0:BrakeDisc a=1.00 tr=0]  visible=true
+    HubCap_FR  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Rim_FR  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_FR_0  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_FR_1  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_FR_2  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_FR_3  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_FR_4  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Tyre_FR  MESH surfaces=1 [0:Tyre a=1.00 tr=0]  visible=true
+  Wheel_RL  visible=true
+    BrakeDisc_RL  MESH surfaces=1 [0:BrakeDisc a=1.00 tr=0]  visible=true
+    HubCap_RL  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Rim_RL  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_RL_0  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_RL_1  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_RL_2  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_RL_3  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_RL_4  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Tyre_RL  MESH surfaces=1 [0:Tyre a=1.00 tr=0]  visible=true
+  Wheel_RR  visible=true
+    BrakeDisc_RR  MESH surfaces=1 [0:BrakeDisc a=1.00 tr=0]  visible=true
+    HubCap_RR  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Rim_RR  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_RR_0  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_RR_1  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_RR_2  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_RR_3  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Spoke_RR_4  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+    Tyre_RR  MESH surfaces=1 [0:Tyre a=1.00 tr=0]  visible=true
+  Windscreen  MESH surfaces=1 [0:Glass a=1.00 tr=0]  visible=true
+  Shoulder_L  MESH surfaces=1 [0:CarPaint a=1.00 tr=0]  visible=true
+  Shoulder_R  MESH surfaces=1 [0:CarPaint a=1.00 tr=0]  visible=true
+  GlassFastback  MESH surfaces=1 [0:Glass a=1.00 tr=0]  visible=true
+  Caliper_FL  MESH surfaces=1 [0:Caliper a=1.00 tr=0]  visible=true
+  Caliper_FR  MESH surfaces=1 [0:Caliper a=1.00 tr=0]  visible=true
+  Caliper_RL  MESH surfaces=1 [0:Caliper a=1.00 tr=0]  visible=true
+  Caliper_RR  MESH surfaces=1 [0:Caliper a=1.00 tr=0]  visible=true
+  Headlight_L  MESH surfaces=1 [0:Headlight a=1.00 tr=0]  visible=true
+  Taillight_L  MESH surfaces=1 [0:Taillight a=1.00 tr=0]  visible=true
+  Headlight_R  MESH surfaces=1 [0:Headlight a=1.00 tr=0]  visible=true
+  Taillight_R  MESH surfaces=1 [0:Taillight a=1.00 tr=0]  visible=true
+  MirrorArm_L  MESH surfaces=1 [0:CarPaint a=1.00 tr=0]  visible=true
+  Mirror_L  MESH surfaces=1 [0:CarPaint a=1.00 tr=0]  visible=true
+  MirrorArm_R  MESH surfaces=1 [0:CarPaint a=1.00 tr=0]  visible=true
+  Mirror_R  MESH surfaces=1 [0:CarPaint a=1.00 tr=0]  visible=true
+  FrontIntake  MESH surfaces=1 [0:DarkTrim a=1.00 tr=0]  visible=true
+  UpperGrille  MESH surfaces=1 [0:DarkTrim a=1.00 tr=0]  visible=true
+  IntakeCorner_L  MESH surfaces=1 [0:DarkTrim a=1.00 tr=0]  visible=true
+  IntakeCorner_R  MESH surfaces=1 [0:DarkTrim a=1.00 tr=0]  visible=true
+  FrontSplitter  MESH surfaces=1 [0:DarkTrim a=1.00 tr=0]  visible=true
+  HoodVent_L  MESH surfaces=1 [0:DarkTrim a=1.00 tr=0]  visible=true
+  HoodVent_R  MESH surfaces=1 [0:DarkTrim a=1.00 tr=0]  visible=true
+  SideVent_L  MESH surfaces=1 [0:DarkTrim a=1.00 tr=0]  visible=true
+  SideVent_R  MESH surfaces=1 [0:DarkTrim a=1.00 tr=0]  visible=true
+  RearWing  MESH surfaces=1 [0:CarPaint a=1.00 tr=0]  visible=true
+  RearWingPost_L  MESH surfaces=1 [0:DarkTrim a=1.00 tr=0]  visible=true
+  RearWingPost_R  MESH surfaces=1 [0:DarkTrim a=1.00 tr=0]  visible=true
+  Exhaust_L1  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+  Exhaust_L2  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+  Exhaust_R1  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+  Exhaust_R2  MESH surfaces=1 [0:Rim a=1.00 tr=0]  visible=true
+  Diffuser  MESH surfaces=1 [0:DarkTrim a=1.00 tr=0]  visible=true
+  DiffuserFin_10  MESH surfaces=1 [0:DarkTrim a=1.00 tr=0]  visible=true
+  DiffuserFin_30  MESH surfaces=1 [0:DarkTrim a=1.00 tr=0]  visible=true
+  DiffuserFin_50  MESH surfaces=1 [0:DarkTrim a=1.00 tr=0]  visible=true
+  DiffuserFin_70  MESH surfaces=1 [0:DarkTrim a=1.00 tr=0]  visible=true

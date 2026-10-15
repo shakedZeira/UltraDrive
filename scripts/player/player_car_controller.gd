@@ -31,6 +31,7 @@ func _ready() -> void:
 			var tuned := garage.get_car_overrides(active)
 			car.config = base.with_overrides(tuned) if not tuned.is_empty() else base
 	_apply_visual()
+	_refresh_interior()
 
 ## The car is freed on scene swaps but VehicleManager keeps stale refs (its
 ## remove_car() had no callers), so all_cars/player_car could point at a freed
@@ -232,6 +233,17 @@ func _apply_visual() -> void:
 	_cache_visuals(instance)
 	_ensure_car_probe(body)
 	_ensure_night_lamps(body)
+
+## Rebuilds the CockpitRig interior AFTER this controller swaps car.config to
+## the garage's active car. _ready() order in player_car.tscn puts the rig's own
+## _ready BEFORE this controller's (child-first), so without this the rig would
+## build against the scene's default starter_car.tres (no interior) and never
+## reload for the R35 / any future interior-carrying car. No-op when the rig is
+## absent or exposes no rebuild seam.
+func _refresh_interior() -> void:
+	var rig := get_parent().get_node_or_null("CockpitRig") as Node
+	if rig != null and rig.has_method("rebuild_interior"):
+		rig.call("rebuild_interior")
 
 func _cache_visuals(instance: Node3D) -> void:
 	_visual_wheels = CarVisuals.resolve_wheel_nodes(instance, _car_id)

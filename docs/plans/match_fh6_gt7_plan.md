@@ -648,6 +648,8 @@ Following item shipping per sprints, each with its own sub-agent + parent re-ver
 - [ ] S11 economy  [x] S12 weather [ ] S13 garage      [ ] S14 hood cam  [ ] S15 a11y
 - [ ] S16 perf bar [ ] S17 P2 sink
 
+**2026-10-15 — S5 Race-rival AI (production roster).** GameState.opponents (0–7) and ai_difficulty (Novice/Skilled/Expert) drive `RaceManager.configure_default_rivals` (deterministic tier spread around anchor; slot 0 = anchor). `race_ui.gd` calls it only when the roster is empty (guards manual/explicit rosters). Grid placed in track frame via `NorthernIsleLayout.WIDTH*0.5` (tangent-aligned, right-offset; heading fallback when no centerline). AIController: normalized convergent steering (fixed unnormalized-cross saturation causing stall) and first waypoint seeded at each car's nearest centerline index. Cross-race leak fixed: `clear_rival_config()` frees spawned rivals (`remove_child` + `queue_free`), dropping stale roster/centerline/personas. `test_rival_ai.gd` (14) reworked to on-road contract; new `test_race_rivals.gd` (6) covers default builder, NI integration, leak prevention, and a bounded physics-frame drive probe (10.2–10.5 m/s over 300 physics frames, lateral on-road). Targeted 12-suite gate: 111/111, 0 errors, 0 failures, 1min 38s. Falsification: legacy world-axis grid produced tangent dot ≈0 vs >0.9 and off-road lateral on NI. ([ROADMAP.md §1.6](../ROADMAP.md#16-ai-racing-depth-shipped))
+
 **Shipped 2026-09-19 — S8 Vehicle FX particles.** Suite `test_vehicle_fx.gd` (12 tests):
 `scripts/vehicle/vehicle_fx.gd` (`class_name VehicleFX`, pooled `GPUParticles3D` layer —
 smoke/dust/sparks/flame, `EMITTER_COUNT` 4, per-channel amount caps, `_ready` headless

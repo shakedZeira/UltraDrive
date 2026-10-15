@@ -1,0 +1,616 @@
+[gd_scene load_steps=69 format=3]
+
+[sub_resource type="StandardMaterial3D" id="mat_interior"]
+albedo_color = Color(0.1, 0.1, 0.13, 1)
+roughness = 0.92
+emission_enabled = true
+emission = Color(0.1, 0.1, 0.13, 1)
+emission_energy_multiplier = 0.15
+
+[sub_resource type="StandardMaterial3D" id="mat_leather"]
+albedo_color = Color(0.055, 0.055, 0.062, 1)
+roughness = 0.7
+emission_enabled = true
+emission = Color(0.055, 0.055, 0.062, 1)
+emission_energy_multiplier = 0.15
+
+[sub_resource type="StandardMaterial3D" id="mat_alcantara"]
+albedo_color = Color(0.042, 0.042, 0.05, 1)
+roughness = 0.95
+metallic_specular = 0.2
+emission_enabled = true
+emission = Color(0.042, 0.042, 0.05, 1)
+emission_energy_multiplier = 0.15
+
+[sub_resource type="StandardMaterial3D" id="mat_carbon"]
+albedo_color = Color(0.028, 0.028, 0.034, 1)
+roughness = 0.28
+metallic = 0.35
+emission_enabled = true
+emission = Color(0.028, 0.028, 0.034, 1)
+emission_energy_multiplier = 0.15
+
+[sub_resource type="StandardMaterial3D" id="mat_metal"]
+albedo_color = Color(0.5, 0.5, 0.53, 1)
+roughness = 0.3
+metallic = 0.85
+emission_enabled = true
+emission = Color(0.5, 0.5, 0.53, 1)
+emission_energy_multiplier = 0.15
+
+[sub_resource type="StandardMaterial3D" id="mat_stitch"]
+albedo_color = Color(0.45, 0.05, 0.04, 1)
+roughness = 0.5
+emission_enabled = true
+emission = Color(0.9, 0.1, 0.07, 1)
+emission_energy_multiplier = 0.4
+
+[sub_resource type="StandardMaterial3D" id="mat_start"]
+albedo_color = Color(0.5, 0.05, 0.04, 1)
+roughness = 0.4
+emission_enabled = true
+emission = Color(1, 0.14, 0.09, 1)
+emission_energy_multiplier = 0.5
+
+[sub_resource type="StandardMaterial3D" id="mat_mfd"]
+albedo_color = Color(0.015, 0.02, 0.03, 1)
+roughness = 0.35
+emission_enabled = true
+emission = Color(0.22, 0.5, 0.85, 1)
+emission_energy_multiplier = 0.3
+
+[sub_resource type="StandardMaterial3D" id="mat_nav"]
+albedo_color = Color(0.015, 0.02, 0.028, 1)
+roughness = 0.35
+emission_enabled = true
+emission = Color(0.3, 0.45, 0.7, 1)
+emission_energy_multiplier = 0.3
+
+[sub_resource type="StandardMaterial3D" id="mat_pad_amber"]
+albedo_color = Color(0.34, 0.24, 0.17, 1)
+roughness = 0.72
+emission_enabled = true
+emission = Color(0.12, 0.08, 0.055, 1)
+emission_energy_multiplier = 0.2
+
+[sub_resource type="StandardMaterial3D" id="mat_pad_black"]
+albedo_color = Color(0.075, 0.075, 0.085, 1)
+roughness = 0.85
+emission_enabled = true
+emission = Color(0.075, 0.075, 0.085, 1)
+emission_energy_multiplier = 0.15
+
+[sub_resource type="StandardMaterial3D" id="mat_hub"]
+albedo_color = Color(0.09, 0.09, 0.11, 1)
+roughness = 0.65
+emission_enabled = true
+emission = Color(0.09, 0.09, 0.11, 1)
+emission_energy_multiplier = 0.15
+
+[sub_resource type="BoxMesh" id="mesh_dash_pad"]
+size = Vector3(1.2, 0.08, 0.5)
+material = SubResource("mat_pad_amber")
+
+[sub_resource type="BoxMesh" id="mesh_dash_body"]
+size = Vector3(1.2, 0.22, 0.4)
+material = SubResource("mat_pad_black")
+
+[sub_resource type="BoxMesh" id="mesh_cowl"]
+size = Vector3(0.64, 0.08, 0.46)
+material = SubResource("mat_alcantara")
+
+[sub_resource type="BoxMesh" id="mesh_binnacle_back"]
+size = Vector3(0.68, 0.36, 0.07)
+material = SubResource("mat_pad_black")
+
+[sub_resource type="BoxMesh" id="mesh_pillar"]
+size = Vector3(0.07, 0.85, 0.09)
+material = SubResource("mat_interior")
+
+[sub_resource type="BoxMesh" id="mesh_header"]
+size = Vector3(1.5, 0.09, 0.28)
+material = SubResource("mat_interior")
+
+[sub_resource type="BoxMesh" id="mesh_doorcard"]
+size = Vector3(0.06, 0.55, 0.95)
+material = SubResource("mat_pad_black")
+
+[sub_resource type="BoxMesh" id="mesh_doorcard_amber"]
+size = Vector3(0.065, 0.18, 0.8)
+material = SubResource("mat_pad_amber")
+
+[sub_resource type="BoxMesh" id="mesh_armrest"]
+size = Vector3(0.1, 0.1, 0.5)
+material = SubResource("mat_pad_amber")
+
+[sub_resource type="BoxMesh" id="mesh_riser"]
+size = Vector3(0.32, 0.4, 0.3)
+material = SubResource("mat_carbon")
+
+[sub_resource type="CylinderMesh" id="mesh_hub"]
+top_radius = 0.06
+bottom_radius = 0.06
+height = 0.03
+material = SubResource("mat_hub")
+
+[sub_resource type="BoxMesh" id="mesh_spoke"]
+size = Vector3(0.3, 0.02, 0.012)
+material = SubResource("mat_interior")
+
+[sub_resource type="BoxMesh" id="mesh_paddle"]
+size = Vector3(0.06, 0.022, 0.16)
+material = SubResource("mat_interior")
+
+[sub_resource type="BoxMesh" id="mesh_column"]
+size = Vector3(0.07, 0.5, 0.07)
+material = SubResource("mat_interior")
+
+[sub_resource type="TorusMesh" id="mesh_wheel"]
+inner_radius = 0.1
+outer_radius = 0.18
+rings = 16
+ring_segments = 32
+material = SubResource("mat_interior")
+
+[sub_resource type="StandardMaterial3D" id="mat_tach"]
+albedo_color = Color(0.03, 0.015, 0.02, 1)
+roughness = 0.55
+emission_enabled = true
+emission = Color(0.2, 0.03, 0.02, 1)
+emission_energy_multiplier = 0.25
+
+[sub_resource type="StandardMaterial3D" id="mat_dial"]
+albedo_color = Color(0.03, 0.03, 0.045, 1)
+roughness = 0.7
+emission_enabled = true
+emission = Color(0.06, 0.08, 0.11, 1)
+emission_energy_multiplier = 0.25
+
+[sub_resource type="StandardMaterial3D" id="mat_shift"]
+albedo_color = Color(0.2, 0.03, 0.02, 1)
+roughness = 0.5
+emission_enabled = true
+emission = Color(0.35, 0.06, 0.04, 1)
+emission_energy_multiplier = 0.15
+
+[sub_resource type="StandardMaterial3D" id="mat_needle"]
+albedo_color = Color(0.95, 0.2, 0.12, 1)
+roughness = 0.4
+emission_enabled = true
+emission = Color(0.9, 0.2, 0.1, 1)
+emission_energy_multiplier = 0.4
+
+[sub_resource type="StandardMaterial3D" id="mat_badge"]
+albedo_color = Color(0.86, 0.86, 0.88, 1)
+roughness = 0.45
+metallic = 0.6
+
+[sub_resource type="QuadMesh" id="mesh_face_tach"]
+size = Vector2(0.15, 0.15)
+material = SubResource("mat_tach")
+
+[sub_resource type="QuadMesh" id="mesh_face_speed"]
+size = Vector2(0.13, 0.13)
+material = SubResource("mat_dial")
+
+[sub_resource type="QuadMesh" id="mesh_strip"]
+size = Vector2(0.085, 0.012)
+material = SubResource("mat_shift")
+
+[sub_resource type="BoxMesh" id="mesh_needle"]
+size = Vector3(0.007, 0.058, 0.004)
+material = SubResource("mat_needle")
+
+[sub_resource type="BoxMesh" id="mesh_needle_speed"]
+size = Vector3(0.006, 0.05, 0.004)
+material = SubResource("mat_needle")
+
+[sub_resource type="CylinderMesh" id="mesh_badge"]
+top_radius = 0.03
+bottom_radius = 0.03
+height = 0.008
+material = SubResource("mat_badge")
+
+[sub_resource type="BoxMesh" id="mesh_flat"]
+size = Vector3(0.22, 0.02, 0.02)
+material = SubResource("mat_interior")
+
+[sub_resource type="QuadMesh" id="mesh_screen_mfd"]
+size = Vector2(0.19, 0.12)
+material = SubResource("mat_mfd")
+
+[sub_resource type="QuadMesh" id="mesh_screen_nav"]
+size = Vector2(0.16, 0.12)
+material = SubResource("mat_nav")
+
+[sub_resource type="BoxMesh" id="mesh_console"]
+size = Vector3(0.32, 0.06, 0.56)
+material = SubResource("mat_carbon")
+
+[sub_resource type="BoxMesh" id="mesh_tunnel"]
+size = Vector3(0.26, 0.3, 0.9)
+material = SubResource("mat_pad_black")
+
+[sub_resource type="BoxMesh" id="mesh_tunnel_amber"]
+size = Vector3(0.28, 0.06, 0.7)
+material = SubResource("mat_pad_amber")
+
+[sub_resource type="BoxMesh" id="mesh_surround"]
+size = Vector3(0.24, 0.03, 0.28)
+material = SubResource("mat_metal")
+
+[sub_resource type="BoxMesh" id="mesh_inset"]
+size = Vector3(0.2, 0.03, 0.24)
+material = SubResource("mat_carbon")
+
+[sub_resource type="BoxMesh" id="mesh_selector"]
+size = Vector3(0.045, 0.015, 0.045)
+material = SubResource("mat_dial")
+
+[sub_resource type="CylinderMesh" id="mesh_start"]
+top_radius = 0.017
+bottom_radius = 0.017
+height = 0.012
+material = SubResource("mat_start")
+
+[sub_resource type="TorusMesh" id="mesh_start_ring"]
+inner_radius = 0.018
+outer_radius = 0.024
+rings = 16
+ring_segments = 16
+material = SubResource("mat_stitch")
+
+[sub_resource type="CylinderMesh" id="mesh_dial"]
+top_radius = 0.026
+bottom_radius = 0.026
+height = 0.022
+material = SubResource("mat_metal")
+
+[sub_resource type="BoxMesh" id="mesh_stitch_door"]
+size = Vector3(0.01, 0.008, 0.8)
+material = SubResource("mat_stitch")
+
+[sub_resource type="BoxMesh" id="mesh_stitch_console"]
+size = Vector3(0.006, 0.008, 0.46)
+material = SubResource("mat_stitch")
+
+[sub_resource type="TorusMesh" id="mesh_vent"]
+inner_radius = 0.06
+outer_radius = 0.075
+rings = 14
+ring_segments = 20
+material = SubResource("mat_metal")
+
+[sub_resource type="CylinderMesh" id="mesh_vent_puck"]
+top_radius = 0.06
+bottom_radius = 0.06
+height = 0.008
+material = SubResource("mat_pad_black")
+
+[sub_resource type="BoxMesh" id="mesh_vent_ring_shell"]
+size = Vector3(0.17, 0.17, 0.04)
+material = SubResource("mat_interior")
+
+[sub_resource type="TorusMesh" id="mesh_bezel"]
+inner_radius = 0.1
+outer_radius = 0.11
+rings = 16
+ring_segments = 28
+material = SubResource("mat_metal")
+
+[node name="NissanGTR35Cockpit" type="Node3D"]
+
+[node name="DashPad" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.24, -0.8)
+mesh = SubResource("mesh_dash_pad")
+cast_shadow = 0
+
+[node name="Dash" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.42, -0.72)
+mesh = SubResource("mesh_dash_body")
+cast_shadow = 0
+
+[node name="BinnacleHood" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.93937, 0.3429, 0, -0.3429, 0.93937, 0, 0.15, -0.82)
+mesh = SubResource("mesh_cowl")
+cast_shadow = 0
+
+[node name="BinnacleBack" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.04, -0.9)
+mesh = SubResource("mesh_binnacle_back")
+cast_shadow = 0
+
+[node name="GaugeRPM" type="Node3D" parent="."]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 0.02, -0.06, -0.7)
+
+[node name="TachFace" type="MeshInstance3D" parent="GaugeRPM"]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, 0.006, 0, 0)
+mesh = SubResource("mesh_face_tach")
+cast_shadow = 0
+
+[node name="ShiftLightStrip" type="MeshInstance3D" parent="GaugeRPM"]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, 0.008, 0.048, 0)
+mesh = SubResource("mesh_strip")
+cast_shadow = 0
+
+[node name="Bezel" type="MeshInstance3D" parent="GaugeRPM"]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, 0.006, 0, 0)
+mesh = SubResource("mesh_bezel")
+cast_shadow = 0
+
+[node name="Needle" type="Node3D" parent="GaugeRPM"]
+
+[node name="Blade" type="MeshInstance3D" parent="GaugeRPM/Needle"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.028, 0)
+mesh = SubResource("mesh_needle")
+cast_shadow = 0
+
+[node name="GaugeSpeed" type="Node3D" parent="."]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -0.17, -0.06, -0.7)
+
+[node name="SpeedoFace" type="MeshInstance3D" parent="GaugeSpeed"]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, 0.006, 0, 0)
+mesh = SubResource("mesh_face_speed")
+cast_shadow = 0
+
+[node name="Bezel" type="MeshInstance3D" parent="GaugeSpeed"]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, 0.006, 0, 0)
+mesh = SubResource("mesh_bezel")
+cast_shadow = 0
+
+[node name="Needle" type="Node3D" parent="GaugeSpeed"]
+
+[node name="Blade" type="MeshInstance3D" parent="GaugeSpeed/Needle"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.021, 0)
+mesh = SubResource("mesh_needle_speed")
+cast_shadow = 0
+
+[node name="GaugeMFD" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.29, -0.1, -0.6)
+
+[node name="MFDScreen" type="MeshInstance3D" parent="GaugeMFD"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.12)
+mesh = SubResource("mesh_screen_mfd")
+cast_shadow = 0
+
+[node name="SeatRoot" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.32, 0.05)
+
+[node name="APillarLeft" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.994522, 0.104528, 0, -0.088645, 0.843402, 0.529919, 0.055392, -0.527016, 0.848048, 0.58, 0.14, -0.82)
+mesh = SubResource("mesh_pillar")
+cast_shadow = 0
+
+[node name="APillarRight" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.994522, -0.104528, 0, 0.088645, 0.843402, 0.529919, -0.055392, -0.527016, 0.848048, -0.58, 0.14, -0.82)
+mesh = SubResource("mesh_pillar")
+cast_shadow = 0
+
+[node name="HeaderBar" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.62, -0.86)
+mesh = SubResource("mesh_header")
+cast_shadow = 0
+
+[node name="DoorCardLeft" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.76, -0.28, -0.12)
+mesh = SubResource("mesh_doorcard")
+cast_shadow = 0
+
+[node name="DoorCardRight" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.76, -0.28, -0.12)
+mesh = SubResource("mesh_doorcard")
+cast_shadow = 0
+
+[node name="DoorCardLeftAmber" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.765, -0.16, -0.12)
+mesh = SubResource("mesh_doorcard_amber")
+cast_shadow = 0
+
+[node name="DoorCardRightAmber" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.765, -0.16, -0.12)
+mesh = SubResource("mesh_doorcard_amber")
+cast_shadow = 0
+
+[node name="ArmrestLeft" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.7, -0.36, -0.06)
+mesh = SubResource("mesh_armrest")
+cast_shadow = 0
+
+[node name="ArmrestRight" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.7, -0.36, -0.06)
+mesh = SubResource("mesh_armrest")
+cast_shadow = 0
+
+[node name="CentreStackRiser" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.99619, 0, 0.087156, 0, 1, 0, -0.087156, 0, 0.99619, 0.3, -0.22, -0.62)
+mesh = SubResource("mesh_riser")
+cast_shadow = 0
+
+[node name="MfdFrame" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.29, -0.1, -0.625)
+mesh = SubResource("mesh_surround")
+cast_shadow = 0
+
+[node name="NavScreen" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.29, -0.26, -0.44)
+mesh = SubResource("mesh_screen_nav")
+cast_shadow = 0
+
+[node name="SteeringWheel" type="MeshInstance3D" parent="."]
+transform = Transform3D(-1, 0, 0, 0, 0.87758, 0.47943, 0, -0.47943, -0.87758, 0, -0.1, -0.46)
+mesh = SubResource("mesh_wheel")
+cast_shadow = 0
+
+[node name="WheelHub" type="MeshInstance3D" parent="SteeringWheel"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 0, 0, 0.004)
+mesh = SubResource("mesh_hub")
+cast_shadow = 0
+
+[node name="SpokeTop" type="MeshInstance3D" parent="SteeringWheel"]
+transform = Transform3D(0.90631, -0.42262, 0, 0.42262, 0.90631, 0, 0, 0, 1, 0, 0.11, 0)
+mesh = SubResource("mesh_spoke")
+cast_shadow = 0
+
+[node name="SpokeLeft" type="MeshInstance3D" parent="SteeringWheel"]
+transform = Transform3D(0.90631, 0.42262, 0, -0.42262, 0.90631, 0, 0, 0, 1, 0.13, -0.09, 0)
+mesh = SubResource("mesh_spoke")
+cast_shadow = 0
+
+[node name="SpokeRight" type="MeshInstance3D" parent="SteeringWheel"]
+transform = Transform3D(0.90631, 0.42262, 0, -0.42262, 0.90631, 0, 0, 0, 1, -0.13, -0.09, 0)
+mesh = SubResource("mesh_spoke")
+cast_shadow = 0
+
+[node name="PaddleLeft" type="MeshInstance3D" parent="SteeringWheel"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.18, 0, 0)
+mesh = SubResource("mesh_paddle")
+cast_shadow = 0
+
+[node name="PaddleRight" type="MeshInstance3D" parent="SteeringWheel"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.18, 0, 0)
+mesh = SubResource("mesh_paddle")
+cast_shadow = 0
+
+[node name="Badge" type="MeshInstance3D" parent="SteeringWheel"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.03, 0.012)
+mesh = SubResource("mesh_badge")
+cast_shadow = 0
+
+[node name="FlatBottom" type="MeshInstance3D" parent="SteeringWheel"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.165)
+mesh = SubResource("mesh_flat")
+cast_shadow = 0
+
+[node name="SteeringColumn" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.28, -0.62)
+mesh = SubResource("mesh_column")
+cast_shadow = 0
+
+[node name="VentLeft" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.4, -0.18, -0.82)
+
+[node name="Ring" type="MeshInstance3D" parent="VentLeft"]
+mesh = SubResource("mesh_vent")
+cast_shadow = 0
+
+[node name="RingShell" type="MeshInstance3D" parent="VentLeft"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.03)
+mesh = SubResource("mesh_vent_ring_shell")
+cast_shadow = 0
+
+[node name="Puck" type="MeshInstance3D" parent="VentLeft"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.012)
+mesh = SubResource("mesh_vent_puck")
+cast_shadow = 0
+
+[node name="VentCentre" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.13, -0.18, -0.84)
+
+[node name="Ring" type="MeshInstance3D" parent="VentCentre"]
+mesh = SubResource("mesh_vent")
+cast_shadow = 0
+
+[node name="RingShell" type="MeshInstance3D" parent="VentCentre"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.03)
+mesh = SubResource("mesh_vent_ring_shell")
+cast_shadow = 0
+
+[node name="Puck" type="MeshInstance3D" parent="VentCentre"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.012)
+mesh = SubResource("mesh_vent_puck")
+cast_shadow = 0
+
+[node name="VentRight" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.16, -0.18, -0.82)
+
+[node name="Ring" type="MeshInstance3D" parent="VentRight"]
+mesh = SubResource("mesh_vent")
+cast_shadow = 0
+
+[node name="RingShell" type="MeshInstance3D" parent="VentRight"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.03)
+mesh = SubResource("mesh_vent_ring_shell")
+cast_shadow = 0
+
+[node name="Puck" type="MeshInstance3D" parent="VentRight"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.012)
+mesh = SubResource("mesh_vent_puck")
+cast_shadow = 0
+
+[node name="CentreConsole" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.3, -0.4, -0.32)
+
+[node name="ConsolePatch" type="MeshInstance3D" parent="CentreConsole"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.05)
+mesh = SubResource("mesh_console")
+cast_shadow = 0
+
+[node name="TransmissionTunnel" type="MeshInstance3D" parent="CentreConsole"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.22, 0.28)
+mesh = SubResource("mesh_tunnel")
+cast_shadow = 0
+
+[node name="TunnelAmber" type="MeshInstance3D" parent="CentreConsole"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.07, 0.28)
+mesh = SubResource("mesh_tunnel_amber")
+cast_shadow = 0
+
+[node name="ShiftSurround" type="MeshInstance3D" parent="CentreConsole"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.045, -0.06)
+mesh = SubResource("mesh_surround")
+cast_shadow = 0
+
+[node name="ShiftInset" type="MeshInstance3D" parent="CentreConsole"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.047, -0.06)
+mesh = SubResource("mesh_inset")
+cast_shadow = 0
+
+[node name="SelectorR" type="MeshInstance3D" parent="CentreConsole"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.06, 0.07, -0.06)
+mesh = SubResource("mesh_selector")
+cast_shadow = 0
+
+[node name="SelectorN" type="MeshInstance3D" parent="CentreConsole"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.07, -0.06)
+mesh = SubResource("mesh_selector")
+cast_shadow = 0
+
+[node name="SelectorD" type="MeshInstance3D" parent="CentreConsole"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.06, 0.07, -0.06)
+mesh = SubResource("mesh_selector")
+cast_shadow = 0
+
+[node name="StartButton" type="MeshInstance3D" parent="CentreConsole"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.06, 0.036, 0.16)
+mesh = SubResource("mesh_start")
+cast_shadow = 0
+
+[node name="StartButtonRing" type="MeshInstance3D" parent="CentreConsole"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.06, 0.033, 0.16)
+mesh = SubResource("mesh_start_ring")
+cast_shadow = 0
+
+[node name="DisplayCommandDial" type="MeshInstance3D" parent="CentreConsole"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.08, 0.041, 0.16)
+mesh = SubResource("mesh_dial")
+cast_shadow = 0
+
+[node name="StitchStripConsole" type="MeshInstance3D" parent="CentreConsole"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.14, 0.034, 0)
+mesh = SubResource("mesh_stitch_console")
+cast_shadow = 0
+
+[node name="StitchStripDoorLeft" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.72, -0.19, -0.12)
+mesh = SubResource("mesh_stitch_door")
+cast_shadow = 0
+
+[node name="StitchStripDoorRight" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.72, -0.19, -0.12)
+mesh = SubResource("mesh_stitch_door")
+cast_shadow = 0
+
+[node name="StitchPad" type="MeshInstance3D" parent="."]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, 0, -0.203, -0.545)
+mesh = SubResource("mesh_stitch_console")
+cast_shadow = 0

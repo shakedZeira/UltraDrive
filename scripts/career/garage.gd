@@ -14,6 +14,7 @@ const STARTER_CARS: Array[String] = [
 	"cc0_sedan_sports",
 	"cc0_hatchback_sports",
 	"cc0_race",
+	"nissan_gt_r35_2017",
 ]
 
 ## Cars that can never be sold off: the free base trio the garage must keep.

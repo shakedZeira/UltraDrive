@@ -483,14 +483,36 @@ must stay green unchanged in every phase. Effort = T-shirt (S/M/L).
 scene file was modified to produce it (verified: read-only survey only). Nothing
 is ticked until a phase's suite is green via the AGENTS.md headless recipe.
 
-- [ ] P0 — `InteriorResource` + `CarConfig.interior` export (null default)
-- [ ] P1 — rig loader + parametric builder + fallback chain
-- [ ] P2 — per-car interior data for the six cars
-- [ ] P3 — dynamic 3D gauges + HUD coupling
-- [ ] P4 — seat-anchor single source + camera interplay audit
-- [ ] P5 — interior scene-override lane (first GLB/authored interior)
+**PARTIALLY EXECUTED 2026-10-09 — P0/P1 and the P5 scene-override lane shipped,
+front-loaded for the Nissan GT-R R35.** The R35 cockpit (an authored
+`interior_scene`) is live via `docs/plans/r35_cockpit_plan.md`, whose P0–P6 are
+all green (full suite `1103 test cases | 0 errors | 0 failures`). Lessons folded
+back here:
+
+- The R35 implied P0 (`InteriorResource` + `CarConfig.interior`) and the
+  `interior_scene` branch of P1 — both now exist in the tree exactly as this plan
+  described (`scripts/vehicle/interior_resource.gd`, `cockpit_rig.gd
+  _load_interior()`). Do NOT re-implement them; build on them.
+- **The `InteriorResource` `.tres` must NOT live in `resources/cars/`.** Two
+  AAA-6 gate suites (`test_car_default_setup.gd`, `test_starter_car_visual.gd`)
+  glob `resources/cars/*.tres` and cast to `CarConfig`; an InteriorResource
+  there loads as nil and turns the gate RED. Ship it under `resources/interiors/`
+  and point `CarConfig.interior` at it.
+- `cockpit_seat_lateral` (float, default 0, applied on `!= 0.0`) is the RHD eye
+  term and the shared seat-anchor convention (`CockpitRig.seat_anchor_for()` is
+  the single static both camera and rig route through). Per-car lateral must go
+  through it, never a camera-private offset.
+
+- [x] P0 — `InteriorResource` + `CarConfig.interior` export (null default) — R35 first
+- [x] P1 — rig loader (interior_scene branch only) + fallback chain
+- [ ] P1b — parametric builder (dash_width/depth …) — not started
+- [ ] P2 — per-car interior data for the other cars
+- [x] P3 — dynamic 3D gauges + HUD coupling (R35: needles + shift lights + `suppress_hud_dash`)
+- [x] P4 — seat-anchor single source + camera interplay (R35: lateral term landed)
+- [x] P5 — interior scene-override lane (R35 authored cockpit first)
 - [ ] P6 — full-suite gate + windowed cockpit captures per car (vision-bridge
-      `capture_game_window` in cockpit mode for geometry/see-through sign-off)
+      `capture_game_window` in cockpit mode for geometry/see-through sign-off) —
+      R35 captures pending
 
 *Plan ends. When adopted, fold P0–P6 into ROADMAP.md as a "Custom interiors"
 item under the believable-garage pillar and note the `InteriorResource` data

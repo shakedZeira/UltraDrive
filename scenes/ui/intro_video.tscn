@@ -1,0 +1,53 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/intro_video.gd" id="1_intro"]
+[ext_resource type="VideoStream" path="res://assets/videos/intro.ogv" id="2_intro_stream"]
+
+[node name="IntroVideo" type="Control"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1_intro")
+
+[node name="Backdrop" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0, 0, 0, 1)
+
+[node name="VideoStreamPlayer" type="VideoStreamPlayer" parent="."]
+mouse_filter = 2
+stream = ExtResource("2_intro_stream")
+autoplay = true
+expand = true
+offset_right = 1920.0
+offset_bottom = 1080.0
+
+[node name="SkipHint" type="Label" parent="."]
+unique_name_in_owner = true
+anchors_preset = 7
+anchor_left = 0.5
+anchor_right = 0.5
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = -260.0
+offset_top = -52.0
+offset_right = 260.0
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.95, 0.96, 0.98, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.6)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 16
+text = "Press any button to skip"
+horizontal_alignment = 1
+vertical_alignment = 1

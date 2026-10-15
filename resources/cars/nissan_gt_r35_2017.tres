@@ -1,0 +1,70 @@
+[gd_resource type="Resource" script_class="CarConfig" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/vehicle/car_config.gd" id="1_script"]
+[ext_resource type="Resource" path="res://resources/interiors/nissan_gt_r35_2017_cockpit.tres" id="2_interior"]
+
+[resource]
+script = ExtResource("1_script")
+car_name = "GT-R R35"
+car_class = "A"
+price = 98000
+visual_path = "res://assets/cars/nissan_gt-r_r35_2017.glb"
+engine_timbre = "gtr"
+engine_bed_set = "gtr"
+mass_kg = 1740.0
+wheelbase = 2.78
+track_width = 1.6
+max_torque = 634.0
+peak_rpm = 6500.0
+redline_rpm = 7000.0
+gear_ratios = Array[float]([3.8, 2.5, 1.8, 1.4, 1.1, 0.8])
+final_drive_ratio = 3.7
+upshift_speeds_kmh = Array[float]([62.0, 94.0, 130.0, 168.0, 213.0, 265.0])
+downshift_speeds_kmh = Array[float]([45.0, 72.0, 105.0, 140.0, 185.0, 240.0])
+drivetrain_layout = 1
+awd_front_torque_split = 0.3
+diff_type = 1
+lsd_preload = 60.0
+lsd_ramp_angle = 45.0
+spring_rate = 44000.0
+damper_compression = 4800.0
+damper_rebound = 5700.0
+suspension_travel = 0.1
+ride_height = 0.13
+anti_roll_bar = 12000.0
+brake_bias = 0.63
+max_brake_torque = 3200.0
+max_steer_angle = 33.0
+steer_speed = 3.4
+tire_B = 10.8
+tire_C = 2.0
+tire_D = 1.18
+tire_E = 0.97
+tire_width = 0.27
+drag_coefficient = 0.27
+frontal_area = 2.19
+downforce_coefficient = 0.3
+countersteer_assist = 950.0
+handbrake_grip_reduction = 0.3
+turbo_max_boost_bar = 1.8
+turbo_spool_time = 0.85
+turbo_blowdown_time = 0.35
+turbo_whine_gain = 1.0
+turbo_has_wastegate = true
+default_setup = {
+"anti_roll_bar": 12000.0,
+"brake_bias": 0.63,
+"damper_compression": 4800.0,
+"damper_rebound": 5700.0,
+"design_intent": "A-class AWD GT: 1740kg on 44kN/m springs with 0.13m ride height and 12kN/m bars balances the VR38's 634Nm launch against turn-in; LSD 60Nm preload / 45deg ramp hooks up exits, 0.3 Cl keeps the nose planted past 250.",
+"diff_type": 1,
+"lsd_preload": 60.0,
+"lsd_ramp_angle": 45.0,
+"ride_height": 0.13,
+"spring_rate": 44000.0,
+"suspension_travel": 0.1
+}
+interior = ExtResource("2_interior")
+cockpit_seat_height = 0.62
+cockpit_seat_forward = 0.55
+cockpit_seat_lateral = -0.36

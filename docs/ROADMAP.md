@@ -33,7 +33,7 @@ part to read first**; the phase detail below is the working plan.
 
 | Capability | GT7 | FH6 | UltraDrive | Status |
 |---|---|---|---|---|
-| Drivable open world w/ classified road tiers | 121 layouts | ~960 roads, 74 districts | 19 named corridors, 60 km target, 5 tiers | `[PARTIAL]` scale, `[SHIPPED]` system |
+| Drivable open world w/ classified road tiers | 121 layouts | ~960 roads, 74 districts | 19 named corridors, 60 km target, 5 tiers; 3 track layouts — Sunset Oval, Mountain Pass, Northern Isle Speedway | `[PARTIAL]` scale, `[SHIPPED]` system |
 | Terrain relief / biomes | massif-scale | Japan: touge/coast/forest/snow | spawn/rolling/highland/alpine + sea level, colour-baked | `[SHIPPED]` |
 | GPS route line + map discovery | Sport-mode route | GPS drive-line, district discovery | `MapRoads` route line, reveal bitset, fast travel | `[SHIPPED]` |
 | Handling depth / assists | 1.71 physics overhaul | assist levels | surface grip table, ABS/TCS, manual+auto transmission | `[SHIPPED]` |
@@ -42,6 +42,7 @@ part to read first**; the phase detail below is the working plan.
 | Economy loop (no paywall) | Brand Central / Used / Legend | vouchers (criticized) | credits + license + championship gating | `[SHIPPED]` |
 | Weather / day-night / regional climate | ✔ | ✔ | 6 grip states, 24 h sun, 5 climate bands, alpine snow | `[SHIPPED]` |
 | Cameras | chase/hood/cockpit/photo | chase/hood/cockpit/photo | chase + hood + cockpit + first-person + photo | `[SHIPPED]` |
+| Per-car cockpits (interiors) | per-car cabin | curated depth | `InteriorResource` + authored interior_scene lane — R35 GT-R cockpit first (binnacle, 3D cluster, paddle wheel, twin-screen stack, RHD) | `[PARTIAL]` — R35 shipped, scope to fleet |
 | Per-car audio | 50-mic per car | per-class engines | 3-bed crossfade + feel layers + sound profiles | `[PARTIAL]` depth |
 | Photo / Scapes | ✔ deep | ✔ | v0: free-roam, hide-UI, screenshot | `[PARTIAL]` depth |
 | Best-lap / time attack | ✔ | ✔ | best-lap records, replay recorder, session stats | `[SHIPPED]` |
@@ -154,6 +155,8 @@ Priority P0 items from `self_audit.md §2.1`. **This phase is complete** — all
 - **Effort:** M (2–3 wks). **Shipped** (`test_rival_ai`, `test_rival_personalities`).
 - **Cleanup:** `scripts/ai/ai_rubber_banding.gd` is now **dead code** — nothing references it. Delete it, or keep it only if a test still imports it.
 
+**2026-10-15 — Raceable rivals shipped on production tracks.** GameState.opponents (0–7) and GameState.ai_difficulty (Novice/Skilled/Expert) drive RaceManager.configure_default_rivals; the HUD seam calls it only when the roster is empty. Grid placement is in the track frame (tangent-aligned, right-offset by track width) using NorthernIsleLayout.WIDTH; AIController now seeds the first waypoint at the nearest centerline index and uses normalized convergent steering (fixed the unnormalized-cross saturation that braked rivals to a stop); RaceManager clears/frees spawned rivals on scene change to prevent cross-race leaks. Gates: test_rival_ai (14), test_race_rivals (6), and bounded physics-frame drive probe confirm rivals advance along the centerline (10.2–10.5 m/s over 300 physics frames) staying on road; targeted 12-suite gate: 111/111 passed, 0 errors, 0 failures. ([match_fh6_gt7_plan.md §5](plans/match_fh6_gt7_plan.md#5-race-rival-ai-no-rubber-band-skill-tiers))
+
 ### 1.7 Audio feel layers `[PARTIAL]`
 - **What:** Add tire squeal/skid, impacts, wind, UI blips to the existing 3-bed `car_audio.gd`; optional radio/music bus.
 - **Why:** Cheapest feel/$ available; both sound-hungry audiences notice it immediately; GT7's 50-mic per-car depth is the benchmark for a scrapped surface. Audit P1. [self_audit.md §2.1 Audio; competitors.md L89, L116]
@@ -242,6 +245,17 @@ the `PropScatterer` presets. Licensing is the gate — only verifiable CC0 ships
 Tests: `test_cc0_cars`, `test_foliage_models`, `test_building_placement`,
 `test_track_props`, `test_speed_trap_visuals`. Detail + gates in
 `docs/plans/asset_pass_3d_plan.md`.
+
+**2026-10-15 — Northern Isle Speedway `[SHIPPED]`**
+(`docs/plans/track_northern_isle_speedway.md`): our 3rd drivable layout
+(`TrackRegistry`: Sunset Oval / Mountain Pass / Northern Isle Speedway) and the
+racing kit's first *track-scene* consumer — `oval_dressing.gd` builds the catch
+fence, barrier line, grandstands, S/F gantry and billboards from
+`assets/track_props/*.glb`; the build also forced the new bank-profile capability
+(`RoadDef.bank_angles` → `TrackBuilder._frame`). Gates:
+`test_northern_isle_layout`, `test_track_bank_profile` (+ `test_road_graph` /
+`test_multi_lane_rails` regression proof), `test_northern_isle_track`,
+`test_northern_isle_dressing`.
 
 ---
 

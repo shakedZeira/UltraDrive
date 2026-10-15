@@ -3,15 +3,15 @@ extends GdUnitTestSuite
 
 ## Gate for the per-timbre engine sound families (see
 ## assets/audio/engine/LICENSES.md): the shipped V10 "sport" beds are joined by
-## a big-bore V8 ("muscle") and a high-rev turbo-4 ("rally"), each with its own
-## five-loop real-bed ladder, pitch clamp window, master trim and RPM span.
-## Per-car selection rides on CarConfig.engine_bed_set (falling back to
-## engine_timbre, then sport). Sport must remain EXACTLY today's V10 behaviour:
-## every parametrized helper (band_pitch_scale_window, normalized_centers_for,
-## build_curves_for, load_beds_for, profile_for_timbre) is asserted to agree
-## with the pre-existing static on the sport ladder. All pure statics plus
-## config loads; loop resolution needs the WAV .import pass to have run (the
-## headless import probe precedes the suite).
+## a big-bore V8 ("muscle"), a high-rev turbo-4 ("rally") and a twin-turbo V6
+## ("gtr"), each with its own five-loop real-bed ladder, pitch clamp window,
+## master trim and RPM span. Per-car selection rides on CarConfig.engine_bed_set
+## (falling back to engine_timbre, then sport). Sport must remain EXACTLY
+## today's V10 behaviour: every parametrized helper (band_pitch_scale_window,
+## normalized_centers_for, build_curves_for, load_beds_for, profile_for_timbre)
+## is asserted to agree with the pre-existing static on the sport ladder. All
+## pure statics plus config loads; loop resolution needs the WAV .import pass to
+## have run (the headless import probe precedes the suite).
 
 const CAR_EXPECTED := {
 	"res://resources/cars/muscle_car.tres": "muscle",
@@ -19,12 +19,14 @@ const CAR_EXPECTED := {
 	"res://resources/cars/cc0_sedan_sports.tres": "sport",
 	"res://resources/cars/cc0_race.tres": "sport",
 	"res://resources/cars/cc0_hatchback_sports.tres": "rally",
+	"res://resources/cars/nissan_gt_r35_2017.tres": "gtr",
 }
 
 const FAMILIES: Array[String] = [
 	EngineAudio.TIMBRE_SPORT,
 	EngineAudio.TIMBRE_MUSCLE,
 	EngineAudio.TIMBRE_RALLY,
+	EngineAudio.TIMBRE_GTR,
 ]
 
 ## --- Timbre resolution ---
@@ -46,12 +48,15 @@ func test_unknown_timbre_falls_back_to_sport_files_and_ladder() -> void:
 func test_bed_files_for_timbre_point_into_dedicated_subdirs() -> void:
 	var muscle := EngineAudio.bed_files_for_timbre(EngineAudio.TIMBRE_MUSCLE)
 	var rally := EngineAudio.bed_files_for_timbre(EngineAudio.TIMBRE_RALLY)
+	var gtr := EngineAudio.bed_files_for_timbre(EngineAudio.TIMBRE_GTR)
 	var sport := EngineAudio.bed_files_for_timbre(EngineAudio.TIMBRE_SPORT)
 	for name: String in EngineAudio.BAND_ORDER:
 		assert_that(String(muscle[name])).contains("/muscle/")
 		assert_that(String(muscle[name])).ends_with("engine_%s.wav" % name)
 		assert_that(String(rally[name])).contains("/rally/")
 		assert_that(String(rally[name])).ends_with("engine_%s.wav" % name)
+		assert_that(String(gtr[name])).contains("/gtr/")
+		assert_that(String(gtr[name])).ends_with("engine_%s.wav" % name)
 		assert_that(String(sport[name])).is_equal(String(EngineAudio.BAND_FILES[name]))
 
 ## --- Bed ladders ---
@@ -68,16 +73,22 @@ func test_family_ladders_are_pairwise_distinct() -> void:
 	var sport := EngineAudio.band_rpms_for_timbre(EngineAudio.TIMBRE_SPORT)
 	var muscle := EngineAudio.band_rpms_for_timbre(EngineAudio.TIMBRE_MUSCLE)
 	var rally := EngineAudio.band_rpms_for_timbre(EngineAudio.TIMBRE_RALLY)
+	var gtr := EngineAudio.band_rpms_for_timbre(EngineAudio.TIMBRE_GTR)
 	assert_that(muscle).is_not_equal(sport)
 	assert_that(rally).is_not_equal(sport)
 	assert_that(rally).is_not_equal(muscle)
+	assert_that(gtr).is_not_equal(sport)
+	assert_that(gtr).is_not_equal(muscle)
+	assert_that(gtr).is_not_equal(rally)
 
-func test_rally_redline_outranks_sport_which_outranks_muscle() -> void:
+func test_redline_order_is_rally_then_sport_then_gtr_then_muscle() -> void:
 	var rally := EngineAudio.band_rpms_for_timbre(EngineAudio.TIMBRE_RALLY)
 	var sport := EngineAudio.band_rpms_for_timbre(EngineAudio.TIMBRE_SPORT)
+	var gtr := EngineAudio.band_rpms_for_timbre(EngineAudio.TIMBRE_GTR)
 	var muscle := EngineAudio.band_rpms_for_timbre(EngineAudio.TIMBRE_MUSCLE)
 	assert_that(rally[4]).is_greater(sport[4])
-	assert_that(sport[4]).is_greater(muscle[4])
+	assert_that(sport[4]).is_greater(gtr[4])
+	assert_that(gtr[4]).is_greater(muscle[4])
 
 func test_band_rpms_are_fresh_copies() -> void:
 	var a := EngineAudio.band_rpms_for_timbre(EngineAudio.TIMBRE_MUSCLE)
@@ -247,5 +258,7 @@ func test_car_configs_pin_their_bed_family() -> void:
 			assert_that(idle_path).contains("/muscle/")
 		elif expected == EngineAudio.TIMBRE_RALLY:
 			assert_that(idle_path).contains("/rally/")
+		elif expected == EngineAudio.TIMBRE_GTR:
+			assert_that(idle_path).contains("/gtr/")
 		else:
 			assert_that(idle_path).is_equal(String(EngineAudio.BAND_FILES["idle"]))

@@ -10,10 +10,14 @@ extends AIController
 var skill_tier: String = "Skilled"
 var car_class: String = "D"
 
-func configure(line: Array[Vector3], tier: String, car_class_name: String) -> void:
+func configure(line: Array[Vector3], tier: String, car_class_name: String, start_index: int = 0) -> void:
     skill_tier = RacingLine.normalize_tier(tier)
     car_class = RacingLine.clean_class(car_class_name)
-    set_waypoints(line)
+    # `start_index` seeds the first waypoint target at the nearest racing-line
+    # point. Grids place rivals AHEAD of the player, so a default target of 0
+    # would aim every car at a point BEHIND it (hard turn into a brake
+    # deadlock on a closed circuit).
+    set_waypoints(line, start_index)
 
 func get_tier() -> String:
     return skill_tier

@@ -1,0 +1,40 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+SCRIPT ERROR: Compile Error: Identifier not found: RaceManager
+   at: GDScript::reload (res://scripts/vehicle/vehicle_physics.gd:205)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://tools/_probe_glass.gd:5)
+ERROR: Failed to load script "res://scripts/vehicle/vehicle_physics.gd" with error "Compilation failed".
+   at: load (modules/gdscript/gdscript_resource_format.cpp:46)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://tools/_probe_glass.gd:5)
+SCRIPT ERROR: Compile Error: Identifier not found: VehicleManager
+   at: GDScript::reload (res://scripts/player/player_car_controller.gd:23)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://tools/_probe_glass.gd:5)
+ERROR: Failed to load script "res://scripts/player/player_car_controller.gd" with error "Compilation failed".
+   at: load (modules/gdscript/gdscript_resource_format.cpp:46)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://tools/_probe_glass.gd:5)
+SCRIPT ERROR: Compile Error: Identifier not found: VehicleManager
+   at: GDScript::reload (res://scripts/audio/engine_audio.gd:320)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://tools/_probe_glass.gd:5)
+ERROR: Failed to load script "res://scripts/audio/engine_audio.gd" with error "Compilation failed".
+   at: load (modules/gdscript/gdscript_resource_format.cpp:46)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://tools/_probe_glass.gd:5)
+SCRIPT ERROR: Compile Error: Identifier not found: WeatherManager
+   at: GDScript::reload (res://scripts/car/headlights.gd:28)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://tools/_probe_glass.gd:5)
+ERROR: Failed to load script "res://scripts/car/headlights.gd" with error "Compilation failed".
+   at: load (modules/gdscript/gdscript_resource_format.cpp:46)
+   GDScript backtrace (most recent call first):
+       [0] _init (res://tools/_probe_glass.gd:5)
+=== car tree (2 frames) ===
+visual_root=Dashboard:<MeshInstance3D#37010540048>
+=== BEFORE cockpit pass ===
+roles: glass=0 shell=1
+  SHELL node=Dashboard
+=== AFTER set_cockpit_view(true) ===

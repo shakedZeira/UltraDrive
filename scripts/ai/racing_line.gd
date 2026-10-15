@@ -186,6 +186,50 @@ static func max_lateral_deviation(line: Array[Vector3], centerline: Array[Vector
         best = maxf(best, sqrt(nearest))
     return best
 
+## Maximum XZ curvature (1/m) over the arc forward of `from_index`, walking the
+## line up to `arc_m` metres. Closed circuits wrap; open lines stop at the last
+## point. Used by the AI driver for corner-speed lookahead braking: a value of
+## 1/R means "the next `arc_m` m wind through a corner of radius R". Returns 0.0
+## for a degenerate (<3 point) line or a non-positive arc.
+static func lookahead_curvature(line: Array[Vector3], from_index: int, arc_m: float) -> float:
+    var n := line.size()
+    if n < 3 or arc_m <= 0.0:
+        return 0.0
+    var idx := wrapi(from_index, 0, n)
+    var travelled := 0.0
+    var best := 0.0
+    var guard := 0
+    while guard < n:
+        var prev := line[wrapi(idx - 1, 0, n)]
+        var cur := line[idx]
+        var nxt := line[wrapi(idx + 1, 0, n)]
+        best = maxf(best, absf(_triplet_curvature_xz(prev, cur, nxt)))
+        travelled += cur.distance_to(nxt)
+        if travelled >= arc_m:
+            break
+        idx = wrapi(idx + 1, 0, n)
+        guard += 1
+    return best
+
+## Menger curvature (1/m) of the XZ triangle (a, b, c): 4*Area / (|ab||bc||ca|).
+## Exact 1/R for three points on a radius-R circle, independent of the sampling
+## step, so the AI's corner-speed target does not drift when the line is
+## resampled. Degenerate (collinear / coincident) triplets return 0.0.
+static func _triplet_curvature_xz(a: Vector3, b: Vector3, c: Vector3) -> float:
+    var ab := b - a
+    var bc := c - b
+    var ca := c - a
+    ab.y = 0.0
+    bc.y = 0.0
+    ca.y = 0.0
+    var la := ab.length()
+    var lb := bc.length()
+    var lc := ca.length()
+    if la < 0.0001 or lb < 0.0001 or lc < 0.0001:
+        return 0.0
+    var cross2 := ab.x * bc.z - ab.z * bc.x
+    return 2.0 * absf(cross2) / (la * lb * lc)
+
 static func _smoothed_curvature(samples: Array[Vector3]) -> Array[float]:
     var raw: Array[float] = []
     raw.resize(samples.size())

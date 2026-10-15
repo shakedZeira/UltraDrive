@@ -1,0 +1,294 @@
+diff --git a/autoload/race_manager.gd b/autoload/race_manager.gd
+index 0037db3..3154882 100644
+--- a/autoload/race_manager.gd
++++ b/autoload/race_manager.gd
+@@ -12,6 +12,13 @@ const RIVAL_GRID_ROW_SPACING := 6.0
+ const RIVAL_GRID_ANCHOR_AHEAD := 8.0
+ const RIVAL_GRID_START_Y := 0.3
+ 
++## S5 production roster. MAX_RIVAL_OPPONENTS caps a GameState.opponents field;
++## _TIER_SPREAD spreads the field across skill tiers around the difficulty anchor
++## so a race is never N clones of one pace. Deterministic per grid slot, no RNG.
++const MAX_RIVAL_OPPONENTS := 7
++const _TIER_ORDER: Array[String] = ["Novice", "Skilled", "Expert"]
++const _TIER_SPREAD: Array[int] = [0, -1, 1, 0, -1, 1, 0]
++
+ var is_race_active: bool = false
+ var total_laps: int = 3
+ var _countdown: RaceCountdown = RaceCountdown.new()
+@@ -44,7 +51,39 @@ var _car_persona: Dictionary = {}
+ var _recorded_results: Dictionary = {}
+ 
+ func _ready() -> void:
+-	GameState.scene_changed.connect(func(_scene: String) -> void: _checkpoints_dirty = true)
++	GameState.scene_changed.connect(_on_scene_changed)
++
++## Scene transitions tear down the track that published the rival centerline, so
++## the cached roster/centerline/personas AND any cars still parented here must be
++## released: a leftover rival keeps driving a dead track and leaks a RigidBody per
++## race (this autoload never unloads). Checkpoints are re-collected by the new
++## scene, so the cache is marked dirty too.
++func _on_scene_changed(_scene: String) -> void:
++	clear_rival_config()
++	_checkpoints_dirty = true
++
++## Frees the current spawn grid and drops the cached roster/centerline/personas.
++## Idempotent (safe on an already-empty RaceManager). Vehicle scene + spawner
++## callback are configuration, not per-race state, so they are left alone.
++func clear_rival_config() -> void:
++	_free_spawned_rivals()
++	rival_roster = []
++	rival_centerline = []
++	roster_personas = []
++	_car_persona = {}
++	_recorded_results = {}
++
++## Detaches + frees every rival spawned for the previous race. RaceManager is an
++## autoload, so `add_child`ed rivals outlive a scene change unless explicitly
++## removed — leaving them is the cross-race leak. remove_child immediately breaks
++## the parent/child link (so a same-frame respawn cannot see a half-freed car)
++## and queue_free defers the actual delete to the frame boundary.
++func _free_spawned_rivals() -> void:
++	for car in _spawned_rivals:
++		if is_instance_valid(car):
++			remove_child(car)
++			car.queue_free()
++	_spawned_rivals.clear()
+ 
+ ## Ceremony-aware start seam: any start source (track select today, free-roam
+ ## events later) lands here to queue a race for the HUD to commit.
+@@ -102,7 +141,7 @@ func start_race(cars: Array, laps: int) -> void:
+ 		var counter := LapCounter.new()
+ 		_lap_counters[car] = counter
+ 		add_child(counter)
+-		counter.lap_completed.connect(reset_checkpoints)
++		counter.lap_completed.connect(_on_lap_completed)
+ 		counter.start_race(laps)
+ 	is_race_active = true
+ 	_countdown.start()
+@@ -153,7 +192,7 @@ static func rival_spec(car_config: CarConfig, tier: String, persona: RivalPerson
+ ## roster order. Returns the spawned cars (also cached in _spawned_rivals).
+ ## Re-run of start_race replaces the previous grid.
+ func _spawn_configured_rivals() -> Array[VehiclePhysics]:
+-	_spawned_rivals.clear()
++	_free_spawned_rivals()
+ 	if rival_roster.is_empty():
+ 		return _spawned_rivals
+ 	if rival_vehicle_scene == null and not rival_spawner.is_valid():
+@@ -182,20 +221,17 @@ func _spawn_rival_car(spec: Dictionary, player: VehiclePhysics) -> VehiclePhysic
+ 	if cfg != null:
+ 		car.config = cfg
+ 	var car_class_name := cfg.car_class if cfg != null else "D"
+-	var row := _spawned_rivals.size() / RIVAL_GRID_COLUMNS
+-	var col := _spawned_rivals.size() % RIVAL_GRID_COLUMNS
+-	var offset := Vector3(
+-		(float(col) - 0.5) * RIVAL_GRID_COL_SPACING,
+-		RIVAL_GRID_START_Y,
+-		RIVAL_GRID_ANCHOR_AHEAD + float(row) * RIVAL_GRID_ROW_SPACING)
+ 	add_child(car)
+-	# Position AFTER entering the tree: global_position is a no-op on a node
+-	# without a parent (the transform setter is dropped), so the grid offset
+-	# would otherwise collapse to the origin.
+-	car.global_position = player.global_position + offset
+-	car.global_rotation = Vector3.ZERO
++	# Position AFTER entering the tree: global_transform is a no-op on a node
++	# without a parent (the transform setter is dropped), so the grid placement
++	# would otherwise collapse to the origin. Track-frame transform: the car
++	# faces the centerline tangent at its grid point (world-axis placement faced
++	# every rival at world -Z, i.e. sideways on the +X-travelling oval).
++	car.global_transform = _rival_grid_transform(player, _spawned_rivals.size())
++	GridSpawner.apply_tier_color(car, tier)
+ 	var driver := RivalDriver.new()
+-	driver.configure(rival_centerline, tier, car_class_name)
++	driver.configure(rival_centerline, tier, car_class_name,
++		_nearest_centerline_index(car.global_position))
+ 	car.add_child(driver)
+ 	# A4: map the persona (spec["persona"] first, else the ordered roster entry
+ 	# at this spawn index) so grid/standings/results can read name + record.
+@@ -207,6 +243,161 @@ func _spawn_rival_car(spec: Dictionary, player: VehiclePhysics) -> VehiclePhysic
+ 			_car_persona[car] = persona
+ 	return car
+ 
++## --- S5 production roster ---------------------------------------------------
++
++## The field the HUD commits through race_ui's start seam. Builds GameState.
++## opponents rival specs around the player's own car config (an even field — the
++## player is never out-classed by their own grid), spreads them across skill
++## tiers around GameState.ai_difficulty, attaches personas for `slot`, and
++## installs them as the roster. Safe to call unconditionally: no-op while the
++## scene has published no usable centerline (< 2 points: free roam / most scenes)
++## or when the player asked for a solo race.
++func configure_default_rivals(player: VehiclePhysics = null, slot: int = 0) -> void:
++	if rival_centerline.size() < 2:
++		return
++	var count := GameState.clamp_opponents(GameState.opponents)
++	if count <= 0:
++		return
++	var resolved_player := player
++	if resolved_player == null:
++		resolved_player = VehicleManager.get_player_car()
++	var config := _player_config(resolved_player)
++	var anchor := GameState.normalize_difficulty(GameState.ai_difficulty)
++	var specs: Array[Dictionary] = []
++	for i in range(count):
++		specs.append(rival_spec(config, _tier_for_slot(anchor, i)))
++	var contract := RivalPersona.contract_for_slot(specs, slot)
++	var personas: Array = contract.get("personas", [])
++	# A restored field keeps its names + W/L records, but the presented tier must
++	# always mirror the tier the RivalDriver actually races (the spec), or changing
++	# the difficulty would leave the grid card advertising the old pace. Re-sync the
++	# in-memory tier to the fresh spec (the persisted record is unaffected; the next
++	# run re-syncs again, so it is idempotent).
++	for i in range(personas.size()):
++		var persona := personas[i] as RivalPersona
++		if persona != null and i < specs.size():
++			persona.tier = RacingLine.normalize_tier(String(specs[i].get("tier", "Skilled")))
++	set_rival_roster(specs)
++	set_personas(personas)
++
++## Skill tier for grid slot `index`: the difficulty anchor nudged by the
++## deterministic spread ladder and clamped to Novice..Expert. Slot 0 is always
++## the anchor itself, so the selected difficulty names the leading rival.
++func _tier_for_slot(anchor: String, index: int) -> String:
++	var base := _TIER_ORDER.find(anchor)
++	if base < 0:
++		base = 1
++	var delta := _TIER_SPREAD[index % _TIER_SPREAD.size()]
++	return _TIER_ORDER[clampi(base + delta, 0, _TIER_ORDER.size() - 1)]
++
++## The player's car config for the field, falling back to the starter car when
++## there is no registered player / no config (so a race always has a real car).
++func _player_config(player: VehiclePhysics) -> CarConfig:
++	if player != null and player.config != null:
++		return player.config
++	return load("res://resources/cars/starter_car.tres") as CarConfig
++
++## World transform for the rival at roster slot `slot` in the grid ahead of the
++## player. Track-frame correct: forward is the centerline tangent at the grid
++## point, so cars face down the track. Falls back to the player's own heading
++## when the scene published no usable centerline.
++func _rival_grid_transform(player: VehiclePhysics, slot: int) -> Transform3D:
++	var row := slot / RIVAL_GRID_COLUMNS
++	var col := slot % RIVAL_GRID_COLUMNS
++	var lateral := (float(col) - 0.5) * RIVAL_GRID_COL_SPACING
++	var ahead := RIVAL_GRID_ANCHOR_AHEAD + float(row) * RIVAL_GRID_ROW_SPACING
++	var grid := _centerline_grid_point(player, ahead, lateral)
++	if grid.is_empty():
++		return _heading_grid_transform(player, ahead, lateral)
++	return Transform3D(_grid_basis(grid["forward"] as Vector3), grid["position"] as Vector3)
++
++## Grid point `ahead` m of arc forward of the player's nearest centerline index,
++## offset `lateral` m along the track's right (outfield) direction. Returns {}
++## when there is no usable centerline.
++func _centerline_grid_point(player: VehiclePhysics, ahead: float, lateral: float) -> Dictionary:
++	var count := rival_centerline.size()
++	if count < 2:
++		return {}
++	var player_pos := player.global_position if player != null else Vector3.ZERO
++	var cursor := _nearest_centerline_index(player_pos)
++	var remaining := ahead
++	var forward := Vector3.FORWARD
++	var steps := 0
++	while steps < count:
++		steps += 1
++		var a := rival_centerline[cursor]
++		var b := rival_centerline[(cursor + 1) % count]
++		var seg := b - a
++		seg.y = 0.0
++		var seg_len := seg.length()
++		if seg_len > 0.0001:
++			var dir := seg / seg_len
++			if remaining <= seg_len:
++				return {
++					"position": a + dir * remaining + _lateral_offset(dir, lateral),
++					"forward": dir,
++				}
++			forward = dir
++			remaining -= seg_len
++		cursor = (cursor + 1) % count
++	# `ahead` exceeded the whole (closed) loop: park at the last cursor.
++	return {
++		"position": rival_centerline[cursor] + _lateral_offset(forward, lateral),
++		"forward": forward,
++	}
++
++## `lateral` m along the track's right-of-travel direction (`forward x UP`) plus
++## the grid stand-off height.
++func _lateral_offset(forward: Vector3, lateral: float) -> Vector3:
++	var right := forward.cross(Vector3.UP)
++	if right.length() > 0.0001:
++		right = right.normalized()
++	return right * lateral + Vector3.UP * RIVAL_GRID_START_Y
++
++## Index of the centerline point nearest `pos` in XZ (Y ignored: the grid is
++## placed relative to the flat oval, not the banked surface height).
++func _nearest_centerline_index(pos: Vector3) -> int:
++	var best_index := 0
++	var best_dist := INF
++	for i in range(rival_centerline.size()):
++		var p := rival_centerline[i]
++		var dx := p.x - pos.x
++		var dz := p.z - pos.z
++		var d := dx * dx + dz * dz
++		if d < best_dist:
++			best_dist = d
++			best_index = i
++	return best_index
++
++## Fallback grid transform when no centerline is published: uses the player's
++## own heading so the rival still sits beside/ahead of the player facing the same
++## way (never world -Z on a track that travels +X).
++func _heading_grid_transform(player: VehiclePhysics, ahead: float, lateral: float) -> Transform3D:
++	var forward := Vector3.FORWARD
++	var origin := Vector3.ZERO
++	if player != null:
++		origin = player.global_position
++		forward = -player.global_basis.z
++	forward.y = 0.0
++	if forward.length() < 0.0001:
++		forward = Vector3.FORWARD
++	else:
++		forward = forward.normalized()
++	var position := origin + forward * ahead + _lateral_offset(forward, lateral)
++	return Transform3D(_grid_basis(forward), position)
++
++## Orthonormal basis whose forward axis (-Z) is `forward` flattened to XZ, i.e.
++## a car placed with it faces along `forward` (matches AIController's
++## `-car.global_basis.z` convention).
++func _grid_basis(forward: Vector3) -> Basis:
++	var fwd := forward
++	fwd.y = 0.0
++	fwd = fwd.normalized() if fwd.length() > 0.0001 else Vector3.FORWARD
++	var right := fwd.cross(Vector3.UP)
++	right = right.normalized() if right.length() > 0.0001 else Vector3.RIGHT
++	var up := right.cross(fwd).normalized()
++	return Basis(right, up, -fwd)
++
+ func finish_race() -> void:
+ 	var standings := get_standings()
+ 	_record_rivals_results(standings)
+@@ -277,10 +468,24 @@ func _distance_to_next_checkpoint(car: VehiclePhysics, last_checkpoint: int) ->
+ func get_lap_counter(car: VehiclePhysics) -> LapCounter:
+ 	return _lap_counters.get(car)
+ 
++## Re-arms every checkpoint so `Checkpoint.is_passed` counts each vehicle once
++## again. Called directly at `start_race` (lap 1) and from `_on_lap_completed`
++## (every lap after that), so it is the ONLY thing that clears `_counted`.
+ func reset_checkpoints() -> void:
+ 	for cp in _all_checkpoints():
+ 		cp.reset()
+ 
++## Lap-completion re-arm. The parameter list is deliberately matched to
++## `LapCounter.lap_completed` (3 args) -- do NOT "simplify" it back to a bare
++## `connect(reset_checkpoints)`: Godot does NO arity check in `connect()` (it
++## returns OK), then fails at emit time with "Method expected 0 argument(s), but
++## called with 3" and the handler is NEVER run. Bound to the 0-arg
++## `reset_checkpoints` that silently made the re-arm a no-op, leaving every
++## checkpoint's `_counted` holding each car for the rest of the race, so no lap
++## after the first could ever tick (the race was unwinnable from lap 2 on).
++func _on_lap_completed(_vehicle: VehiclePhysics, _lap: int, _time: float) -> void:
++	reset_checkpoints()
++
+ func get_checkpoints() -> Array[Checkpoint]:
+ 	return _all_checkpoints()
+ 

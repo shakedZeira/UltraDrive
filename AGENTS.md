@@ -216,7 +216,77 @@ If you must use PowerShell, wrap it explicitly:
   "llama-server process no longer running", check the env var survived.
 - Expect slow analyses: ~90s per screenshot at 2.6 tok/s. Keep prompts short
   and bounded (`max_tokens` is capped in the plugin).
+- **DIRECT-CALL RECIPE (2026-10-10, VERIFIED — the plugin wrapper is the fragile
+  part, the direct call is the cure):** when `analyze_image` dies with
+  `0xc0000409` / "PTX was compiled with an unsupported toolchain" / "llama-server
+  process has terminated", the cause is a STALE `ollama serve` process spawned
+  (by a previous session/plugin) without the Vulkan env. It survives across
+  reboots as a plain `ollama.exe` tasklist entry. Kill that stale process and
+  start a fresh one under the env, then POST the image yourself:
+  ```
+  taskkill /f /im ollama.exe
+  set OLLAMA_LLM_LIBRARY=vulkan
+  D:\Ollama\ollama.exe serve        (in its own background process)
+  py tools\ollama_vision.py <image.png> "prompt..."
+  ```
+  `tools\ollama_vision.py` (project root, pure stdlib) does ALL of the above in
+  one command: it `taskkill`s any running ollama, respawns `serve` under
+  `OLLAMA_LLM_LIBRARY=vulkan`, waits for the API, base64s the image and posts to
+  `GET/POST http://127.0.0.1:11434/api/generate` with `qwen2.5vl:7b`,
+  `stream:false`, temp 0, and prints the response to stdout. VERIFIED: dropped a
+  flat-grey zero-variance 1920×1080 capture that the plugin could not read, and
+  got back a readable interior critique. ~90s/shot at 2.6 tok/s; the first
+  request after spawn can exceed a 240 s urllib timeout on a big image — retry
+  once (model is then warm). Don't leave `ollama serve` running afterwards
+  (plugin-side 60s idle-kill still applies; if you spawned it yourself, kill it).
 - `.vision/` is gitignored (transient staging + captures).
+
+### GEMINI VISION — use `gemini_vision.bat` for image critique (stronger/faster than local Ollama)
+
+`gemini_vision.bat` (project root; wraps `tools/gemini_vision.py`, Playwright +
+the user's Chrome) drives **gemini.google.com** for image critique: upload
+screenshots + reference shots, get a structured Markdown verdict back in
+`.vision/gemini/feedback_<timestamp>.md`. Use it for graphics-gap / visual
+review work — it is far stronger than `qwen2.5vl:7b`, which stays useful for a
+quick local peek.
+
+```
+gemini_vision.bat sync-profile                     copy real Chrome profile (Chrome CLOSED first)
+gemini_vision.bat login                            one-time manual sign-in (waits <=300s, closes itself)
+gemini_vision.bat ask --image <path> [--image ...] upload + send + wait for the reply
+             --prompt "..." [--timeout 400] [--screenshot] [--headless]
+gemini_vision.bat probe                            dump DOM selectors
+```
+
+Rules learned the hard way — do not re-derive these:
+- **Sign-in must happen INSIDE `.vision/chrome_profile`.** Chrome's App-Bound
+  Encryption binds auth cookies to the profile path: a *copied* signed-in
+  session is deleted on the next launch (auth rows 75 → 6, or 75 → 0). Sign in
+  fresh once via `login`; that session then persists across runs (verified
+  `auth=21` before and after a full `ask`). Never point the automation at the
+  real `User Data` dir or a junction to it — that wipes your **real** Chrome
+  cookies (it happened; user had to sign back in). `.vision/chrome_real` (the
+  junction) has been removed; do not recreate it.
+- **Playwright flags:** `ignore_default_args=["--enable-automation"]` +
+  `chromium_sandbox=True` is the working combo. `ignore_default_args=True`
+  also strips Playwright's own `--remote-debugging-pipe`, so Chrome never
+  connects: the launch hangs 180 s and then *looks* like a green run. Full
+  default args are the config that wipes ABE cookies.
+- **URL must be `.../app?hl=en`** — the UI is Hebrew by default and every
+  English `aria-label` selector (`Upload & tools`, `Send message`) fails.
+- **≤5 images per `ask`** — 6 worked once, but a set of 6 that included
+  `captures/map.PNG` was refused 3 times in a row, while the same 5 game frames
+  without it returned 5.7 KB of critique. Skip huge PNGs too (a 1.7 MB shot
+  failed once). The reply lands in `div/model-response` (extractor already
+  wired); the wait loop detects streaming via `text=Cancel send` /
+  `button[aria-label*='Stop' i]`, then idle.
+- Gemini still fails transiently ~1 time in 3 ("I encountered an error…") —
+  **just re-run the same `ask`**, it usually succeeds on retry. A reply under
+  ~100 chars is an error blob, not a critique.
+- One Chrome at a time: close it before `sync-profile` / `ask`. `sync-profile`
+  also prunes the profile picker and tab-restore entries.
+- Output convention: critiques are appended to `.vision/analysis.md` and stored
+  as `.vision/gemini/feedback_*.md`.
 
 ## HEADLESS WORKFLOW (KNOWN-GOOD — reuse, don't rediscover)
 

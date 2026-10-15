@@ -28,6 +28,16 @@ func is_passed(vehicle: VehiclePhysics) -> bool:
 	_counted[vehicle] = true
 	return true
 
+func uncount(vehicle: VehiclePhysics) -> void:
+	## Releases this vehicle's pass latch WITHOUT re-arming the checkpoint.
+	## LapCounter calls it when it REJECTS a finish-line crossing (the car had
+	## not taken enough of the circuit this lap). Without this the rejected
+	## crossing would leave `_counted` latched forever -- `reset()` is the only
+	## other clearer, and it runs only at lap completion, which the rejected
+	## crossing did not earn -- and every later, legitimate crossing of this
+	## checkpoint would be swallowed, wedging the car out of lapping entirely.
+	_counted.erase(vehicle)
+
 func _overlapping_bodies() -> Array:
 	return get_overlapping_bodies()
 

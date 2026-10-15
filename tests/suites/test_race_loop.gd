@@ -96,6 +96,17 @@ func _add_checkpoint(index: int) -> Checkpoint:
 	add_child(cp)
 	return cp
 
+## A `CheckpointStub` PARENTED to the suite, so `Checkpoint._ready()` adds it to
+## the `"checkpoints"` group `RaceManager.reset_checkpoints()` iterates. The
+## plain `_add_checkpoint` helper cannot reach the re-arm path: a real
+## `Checkpoint` has no way to fake an overlap, so its `_counted` is never
+## populated and any `_counted.size() == 0` check on it is vacuous.
+func _add_stub_checkpoint(index: int) -> CheckpointStub:
+	var cp := _new_stub()
+	cp.index = index
+	add_child(cp)
+	return cp
+
 func test_start_race_arms_existing_checkpoints() -> void:
 	var car := _new_stub_car()
 	var cp0 := _add_checkpoint(0)
@@ -163,6 +174,168 @@ func test_checkpoints_rearm_after_lap_completed() -> void:
 	assert_that(counter.get_current_lap()).is_equal(2)
 	cp0.queue_free()
 	cp1.queue_free()
+	RaceManager.consume_pending_race()
+
+## The REAL regression for the `lap_completed` -> re-arm wiring, which
+## `test_checkpoints_rearm_after_lap_completed` above cannot catch: that test
+## calls `counter.update()` directly and never runs `Checkpoint.is_passed()`, so
+## `_counted` stays empty and its `_counted.size() == 0` assertions are true no
+## matter what the signal is bound to.
+##
+## The bug: `start_race` used to `connect(reset_checkpoints)` on the 3-arg
+## `LapCounter.lap_completed(vehicle, lap, time)` signal while `reset_checkpoints()`
+## takes 0 args. Godot does NO arity validation at `connect()` time -- it returns
+## OK -- and only fails at EMIT time with "Method expected 0 argument(s), but
+## called with 3", so the handler never ran. `Checkpoint.reset()` is the only
+## thing that clears `_counted`, so the lap-completion re-arm silently no-op'd:
+## every checkpoint kept each car latched forever and no lap after the first
+## could ever tick. This test drives the counted path and fails (on the
+## `_counted.size() == 0` checks) against that code, and passes with the fix.
+func test_lap_completion_rearms_checkpoints_that_actually_counted() -> void:
+	var car := _new_stub_car()
+	var cp0 := _add_stub_checkpoint(0)
+	var cp1 := _add_stub_checkpoint(1)
+	RaceManager.start_race([car], 2)
+	# Precondition: only these two stubs are in the group, so cp1 really is the
+	# LAST checkpoint of a 2-checkpoint loop (else `update` could not complete a
+	# lap and this test would be proving nothing).
+	assert_int(get_tree().get_nodes_in_group("checkpoints").size()).is_equal(2)
+	var counter: LapCounter = RaceManager.get_lap_counter(car)
+
+	# Drive the counted path: `overlaps` makes the stub report a pass, and
+	# `is_passed` is the seam that writes `_counted` -- the exact state the
+	# re-arm must clear.
+	cp0.overlaps = [car]
+	cp1.overlaps = [car]
+	assert_that(cp0.is_passed(car)).is_true()
+	assert_int(cp0.get("_counted").size()).is_equal(1)
+	counter.update(car, cp0)
+	assert_that(cp1.is_passed(car)).is_true()
+	# Crossing the last checkpoint completes lap 1 -> lap_completed -> re-arm.
+	counter.update(car, cp1)
+
+	# THE diagnostic assertions: both latches must be cleared by the re-arm.
+	assert_int(cp0.get("_counted").size()).is_equal(0)
+	assert_int(cp1.get("_counted").size()).is_equal(0)
+	# Re-armed, so lap 2 can count: the next pass latches again.
+	assert_that(cp0.is_passed(car)).is_true()
+	assert_int(cp0.get("_counted").size()).is_equal(1)
+	assert_int(counter.get_current_lap()).is_equal(2)
+	RaceManager.consume_pending_race()
+
+## Drives `car` through a stub gate exactly the way `RaceManager._process`
+## drives it in a real race: the checkpoint must report the pass (latch) for
+## the counter to see it, and the car only lingers in the box when a test
+## explicitly keeps the overlap set.
+func _drive_gate(cp: CheckpointStub, car: VehiclePhysics, counter: LapCounter) -> void:
+	cp.overlaps = [car]
+	if cp.is_passed(car):
+		counter.update(car, cp)
+	cp.overlaps = []
+
+## The finish re-latch regression: the lap-completion re-arm fires WHILE the
+## car is still inside the finish box (a 16 m box takes many frames to clear),
+## so on the very next frame the still-overlapping car latches the finish gate
+## again for the NEW lap. That second latch must not tick a phantom lap -- and
+## it must not be swallowed forever either: the rejection releases the latch,
+## the car collects its gates, and the next real crossing completes lap 2.
+## Fails twice on the old code (the strict chain re-latched the finish and
+## nothing could ever clear `_counted` again, so lap 2 never ticked).
+func test_second_lap_counts_while_car_lingers_in_finish_box() -> void:
+	var car := _new_stub_car()
+	var cp0 := _add_stub_checkpoint(0)
+	var cp1 := _add_stub_checkpoint(1)
+	RaceManager.start_race([car], 3)
+	var counter: LapCounter = RaceManager.get_lap_counter(car)
+
+	# Lap 1: both gates, then the car STAYS in the finish box (cp1) afterwards.
+	_drive_gate(cp0, car, counter)
+	cp1.overlaps = [car]
+	assert_that(cp1.is_passed(car)).is_true()
+	counter.update(car, cp1)
+	assert_int(counter.get_current_lap()).is_equal(2)
+
+	# Frame after the re-arm: still inside the finish box -> the pass re-latches
+	# and is fed to the counter exactly like RaceManager._process would.
+	cp1.overlaps = [car]
+	if cp1.is_passed(car):
+		counter.update(car, cp1)
+	# No phantom lap from the lingering overlap...
+	assert_int(counter.get_current_lap()).is_equal(2)
+	# ...and the rejected crossing RELEASED the latch instead of leaving it
+	# latched forever (the old wedge: only `reset()` clears `_counted`, and it
+	# runs only at a lap completion this crossing failed to earn).
+	assert_int(cp1.get("_counted").size()).is_equal(0)
+
+	# The car finally clears the box and takes the gates of lap 2.
+	cp1.overlaps = []
+	assert_that(cp1.is_passed(car)).is_false()
+	_drive_gate(cp0, car, counter)
+	cp1.overlaps = [car]
+	assert_that(cp1.is_passed(car)).is_true()
+	counter.update(car, cp1)
+	assert_int(counter.get_current_lap()).is_equal(3)
+	RaceManager.consume_pending_race()
+
+## Off-track regression: an excursion that skips a gate used to desync the
+## strict expected-index chain permanently, after which the finish line never
+## counted again -- the lap was lost, and so was every lap after it. Skipping
+## a gate should cost that gate's progress, not the lap.
+## Fails on the old code (6 of 7 gates then the finish never ticked).
+func test_missing_one_gate_offtrack_still_counts_the_lap() -> void:
+	var car := _new_stub_car()
+	var cps: Array[CheckpointStub] = []
+	for i in range(8):
+		cps.append(_add_stub_checkpoint(i))
+	RaceManager.start_race([car], 3)
+	# Precondition: these 8 stubs are the whole field, so cp7 is the finish
+	# line (index == total - 1) -- the test would prove nothing otherwise.
+	assert_int(get_tree().get_nodes_in_group("checkpoints").size()).is_equal(8)
+	var counter: LapCounter = RaceManager.get_lap_counter(car)
+
+	# Lap 1: every gate but cp6 -- the car ran wide and missed that one.
+	for i in range(6):
+		_drive_gate(cps[i], car, counter)
+	_drive_gate(cps[7], car, counter)
+	# 6 of the 7 non-finish gates taken -> the lap counts despite the miss.
+	assert_int(counter.get_current_lap()).is_equal(2)
+
+	# Lap 2, clean: the skipped gate did not wedge the progression.
+	for i in range(7):
+		_drive_gate(cps[i], car, counter)
+	_drive_gate(cps[7], car, counter)
+	assert_int(counter.get_current_lap()).is_equal(3)
+	RaceManager.consume_pending_race()
+
+## The anti-cheese counter-case: crossing the finish line having taken almost
+## none of the circuit must NOT tick a lap (no laps gained by skipping gates),
+## and the refusal must not wedge the counter either -- once enough of the
+## circuit has genuinely been taken, the next crossing counts.
+func test_finish_crossing_without_enough_gates_grants_no_lap() -> void:
+	var car := _new_stub_car()
+	var cps: Array[CheckpointStub] = []
+	for i in range(8):
+		cps.append(_add_stub_checkpoint(i))
+	RaceManager.start_race([car], 3)
+	assert_int(get_tree().get_nodes_in_group("checkpoints").size()).is_equal(8)
+	var counter: LapCounter = RaceManager.get_lap_counter(car)
+
+	# Only 3 of the 7 non-finish gates (the halfway floor is 4), then blag the
+	# finish line.
+	for i in range(3):
+		_drive_gate(cps[i], car, counter)
+	_drive_gate(cps[7], car, counter)
+	# No lap...
+	assert_int(counter.get_current_lap()).is_equal(1)
+	# ...and the rejected crossing released the finish latch instead of
+	# swallowing every later one.
+	assert_int(cps[7].get("_counted").size()).is_equal(0)
+
+	# The same car now takes the rest of the circuit: the next crossing counts.
+	for i in range(3, 7):
+		_drive_gate(cps[i], car, counter)
+	_drive_gate(cps[7], car, counter)
+	assert_int(counter.get_current_lap()).is_equal(2)
 	RaceManager.consume_pending_race()
 
 func _store_checkpoints(count: int) -> Array[Checkpoint]:

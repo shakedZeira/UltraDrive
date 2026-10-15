@@ -1,0 +1,21 @@
+cockpit_camera.gd:113:# --- while current, so windshield droplets carry into the first-person view.
+hood_camera.gd:78:# --- owns the viewport so windshield droplets carry into first-person hood mode.
+car_visuals.gd:545:	if name.contains("glass") or name.contains("window") or name.contains("windshield"):
+car_visuals.gd:680:# --- doubleSided-bodied shells whose backfaces fill the windshield cavity from
+car_visuals.gd:682:# --- red 'body' shell IS the windshield. While the cockpit camera owns the
+car_visuals.gd:699:## = surfaces that read as a windshield/window (transparency targets) and shell
+car_visuals.gd:712:## transparent so the world shows through the windshield. enabled=false restores
+car_visuals.gd:771:		or material_name.contains("windshield") or node_name.contains("glass")
+cockpit_rig.gd:5:## windshield header + steering-wheel proxy built from primitives, sized to
+cockpit_rig.gd:435:## for cars like the Comet whose red body shell IS the windshield (no glass
+windshield_fx.gd:4:## Weather VFX (S12): windshield droplet/streak overlay. Gated to chase-cam
+world_driver.gd:66:var _windshield_overlay: ColorRect
+world_driver.gd:368:## overlay + windshield droplets live in a CanvasLayer above the world;
+world_driver.gd:380:	_windshield_overlay = WindshieldFX.build_overlay()
+world_driver.gd:381:	_windshield_overlay.name = "WindshieldOverlay"
+world_driver.gd:382:	_fx_layer.add_child(_windshield_overlay)
+world_driver.gd:412:## The one switch-over: drive lights/rain/audio/wet overlay/windshield from
+world_driver.gd:431:	if _windshield_overlay != null:
+world_driver.gd:432:		WindshieldFX.apply(_windshield_overlay, raining, _is_forward_view())
+world_driver.gd:442:## Forward-view gate for windshield droplets: true while the chase camera, the
+world_driver.gd:444:## carry windshield droplets; the orbit camera takes over when it becomes

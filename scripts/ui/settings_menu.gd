@@ -6,6 +6,8 @@ extends Control
 @onready var quality_option: OptionButton = %QualityOption
 @onready var volume_slider: HSlider = %VolumeSlider
 @onready var transmission_option: OptionButton = %TransmissionOption
+@onready var opponents_option: OptionButton = %OpponentsOption
+@onready var difficulty_option: OptionButton = %DifficultyOption
 
 # --- Camera and Feel controls (F5). ---
 @onready var camera_feel_header: Label = %CameraFeelHeader
@@ -43,12 +45,22 @@ func _bind_menu_blip(control: Control) -> void:
 ## is applied to the current scene Environment + root Viewport.
 ##
 ## AO/GI pass (docs/plans/graphics_gap_plan.md items 4 + 8): Medium and High
-## carry the GT7-style contact-shading knobs — tight SSAO radius so the
-## car-to-ground gap darkens without broad flat AO; High additionally tunes
+## carry the GT7-style contact-shading knobs — a sub-metre SSAO radius
+## (0.6 m world units) so the tire contact patch and car-to-ground gap darken
+## without broad flat AO, intensity 3.0 + power 2.0 for a tight crease at the
+## contact line, and ssao_light_affect 0.4 so the AO is still applied in
+## DIRECT sunlight (engine default 0.0 = indirect-only, which is why tire
+## contact read as a floating gap under a midday sun). High additionally tunes
 ## SDFGI energy down to 0.8 so bounce light reads against the GG-Env
 ## tonemap_exposure 0.9. Low keeps AO/GI off for perf but gains MSAA (2 in
 ## project-settings units → Viewport.MSAA_4X) so it stops aliasing, keeping
 ## scaling bilinear 1.0.
+##
+## Anti-aliasing is per-tier (`use_taa` + `screen_space_aa`): Low/Medium run
+## MSAA 4X + TAA with no FXAA (it would only soften the MSAA edges), High runs
+## FSR2 alone — the engine logs a warning and force-disables TAA whenever a
+## temporal upscaler is active — plus FXAA as a near-free spatial backstop
+## fused into the tonemap pass, since High also ships with MSAA off.
 ##
 ## DirectionalLight3D shadow-cascade ladder (fh5_optimization_plan.md item 3).
 ## The ladder KEYS are the plan's names; the ENGINE property each maps to is
@@ -82,6 +94,8 @@ const QUALITY_PRESETS: Dictionary = {
 		"probe_enabled": false,
 		"scaling_3d_mode": 0,
 		"scaling_3d_scale": 1.0,
+		"use_taa": true,
+		"screen_space_aa": Viewport.SCREEN_SPACE_AA_DISABLED,
 		"shadow_cascade_count": 1,
 		"shadow_max_distance": 20.0,
 		"shadow_resolution": 1024,
@@ -99,8 +113,12 @@ const QUALITY_PRESETS: Dictionary = {
 		"probe_enabled": false,
 		"scaling_3d_mode": 0,
 		"scaling_3d_scale": 1.0,
-		"ssao_intensity": 2.0,
-		"ssao_radius": 0.05,
+		"use_taa": true,
+		"screen_space_aa": Viewport.SCREEN_SPACE_AA_DISABLED,
+		"ssao_intensity": 3.0,
+		"ssao_radius": 0.6,
+		"ssao_power": 2.0,
+		"ssao_light_affect": 0.4,
 		"ssao_ao_channel_affect": 0.1,
 		"shadow_cascade_count": 2,
 		"shadow_max_distance": 50.0,
@@ -138,8 +156,15 @@ const QUALITY_PRESETS: Dictionary = {
 		# GTX 970 reference (7ffb524); ~10% more upscaling per axis is the
 		# cheapest GPU cut that clears 60 without touching the env stack.
 		"scaling_3d_scale": 0.85,
-		"ssao_intensity": 2.0,
-		"ssao_radius": 0.05,
+		# FSR2 IS High's temporal AA: the engine force-disables TAA while a
+		# temporal upscaler runs (renderer_viewport.cpp warning), and with
+		# MSAA off too, FXAA in the tonemap pass is the only spatial backstop.
+		"use_taa": false,
+		"screen_space_aa": Viewport.SCREEN_SPACE_AA_FXAA,
+		"ssao_intensity": 3.0,
+		"ssao_radius": 0.6,
+		"ssao_power": 2.0,
+		"ssao_light_affect": 0.4,
 		"ssao_ao_channel_affect": 0.1,
 		# Retained so a future GI re-enable is one flag flip, and so the tuned
 		# values stay documented. INERT while sdfgi_enabled is false —
@@ -261,17 +286,33 @@ static func apply_quality_preset(env: Environment, viewport: Viewport, preset: D
 		env.sdfgi_enabled = preset["sdfgi_enabled"]
 		env.tonemap_mode = preset["tonemap_mode"]
 		env.tonemap_exposure = 0.9
+		# ACES roll-off: at the default tonemap_white 1.0 highlights clip at
+		# scene HDR ~2 (fit(white * 1.8) ~0.78) and bleach to flat white;
+		# 6.0 lifts the clip to ~12 (Godot's photorealism range is 6.0-8.0).
+		env.tonemap_white = 6.0
 		env.glow_intensity = 0.4
 		env.glow_strength = 0.8
 		env.glow_bloom = 0.6 if preset["glow_enabled"] else 0.1
 		env.ambient_light_color = Color(0.6, 0.62, 0.7)
 		env.ambient_light_energy = 1.0
-		# GT7-style contact shading (plan item 4): tight-radius AO darkens the
-		# car-to-ground gap instead of broad flat AO. Only presets that enable
-		# SSAO carry the knobs (Low keeps them off).
+		# At the default sky_contribution 1.0 the radiance bake lerps all the
+		# way to the sky panorama, so the color + energy above never reach the
+		# IBL (renderer_scene_render_rd.cpp environment_bake_panorama); 0.7
+		# lets 30% of the flat cool fill land and deepens shaded areas.
+		env.ambient_light_sky_contribution = 0.7
+		# GT7-style contact shading (plan item 4): radius 0.6 m darkens the
+		# tire contact patch / car-to-ground gap instead of broad flat AO, and
+		# power 2.0 keeps the darkening tight to the contact line. The
+		# load-bearing knob is ssao_light_affect: SSAO is INDIRECT-only at the
+		# engine default 0.0, so under direct sun the contact crease was
+		# invisible (the "floating car" read); 0.4 applies it at 40% in direct
+		# light too. Only presets that enable SSAO carry the knobs (Low keeps
+		# them off).
 		if preset["ssao_enabled"]:
-			env.ssao_intensity = float(preset.get("ssao_intensity", 2.0))
-			env.ssao_radius = float(preset.get("ssao_radius", 0.05))
+			env.ssao_intensity = float(preset.get("ssao_intensity", 3.0))
+			env.ssao_radius = float(preset.get("ssao_radius", 0.6))
+			env.ssao_power = float(preset.get("ssao_power", 2.0))
+			env.ssao_light_affect = float(preset.get("ssao_light_affect", 0.4))
 			env.ssao_ao_channel_affect = float(preset.get("ssao_ao_channel_affect", 0.1))
 		# Bounced sky light into under-car + foliage (plan item 4, tuned on High
 		# only; Medium keeps SDFGI defaults). 4.7.2 ships sdfgi_cascade0_distance
@@ -286,6 +327,10 @@ static func apply_quality_preset(env: Environment, viewport: Viewport, preset: D
 		viewport.scaling_3d_mode = _scaling_mode_for(preset["scaling_3d_mode"])
 		var scale: float = preset["scaling_3d_scale"]
 		viewport.scaling_3d_scale = clampf(scale, 0.5, 2.0)
+		# Per-tier AA: TAA for Low/Medium (alongside MSAA 4X), FXAA-only for
+		# High — FSR2 owns its temporal reconstruction and suppresses TAA.
+		viewport.use_taa = bool(preset["use_taa"])
+		viewport.screen_space_aa = int(preset["screen_space_aa"])
 	apply_shadow_preset(light, preset)
 
 ## fh5_optimization_plan.md item 3 — the DirectionalLight3D shadow-cascade
@@ -471,6 +516,15 @@ func _ready() -> void:
 	transmission_option.add_item("Manual")
 	transmission_option.select(GameState.transmission_mode)
 	transmission_option.item_selected.connect(_on_transmission_selected)
+	# S5 production roster: rival field size (0 = solo practice) + AI difficulty.
+	for count in range(GameState.MAX_OPPONENTS + 1):
+		opponents_option.add_item("Solo" if count == 0 else "%d rivals" % count, count)
+	opponents_option.select(GameState.clamp_opponents(GameState.opponents))
+	opponents_option.item_selected.connect(_on_opponents_selected)
+	for difficulty in GameState.AI_DIFFICULTIES:
+		difficulty_option.add_item(difficulty)
+	difficulty_option.select(maxi(GameState.difficulty_index(), 0))
+	difficulty_option.item_selected.connect(_on_difficulty_selected)
 	_populate_camera_and_feel()
 	_apply_camera_and_feel_live()
 	for control: Control in [
@@ -478,6 +532,8 @@ func _ready() -> void:
 		quality_option,
 		volume_slider,
 		transmission_option,
+		opponents_option,
+		difficulty_option,
 		motion_blur_option,
 		fov_chase_slider,
 		fov_orbit_slider,
@@ -548,6 +604,16 @@ func _on_transmission_selected(index: int) -> void:
 		GameState.set_transmission_mode(GameState.TransmissionMode.MANUAL)
 	else:
 		GameState.set_transmission_mode(GameState.TransmissionMode.AUTO)
+
+## The OptionButton item id IS the opponent count (0 = Solo), so the selected id
+## is the value to persist directly.
+func _on_opponents_selected(index: int) -> void:
+	GameState.set_opponents(opponents_option.get_item_id(index))
+
+func _on_difficulty_selected(index: int) -> void:
+	if index < 0 or index >= GameState.AI_DIFFICULTIES.size():
+		return
+	GameState.set_ai_difficulty(GameState.AI_DIFFICULTIES[index])
 
 func _on_back_pressed() -> void:
 	SceneTransition.flash_to_scene("res://scenes/ui/main_menu.tscn")

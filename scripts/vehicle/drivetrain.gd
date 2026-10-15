@@ -16,6 +16,26 @@ var shift_timer: float = 0.0
 var reverse_limiter_active: bool = false
 var manual_mode: bool = false  # true = driver shifts via shift_up/shift_down
 
+# --- Turbo boost state (presentation-only, v1) ---
+## Live manifold boost. boost_bar is the pressure in bar (0 for NA cars);
+## boost_fraction is 0..1 of the config's turbo_max_boost_bar and drives the
+## EngineAudio turbo voices / HUD gauge. Both are computed by update_boost()
+## at the TOP of update() so the rpm_override start-gate early-return can
+## never skip a frame of boost physics, and both are zeroed by reset().
+var boost_bar: float = 0.0
+var boost_fraction: float = 0.0
+
+## Wastegate upshift dip: while a shift is in progress on a turbo car that
+## has a wastegate, a boost level above this fraction dips toward
+## TURBO_SHIFT_DIP_SCALE of its pre-shift value (the boost drops out during
+## the shift like a real wastegate/bypass opening).
+const TURBO_SHIFT_DIP_FRACTION := 0.5
+const TURBO_SHIFT_DIP_SCALE := 0.15
+## Boost target curve floor: at idle (rpm_norm 0) WOT still targets this
+## fraction of max boost; the rpm term carries it to 1.0 at redline. Spool
+## SPEED comes from the config time constants, not from this curve.
+const TURBO_RPM_CURVE_MIN := 0.5
+
 # --- Lateral-load downshift veto (AAA-6) ---
 ## Lateral acceleration (G) of the body, reported by VehiclePhysics each frame
 ## via set_lateral_g(); 0.0 at rest and on a straight line. Pure-drivetrain
@@ -41,6 +61,10 @@ func update(delta: float, throttle: float, config: CarConfig) -> Dictionary:
     ## Main drivetrain update.
     ## throttle: [0.0, 1.0] from InputManager
     ## Returns: { engine_rpm, current_gear, drive_torque }
+
+    # Boost is integrated FIRST so the rpm_override early-return below (start-
+    # gate revving) cannot skip a frame of build/vent. Presentation-only in v1.
+    update_boost(delta, throttle, config)
 
     if rpm_override >= 0.0:
         var target := lerpf(config.idle_rpm, config.redline_rpm, clampf(rpm_override, 0.0, 1.0))
@@ -164,6 +188,37 @@ func update(delta: float, throttle: float, config: CarConfig) -> Dictionary:
         "drive_torque": drive_torque,
     }
 
+## First-order turbo boost integration (presentation-only, v1). Target =
+## throttle x boost_target_fraction's rpm curve; build rides turbo_spool_time,
+## vent rides turbo_blowdown_time. A wastegate-equipped car (turbo_has_wastegate)
+## dips the target toward TURBO_SHIFT_DIP_SCALE while a shift is in progress
+## and boost is up. NA configs (turbo_max_boost_bar <= 0) are forced to 0.
+func update_boost(delta: float, throttle: float, config: CarConfig) -> void:
+    if config == null or config.turbo_max_boost_bar <= 0.0:
+        boost_bar = 0.0
+        boost_fraction = 0.0
+        return
+    var target := boost_target_fraction(throttle, engine_rpm, config)
+    if is_shifting and config.turbo_has_wastegate and boost_fraction > TURBO_SHIFT_DIP_FRACTION:
+        target *= TURBO_SHIFT_DIP_SCALE
+    var tau := config.turbo_spool_time if target > boost_fraction else config.turbo_blowdown_time
+    tau = maxf(tau, 0.01)
+    boost_fraction = lerpf(boost_fraction, target, 1.0 - exp(-delta / tau))
+    boost_fraction = clampf(boost_fraction, 0.0, 1.0)
+    boost_bar = boost_fraction * config.turbo_max_boost_bar
+
+## Steady-state boost target (0..1) for a throttle/rpm pair: throttle scaled
+## by a curve that ramps TURBO_RPM_CURVE_MIN..1.0 between idle and redline.
+## NA configs always target 0.
+static func boost_target_fraction(throttle: float, rpm: float, config: CarConfig) -> float:
+    if config == null or config.turbo_max_boost_bar <= 0.0:
+        return 0.0
+    var rpm_norm := clampf(
+        (rpm - config.idle_rpm) / maxf(config.redline_rpm - config.idle_rpm, 1.0),
+        0.0, 1.0
+    )
+    return clampf(throttle, 0.0, 1.0) * lerpf(TURBO_RPM_CURVE_MIN, 1.0, rpm_norm)
+
 func shift_up(config: CarConfig) -> void:
     # An upshift out of reverse (-1) returns to 1st - the inverse of the
     # 1st->R downshift. Works for player-selected R in MANUAL and AUTO alike
@@ -238,3 +293,5 @@ func reset() -> void:
     rpm_override = -1.0
     _axle_speed = 0.0
     lateral_g = 0.0
+    boost_bar = 0.0
+    boost_fraction = 0.0

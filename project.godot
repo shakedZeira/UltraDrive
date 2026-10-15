@@ -8,11 +8,15 @@ config_version=5
 
 config/name="UltraDrive"
 config/description="Hybrid open-world + circuit racing game"
-run/main_scene="res://scenes/main.tscn"
+run/main_scene="res://scenes/ui/intro_video.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 
 [display]
 
+; 3 = DisplayServer.WINDOW_MODE_FULLSCREEN (borderless fullscreen window): the
+; game boots straight into a fullscreen window with no resolution switch, so
+; alt-tab stays safe. Use 0 to boot windowed, 2 to boot maximized.
+window/size/mode=3
 window/size/viewport_width=1920
 window/size/viewport_height=1080
 window/stretch/mode="canvas_items"

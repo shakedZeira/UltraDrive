@@ -80,6 +80,15 @@ const PROFILES: Dictionary = {
 		"wobble": 0.12,
 		"pulses": 4,
 	},
+	"gtr": {
+		"loop_hz": 44.0,
+		"base_pitch": 0.5,
+		"redline_pitch": 2.0,
+		"weights": [0.38, 0.34, 0.28, 0.14, 0.08, 0.12],
+		"noise": 0.12,
+		"wobble": 0.12,
+		"pulses": 6,
+	},
 }
 
 var _car: VehiclePhysics = null

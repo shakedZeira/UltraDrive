@@ -50,7 +50,7 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	var cockpit := sync_cockpit_mode()
 	_update_cluster_dim()
-	panel.visible = cockpit and dash_hud_enabled and _has_player_car()
+	panel.visible = cockpit and dash_hud_enabled and _has_player_car() and not _hud_dash_suppressed()
 	if panel.visible:
 		refresh_readouts()
 
@@ -79,10 +79,10 @@ func refresh_readouts() -> void:
 	gear_label.text = _gear_text(gear)
 
 ## The dash-HUD optionality toggle (ACC dash-removal seam). The readout panel
-## respects it independently of the cluster dim.
+## respects it independently of the cluster dim and of the active car's interior.
 func set_dash_hud_enabled(enabled: bool) -> void:
 	dash_hud_enabled = enabled
-	panel.visible = enabled and _cockpit_current and _has_player_car()
+	panel.visible = enabled and _cockpit_current and _has_player_car() and not _hud_dash_suppressed()
 
 func get_dash_hud_enabled() -> bool:
 	return dash_hud_enabled
@@ -115,6 +115,19 @@ func _update_cluster_dim() -> void:
 func _has_player_car() -> bool:
 	var car := VehicleManager.get_player_car()
 	return car != null and car.has_method("get_drive_info")
+
+## The R35 contract: a car whose CarConfig ships an InteriorResource with
+## suppress_hud_dash hides the 2D text panel only (the %Cluster dim stays
+## semantics-free of the panel). Cars with no interior keep today's behaviour.
+func _hud_dash_suppressed() -> bool:
+	var car := VehicleManager.get_player_car()
+	if car == null:
+		return false
+	var cfg := car.get("config") as CarConfig
+	if cfg == null:
+		return false
+	var interior := cfg.interior
+	return interior != null and interior.suppress_hud_dash
 
 func _resolve_cluster() -> CanvasItem:
 	if cluster_path.is_empty():

@@ -641,3 +641,82 @@ static func minimap_route_path(rect: Rect2, player_pos: Vector3, source: Object 
 	var radius := minf(rect.size.x, rect.size.y) * 0.5
 	var local := world_to_local_points(route, player_pos, center, zoom)
 	return clip_circle(local, center, radius)
+
+# ---------------------------------------------------------------------------
+# Live rival blips (shared by the HUD minimap and the pause map).
+# ---------------------------------------------------------------------------
+
+## Shared rival-blip accents: rivals read SMALLER and hotter (orange) than the
+## player's white-and-cyan chevron, so at a glance the field is unmistakable and
+## the player marker always wins the hierarchy. Single source of truth, the same
+## rule the MARKER_* constants above follow, so both maps stay in lock-step.
+const RIVAL_FILL := Color(1.0, 0.45, 0.10, 1.0)        # orange body
+const RIVAL_OUTLINE := Color(0.01, 0.02, 0.06, 1.0)    # near-black under-pin
+const RIVAL_SIZE := 5.0        # tip distance (the player chevron uses 10.0)
+
+static func rival_style() -> Dictionary:
+	return {
+		"fill": RIVAL_FILL,
+		"outline": RIVAL_OUTLINE,
+		"size": RIVAL_SIZE,
+	}
+
+## The live rival roster for the maps: the RaceManager spawn grid (S5) when no
+## custom source is injected, else whatever Array the injected Callable() ->
+## Array returns (tests, and any future non-race rival source, opt in here).
+## No RaceManager in the tree (headless probe) or an empty grid => [] — the
+## maps treat an empty roster as "no blips", never as an error. Resolved through
+## the tree on purpose: like every helper in this file, it must stay usable
+## without a scene node and without compile-time autoload coupling.
+static func live_rivals(custom: Callable) -> Array:
+	if custom.is_valid():
+		var injected: Variant = custom.call()
+		return injected if injected is Array else []
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
+		return []
+	var manager := tree.root.get_node_or_null("RaceManager")
+	if manager == null or not manager.has_method("get_spawned_rivals"):
+		return []
+	var roster: Variant = manager.get_spawned_rivals()
+	return roster if roster is Array else []
+
+## World-space blip entries {"position": Vector3, "facing": Vector3} for a
+## roster of car nodes, skipping null / freed / non-Node3D entries so a stale
+## roster can never crash a draw pass. `facing` follows the -Z forward
+## convention every AIController and map marker already uses.
+static func rival_entries(cars: Array) -> Array:
+	var out: Array = []
+	for car in cars:
+		if car == null or not (car is Node3D):
+			continue
+		var node := car as Node3D
+		if not is_instance_valid(node):
+			continue
+		out.append({
+			"position": node.global_position,
+			"facing": -node.global_basis.z,
+		})
+	return out
+
+## Minimap-space screen position for a single world point: the exact mapping
+## world_to_local_points applies to one chain vertex, factored out so a blip
+## and the road it sits on can never disagree by a pixel.
+static func minimap_point_screen(world_pos: Vector3, player_pos: Vector3, screen_center: Vector2, zoom: float) -> Vector2:
+	var player_xz := Vector2(player_pos.x, player_pos.z)
+	return screen_center + (Vector2(world_pos.x, world_pos.z) - player_xz) * zoom
+
+## Draws one rival blip: the same two-layer triangle read as the player chevron
+## (near-black under-pin, orange fill) built from marker_chevron() at RIVAL_SIZE
+## — half the chevron's tip distance — so the player marker stays the most
+## obvious thing on either map. Call ONLY from the canvas' own _draw(), exactly
+## like draw_player_marker().
+static func draw_rival_blip(canvas: CanvasItem, screen: Vector2, draw_angle: float, size: float = RIVAL_SIZE) -> void:
+	if canvas == null:
+		return
+	var corners := marker_chevron(screen, draw_angle, size)
+	canvas.draw_colored_polygon(corners, RIVAL_OUTLINE)
+	var inner := PackedVector2Array()
+	for i in 3:
+		inner.append(screen + (corners[i] - screen) * 0.68)
+	canvas.draw_colored_polygon(inner, RIVAL_FILL)
