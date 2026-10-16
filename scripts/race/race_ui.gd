@@ -9,6 +9,10 @@ extends CanvasLayer
 
 const FREE_ROAM_SCENE := "res://scenes/world/open_world_root.tscn"
 
+## Virtual-checkpoint spacing (m) for the live standings gap. Small enough that a
+## gap reads as continuous, large enough that the split table stays cheap.
+const GAP_VCP_SPACING := 5.0
+
 ## Position -> award points (1st 1000 .. 4th 250): economy stub for item 11,
 ## exported here so a future reward loop can read it without touching the HUD.
 const POSITION_POINTS: Array[int] = [1000, 750, 500, 250]
@@ -89,6 +93,14 @@ var _nav_road_source: Object = null
 var _brake_line: BrakeLine = null
 var _grid_card_built: bool = false
 var _standings_signature: String = ""
+## Live standings gap ("virtual checkpoints"): the row Labels and their
+## name-only base text, kept in sync with the current standings order so the
+## per-frame gap refresh only rewrites `.text` instead of rebuilding the list.
+var _standings_cars: Array = []
+var _standings_rows: Array[Label] = []
+var _standings_base_text: Array[String] = []
+var _gap_tracker: RaceGapTracker = null
+var _gap_path_key: String = ""
 
 func _ready() -> void:
 	_pending_laps = RaceManager.consume_pending_race()
@@ -376,6 +388,10 @@ func _refresh_lap_tracking(car: VehiclePhysics) -> void:
 		_tracked_counter.lap_completed.disconnect(_on_lap_completed)
 	counter.lap_completed.connect(_on_lap_completed)
 	_tracked_counter = counter
+	# A fresh race (new LapCounter) must not inherit the previous race's split
+	# history, or the first gap reading would be nonsense.
+	if _gap_tracker != null:
+		_gap_tracker.reset()
 	_stats.start_lap()
 
 func _on_lap_completed(_vehicle: VehiclePhysics, _lap: int, lap_time: float) -> void:
@@ -547,22 +563,28 @@ func _refresh_standings() -> void:
 		standings_panel.visible = false
 		return
 	var signature := "~".join(parts)
-	if signature == _standings_signature:
-		standings_panel.visible = true
-		return
-	_standings_signature = signature
-	_rebuild_standings(standings)
+	if signature != _standings_signature:
+		_standings_signature = signature
+		_rebuild_standings(standings)
+	# Gap text is refreshed EVERY frame (the list structure only on an order or
+	# name change), so the deltas move continuously between checkpoints.
+	_refresh_standings_gaps(standings)
+	standings_panel.visible = true
 
 func _rebuild_standings(standings: Array) -> void:
 	_clear_rows(standings_list)
+	_standings_cars.clear()
+	_standings_rows.clear()
+	_standings_base_text.clear()
 	for i in range(standings.size()):
 		var car := standings[i] as VehiclePhysics
 		var persona := RaceManager.get_persona_for(car)
-		var row := Label.new()
 		var suffix := ""
 		if persona != null:
 			suffix = "   ·   %s" % persona.tier
-		row.text = "P%d  %s%s" % [i + 1, _racer_display_name(car, persona, i + 1), suffix]
+		var base := "P%d  %s%s" % [i + 1, _racer_display_name(car, persona, i + 1), suffix]
+		var row := Label.new()
+		row.text = base
 		row.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		row.add_theme_font_size_override("font_size", 20)
 		if persona != null:
@@ -572,7 +594,92 @@ func _rebuild_standings(standings: Array) -> void:
 		row.add_theme_color_override("font_outline_color", Color(0.03, 0.05, 0.1, 1.0))
 		row.add_theme_constant_override("outline_size", 3)
 		standings_list.add_child(row)
+		_standings_cars.append(car)
+		_standings_rows.append(row)
+		_standings_base_text.append(base)
 	standings_panel.visible = true
+
+## Live per-rival gap beside each standings name. Every participant is sampled
+## along the racing line, then each rival's signed delta to the player is
+## appended to its row. Graceful when no loop geometry is published (free roam,
+## checkpoint-less scenes): the tracker is dropped and the rows show name only.
+func _refresh_standings_gaps(_standings: Array) -> void:
+	var player := VehicleManager.get_player_car()
+	var tracker := _ensure_gap_tracker()
+	if tracker == null:
+		for i in range(_standings_rows.size()):
+			_standings_rows[i].text = _standings_base_text[i]
+		return
+	for i in range(_standings_cars.size()):
+		var car := _standings_cars[i] as VehiclePhysics
+		if car != null:
+			tracker.sample(car, car.global_position, _car_elapsed(car))
+	for i in range(_standings_cars.size()):
+		var car := _standings_cars[i] as VehiclePhysics
+		var text := _standings_base_text[i]
+		if car != null and car != player:
+			var gap_text := format_gap_seconds(tracker.gap_seconds(car, player))
+			if gap_text != "":
+				text += "    %s" % gap_text
+		_standings_rows[i].text = text
+
+## Race-elapsed time of a car on the shared race clock (the LapCounter is
+## created for every participant at start_race, so the reference is identical).
+func _car_elapsed(car: VehiclePhysics) -> float:
+	var counter := RaceManager.get_lap_counter(car)
+	return counter.get_total_time() if counter != null else 0.0
+
+## Lazily (re)builds the gap tracker from the current loop geometry. Reconfigures
+## only when the path identity changes, so the per-frame cost is just the sample
+## + gap pass. Returns null when no usable loop exists.
+func _ensure_gap_tracker() -> RaceGapTracker:
+	var line: Array[Vector3] = _resolve_gap_path()
+	if line.size() < RaceGapTracker.MIN_PATH_POINTS:
+		_gap_tracker = null
+		_gap_path_key = ""
+		return null
+	var key := "%d:%d:%d" % [line.size(), int(line[0].x * 100.0), int(line[0].z * 100.0)]
+	if _gap_tracker == null or key != _gap_path_key:
+		if _gap_tracker == null:
+			_gap_tracker = RaceGapTracker.new()
+		_gap_tracker.configure(line, GAP_VCP_SPACING)
+		_gap_path_key = key
+	return _gap_tracker
+
+## The loop the gaps are measured along: the track's published rival centerline
+## (the same line the rivals drive), or the checkpoint ring when a scene has no
+## centerline. Empty when neither exists.
+func _resolve_gap_path() -> Array[Vector3]:
+	var line: Array[Vector3] = RaceManager.rival_centerline
+	if line.size() >= RaceGapTracker.MIN_PATH_POINTS:
+		return line
+	return _checkpoint_ring()
+
+func _checkpoint_ring() -> Array[Vector3]:
+	var cps := RaceManager.get_checkpoints()
+	if cps.size() < RaceGapTracker.MIN_PATH_POINTS:
+		return []
+	var sorted: Array[Checkpoint] = cps.duplicate()
+	sorted.sort_custom(func(a: Checkpoint, b: Checkpoint) -> bool: return a.index < b.index)
+	var pts: Array[Vector3] = []
+	for cp in sorted:
+		if cp != null:
+			pts.append(cp.global_position)
+	if pts.size() < RaceGapTracker.MIN_PATH_POINTS:
+		return []
+	return RacingLine.resample_arc(pts, GAP_VCP_SPACING)
+
+## Signed-seconds display for a gap: "+0.42" behind, "-0.37" ahead, "" when the
+## gap is unknown. Two decimals under 10 s, one decimal above, so a long gap
+## stays compact.
+static func format_gap_seconds(seconds: float) -> String:
+	if is_nan(seconds):
+		return ""
+	if absf(seconds) < 0.005:
+		return "+0.00"
+	if absf(seconds) < 10.0:
+		return "%+.2f" % seconds
+	return "%+.1f" % seconds
 
 func _racer_display_name(car: VehiclePhysics, persona: RivalPersona, rank: int) -> String:
 	if persona != null:

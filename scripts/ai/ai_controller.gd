@@ -62,6 +62,16 @@ const STEER_BEARING_SAT := PI / 3.0
 const STEER_DEADBAND := 0.04
 ## Max change in steer command per second (slew limit -> smoother, less twitchy).
 const STEER_SLEW_PER_S := 4.0
+## Weight of the nose-vs-tangent heading error folded into the pure-pursuit
+## bearing (rad of steer command per rad of heading error). Pure pursuit tracks a
+## POINT: a car whose nose is already turned toward the line while its position
+## is still beside it sees the bearing cancel to ~0, so it keeps the throttle on
+## and keeps steering at nothing while the body yaws away -- the measured
+## 7 -> 52 -> 114 degree weave that spun a rival out after a kerb strike. Feeding
+## the heading error back in keeps steering until the car is ALIGNED with the
+## line, not merely pointing at the aim point, which is what makes the two terms
+## agree instead of fight (both are signed nose-to-path angles, near and far).
+const HEADING_STEER_GAIN := 0.6
 
 # --- Longitudinal ---
 ## Throttle cut per unit of |steer| while cornering or settling. Kept moderate
@@ -98,6 +108,15 @@ const CORNER_BRAKE_RAMP_MPS := 4.0
 ## Braking is never commanded below this speed, so a slow/stopped car is not
 ## braked into a permanent stop.
 const LOW_SPEED_BRAKE_FLOOR_MPS := 6.0
+## Heading error (rad) at which the throttle starts being cut, and the error at
+## which the cut is total (0.42 rad ~ 24 deg, 1.05 rad ~ 60 deg). Past the start
+## the car is no longer tracking the line, and staying on the throttle loads the
+## rear mid-correction and turns a spurious perturbation (a kerb strike, a nudge)
+## into a spin: the probe shows the rival holding thr 0.66 while its heading error
+## ran 7 -> 52 -> 114 degrees. Easing off lets it settle first. Never applied
+## while recovering, where pulling the car out of a stop matters more.
+const YAW_THROTTLE_CUT_START_RAD := 0.42
+const YAW_THROTTLE_CUT_FULL_RAD := 1.05
 
 # --- Stall / stuck detection ---
 ## No forward centreline progress for this long => re-seek the target FORWARD
@@ -111,6 +130,15 @@ const STUCK_SECONDS := 1.6
 ## Throttle floor applied (post-pace) while recovering, so a stopped car pulls
 ## itself out without a teleport.
 const RECOVER_THROTTLE_FLOOR := 0.6
+## Speed (m/s) above which a latched recovery is released again -- deliberately
+## ~2x STUCK_SPEED_MS so the two thresholds do not chatter. Recovery is meant for
+## a car that is STOPPED (see STUCK_SPEED_MS); the only other way out was a
+## forward index advance, but a car that digs SIDEWAYS keeps `nearest` frozen
+## while its speed climbs. The probe measured exactly that: the Novice latched,
+## then sat at 20-36 km/h with its index pinned, and RECOVER_THROTTLE_FLOOR held
+## the throttle at 0.60 the whole way into InnerRailCollision5. A moving car is
+## not stuck, so let it drive normally.
+const RECOVER_EXIT_SPEED_MS := 6.0
 ## Recovery tightens the aim point to this arc so the car points at its tangent.
 const RECOVER_LOOKAHEAD_M := 5.0
 
@@ -132,6 +160,14 @@ func _physics_process(delta: float) -> void:
 
     _update_progress(nearest, speed, delta)
 
+    # Keep the seek index ahead of the car. Pure pursuit (below) is what actually
+    # steers, but a target that has fallen BEHIND the car -- after a spin, a shove
+    # off line, a hit -- can never be "captured" again (its distance only grows),
+    # so the index would freeze for the rest of the race even while the car drives
+    # on. Snap it back onto the nearest point in that case; never at the player.
+    if _current_target != nearest and wrapi(_current_target - nearest, 0, n) > n / 2:
+        _current_target = nearest
+
     # --- Stall re-seek: aim FORWARD along the centreline, never at the player ---
     if _ever_moved and _stall_seconds >= STALL_SECONDS and not _resought:
         _current_target = wrapi(nearest + _lookahead_steps(RECOVER_LOOKAHEAD_M), 0, n)
@@ -147,7 +183,11 @@ func _physics_process(delta: float) -> void:
     var aim_arc := RECOVER_LOOKAHEAD_M if _recovering else _lookahead_arc(speed)
     var aim := waypoints[wrapi(nearest + _lookahead_steps(aim_arc), 0, n)]
 
-    var steer := _steer_toward(pos, aim, delta)
+    # Nose-vs-centreline heading error, used by both the steer command (so the
+    # car aligns with the line, not just with the aim point) and the throttle cut
+    # below (so it does not power into a growing yaw error).
+    var head_err := _heading_error(nearest)
+    var steer := _steer_toward(pos, aim, delta, head_err)
 
     # --- Curvature-lookahead braking (never at creep speed) ---
     var throttle := 1.0
@@ -173,6 +213,11 @@ func _physics_process(delta: float) -> void:
         elif _stall_seconds >= STALL_SECONDS * 0.6:
             cut = STALL_THROTTLE_CUT
         throttle *= (1.0 - absf(steer) * cut)
+        if not _recovering and absf(head_err) > YAW_THROTTLE_CUT_START_RAD:
+            throttle *= 1.0 - clampf(
+                (absf(head_err) - YAW_THROTTLE_CUT_START_RAD)
+                    / (YAW_THROTTLE_CUT_FULL_RAD - YAW_THROTTLE_CUT_START_RAD),
+                0.0, 1.0)
 
     _apply_control(steer, throttle, braking, delta)
 
@@ -247,29 +292,57 @@ func _update_progress(nearest: int, speed: float, delta: float) -> void:
 
     if _ever_moved and speed < STUCK_SPEED_MS and _stall_seconds >= STUCK_SECONDS:
         _recovering = true
+    elif _recovering and speed > RECOVER_EXIT_SPEED_MS:
+        # Hysteresis on the way out (see RECOVER_EXIT_SPEED_MS): a car that is
+        # moving again is no longer stuck, even if its index has not advanced.
+        _recovering = false
 
 # --- Steering ----------------------------------------------------------------
 
-func _steer_toward(pos: Vector3, aim: Vector3, delta: float) -> float:
+func _steer_toward(pos: Vector3, aim: Vector3, delta: float, head_err: float) -> float:
     var car_forward := -car.global_basis.z
     car_forward.y = 0.0
     var to_aim := aim - pos
     to_aim.y = 0.0
     var steer_input := 0.0
-    if to_aim.length() > 0.001 and car_forward.length() > 0.001:
+    if car_forward.length() > 0.001:
         var f := car_forward.normalized()
-        var t := to_aim.normalized()
-        # Signed bearing from nose to aim; positive = aim to the LEFT (positive
-        # steer). atan2 removes the 180-degree dead spot the bare cross-product
-        # sine hit, while matching its sign below 90 degrees.
-        var cross_y := f.z * t.x - f.x * t.z
-        var dot := f.x * t.x + f.z * t.z
-        var bearing := atan2(cross_y, dot)
-        steer_input = clampf(bearing / STEER_BEARING_SAT, -1.0, 1.0)
+        var command := 0.0
+        if to_aim.length() > 0.001:
+            var t := to_aim.normalized()
+            # Signed bearing from nose to aim; positive = aim to the LEFT (positive
+            # steer). atan2 removes the 180-degree dead spot the bare cross-product
+            # sine hit, while matching its sign below 90 degrees.
+            var cross_y := f.z * t.x - f.x * t.z
+            var dot := f.x * t.x + f.z * t.z
+            command = atan2(cross_y, dot)
+        # Same signed-angle convention, nose vs the centreline TANGENT: this term
+        # still steers when the bearing to the aim point has cancelled (see
+        # HEADING_STEER_GAIN), and counter-steers a car whose nose has been rotated
+        # past the line.
+        command += head_err * HEADING_STEER_GAIN
+        steer_input = clampf(command / STEER_BEARING_SAT, -1.0, 1.0)
     if absf(steer_input) < STEER_DEADBAND:
         steer_input = 0.0
     _smooth_steer = move_toward(_smooth_steer, steer_input, STEER_SLEW_PER_S * delta)
     return _smooth_steer
+
+## Signed angle (rad) from the nose to the centreline TANGENT at `nearest`,
+## positive when the tangent lies to the LEFT of the nose -- the same convention
+## as the bearing in _steer_toward, so the two terms add instead of cancelling.
+## A nose left of the line therefore yields a negative (right) correction, which
+## is also the correct counter-steer once the rear has stepped out.
+func _heading_error(nearest: int) -> float:
+    var n := waypoints.size()
+    var car_forward := -car.global_basis.z
+    car_forward.y = 0.0
+    var tangent := waypoints[wrapi(nearest + 1, 0, n)] - waypoints[nearest]
+    tangent.y = 0.0
+    if car_forward.length() < 0.001 or tangent.length() < 0.001:
+        return 0.0
+    var f := car_forward.normalized()
+    var t := tangent.normalized()
+    return atan2(f.z * t.x - f.x * t.z, f.x * t.x + f.z * t.z)
 
 # --- Corner-speed lookahead --------------------------------------------------
 

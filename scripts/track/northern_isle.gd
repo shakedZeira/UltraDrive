@@ -265,12 +265,30 @@ const BARRIER_BOX_OVERLAP := 0.35
 ## EDGE_DROP below the road edge).
 const BARRIER_DROP_BELOW := 1.0
 
-## Box top = base + rise (m): clear the visual it guards with margin —
-## `OvalDressing.FENCE_PANEL_TOP` (3.2 m), the red barrier GLB (~1.57 m at
-## `BARRIER_SCALE`) and `TrackBuilder.RAIL_HEIGHT` (0.75 m).
-const FENCE_RISE_ABOVE := 3.6
-const RED_BARRIER_RISE_ABOVE := 1.9
-const RAIL_RISE_ABOVE := 1.6
+## Safety margin a chain box may stand above the VISUAL it guards (m). The chain
+## is a physics proxy for a mesh, not a separate taller wall: it must cover the
+## visual and rise no more, or a car meets solid air above a barrier it can
+## plainly see under — an "invisible wall", worst when cutting a corner across
+## the low infield rail.
+##
+## MEASURED before this cap (headless sphere walk up each chain's own lateral
+## line, 2026-10-16): every chain towered over its own visual — the fence 0.60 m
+## above its 3.2 m panels, the red barrier 0.43 m above its GLB top, the inner
+## rail 1.05 m above its 0.75 m rail. The chain geometry, ground burial and
+## thickness are unchanged — only the rise is now derived from the visual.
+const BARRIER_TOP_MARGIN := 0.1
+
+## Visual top of the red barrier GLB at `OvalDressing.BARRIER_SCALE` (m above its
+## base line; `racing_barrier_red.glb` is ~0.131 m tall x 12.0). The GLB exposes
+## no constant, so the figure is named here and held honest by the barrier gate.
+const RED_BARRIER_VISUAL_TOP := 1.57
+
+## Box top = base + rise (m): the top of the visual each chain guards, plus
+## `BARRIER_TOP_MARGIN` — `OvalDressing.FENCE_PANEL_TOP` (3.2 m), the red barrier
+## GLB top above and `TrackBuilder.RAIL_HEIGHT` (0.75 m).
+const FENCE_RISE_ABOVE := OvalDressing.FENCE_PANEL_TOP + BARRIER_TOP_MARGIN
+const RED_BARRIER_RISE_ABOVE := RED_BARRIER_VISUAL_TOP + BARRIER_TOP_MARGIN
+const RAIL_RISE_ABOVE := TrackBuilder.RAIL_HEIGHT + BARRIER_TOP_MARGIN
 
 ## Box cross-section along the road (m): thicker than the visuals they guard (a
 ## 0.12 m post, a 0.18 m rail) so a fast car can never thread the chain.

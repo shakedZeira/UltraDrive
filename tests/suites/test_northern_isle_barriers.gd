@@ -34,6 +34,21 @@ const PUSH_X := 60.0
 const PUSH_Y := 1.0
 const BODY_HALF := 0.5
 
+## Independent spec for the chain's vertical cap (the invisible-wall audit): a
+## chain box may stand at most this far (m) above the TOP of the visual it
+## guards. Deliberately NOT read from `northern_isle.gd`'s own margin constant,
+## so loosening the script cannot loosen the gate.
+##
+## Picked between the two ends that matter: the builder's `BARRIER_TOP_MARGIN`
+## is 0.10, and the SMALLEST over-height this suite exists to catch is the red
+## barrier's original 0.33 (1.9 above a 1.57 visual). Anything >= 0.33 would have
+## passed the original defect outright; 0.20 passes today at 0.10 with real room
+## and still fails the original fence (0.40), red (0.33) and rail (0.85) rises.
+const MAX_TOP_MARGIN := 0.20
+## Visual top of the red barrier GLB at `OvalDressing.BARRIER_SCALE` (m), the
+## same figure `northern_isle.gd` names. The GLB exposes no constant.
+const RED_BARRIER_VISUAL_TOP := 1.57
+
 ## The scene is stripped of everything this suite must not run (the car, the
 ## cameras that target it, the HUD/pause menu) and of the heavy builders, leaving
 ## `_ready` to do its centreline/road/checkpoint/barrier-collider wiring.
@@ -190,8 +205,14 @@ func test_builder_creates_box_chains_on_both_sides() -> void:
 	assert_int(on_rail).is_greater_equal(150)
 
 	# Each body is a vehicle-collidable static body holding only box shapes, and
-	# each box out-tops the visual it guards.
+	# each box out-tops the visual it guards yet towers no more than
+	# `MAX_TOP_MARGIN` above it (the invisible-wall regression: the chain is a
+	# physics proxy for a mesh, not a taller hidden wall).
 	var expected_spacing := NorthernIsleLayout.spacing()
+	# The buried depth is collider geometry, not the thing under test, so read it
+	# to recover each box's actual RISE above its base line.
+	var ni_consts: Dictionary = (load(SCRIPT_NORTHERN_ISLE) as GDScript).get_script_constant_map()
+	var drop_below: float = ni_consts.get("BARRIER_DROP_BELOW", 1.0)
 	for prefix: String in ["FenceCollision", "RedBarrierCollision", "InnerRailCollision"]:
 		var bodies := _bodies_with_prefix(root, prefix)
 		assert_int(bodies.size()).is_greater_equal(2)
@@ -202,6 +223,7 @@ func test_builder_creates_box_chains_on_both_sides() -> void:
 			shapes.append_array(_shapes_of(body))
 		assert_int(shapes.size()).is_equal(NorthernIsleLayout.TOTAL_POINTS)
 		var min_top := INF
+		var max_rise := -INF
 		for shape in shapes:
 			var box := shape.shape as BoxShape3D
 			assert_that(box).is_not_null()
@@ -212,12 +234,16 @@ func test_builder_creates_box_chains_on_both_sides() -> void:
 			# Thick enough to be a wall, thin enough not to intrude on tarmac.
 			assert_float(box.size.x).is_between(0.1, 0.6)
 			min_top = minf(min_top, box.size.y)
+			max_rise = maxf(max_rise, box.size.y - drop_below)
 		if prefix == "FenceCollision":
 			assert_float(min_top).is_greater_equal(OvalDressing.FENCE_PANEL_TOP)
+			assert_float(max_rise).is_between(OvalDressing.FENCE_PANEL_TOP, OvalDressing.FENCE_PANEL_TOP + MAX_TOP_MARGIN)
 		elif prefix == "RedBarrierCollision":
 			assert_float(min_top).is_greater_equal(1.5)
+			assert_float(max_rise).is_between(RED_BARRIER_VISUAL_TOP, RED_BARRIER_VISUAL_TOP + MAX_TOP_MARGIN)
 		else:
 			assert_float(min_top).is_greater_equal(TrackBuilder.RAIL_HEIGHT)
+			assert_float(max_rise).is_between(TrackBuilder.RAIL_HEIGHT, TrackBuilder.RAIL_HEIGHT + MAX_TOP_MARGIN)
 
 # --- wiring -----------------------------------------------------------------
 
