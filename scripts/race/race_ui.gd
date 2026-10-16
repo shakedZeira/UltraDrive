@@ -158,7 +158,9 @@ func _process(delta: float) -> void:
 		return
 	position_label.text = _position_text(car)
 	var lap_counter := RaceManager.get_lap_counter(car)
-	lap_label.text = "LAP %d" % (lap_counter.get_current_lap() if lap_counter else 1)
+	var _lap_cur := lap_counter.get_current_lap() if lap_counter else 1
+	var _lap_tot := lap_counter.total_laps if lap_counter else RaceManager.total_laps
+	lap_label.text = "LAP %d/%d" % [_lap_cur, _lap_tot]
 	time_label.text = "%.3f" % (lap_counter.get_lap_time() if lap_counter else 0.0)
 	var pos := car.global_position
 	coords_label.text = "X: %.1f  Y: %.1f  Z: %.1f" % [pos.x, pos.y, pos.z]
