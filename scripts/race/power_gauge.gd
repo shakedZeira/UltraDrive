@@ -75,6 +75,20 @@ static func hp_delta_hp(config: CarConfig, rpm: float) -> float:
 		return 0.0
 	return power_hp(config, rpm) - peak
 
+## Live crank torque (Nm) at `rpm`: the same CarConfig curve sample the hp
+## readout uses (throttle/gear independent — spec-sheet style, matching
+## max_torque). Zero for a null config.
+static func torque_nm(config: CarConfig, rpm: float) -> float:
+	if config == null:
+		return 0.0
+	return config.get_engine_torque(maxf(rpm, 0.0))
+
+## HUD line: "<current> Nm", "-- Nm" when there is no config.
+static func format_torque_text(config: CarConfig, rpm: float) -> String:
+	if config == null:
+		return "-- Nm"
+	return "%d Nm" % roundi(torque_nm(config, rpm))
+
 ## Explicit sign rendering: GDScript's %-formatting sign flag is avoided so the
 ## emitted text is byte-identical everywhere (no "-0" / "+0" locale surprises).
 static func signed_hp(value: float) -> String:

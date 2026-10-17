@@ -386,6 +386,20 @@ theme_override_colors/font_outline_color = Color(0.02, 0.04, 0.09, 1)
 theme_override_constants/outline_size = 3
 theme_override_font_sizes/font_size = 20
 
+[node name="TorqueValue" type="Label" parent="Root/Cluster"]
+unique_name_in_owner = true
+offset_left = 360.0
+offset_top = 288.0
+offset_right = 552.0
+offset_bottom = 312.0
+horizontal_alignment = 2
+vertical_alignment = 1
+text = "-- Nm"
+theme_override_colors/font_color = Color(0.62, 0.86, 1, 1)
+theme_override_colors/font_outline_color = Color(0.02, 0.04, 0.09, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 20
+
 [node name="BoostGauge" type="Control" parent="Root/Cluster"]
 unique_name_in_owner = true
 visible = false

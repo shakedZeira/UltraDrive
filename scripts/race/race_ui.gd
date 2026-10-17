@@ -27,6 +27,7 @@ const BEST_LAP_DELTA_EPSILON := 0.005
 @onready var cluster: Tachometer = %Cluster
 @onready var traction_lamp: TractionLamp = %TractionLamp
 @onready var power_value: Label = %PowerValue
+@onready var torque_value: Label = %TorqueValue
 @onready var lap_label: Label = %LapLabel
 @onready var position_label: Label = %PositionLabel
 @onready var time_label: Label = %TimeLabel
@@ -465,14 +466,20 @@ func _refresh_traction_lamp(car: VehiclePhysics) -> void:
 		return
 	traction_lamp.set_severity(WheelspinGauge.severity_for_car(car))
 
-## HP line under the cluster: the engine's power at the current rpm against its
-## own rated peak, so the number means the same thing for every car.
+## HP + torque lines under the cluster: current crank power (hp) and live crank
+## torque (Nm) at the current rpm — both curve-only, no sign tokens.
 func _refresh_power_readout(info: Dictionary, cfg: CarConfig) -> void:
 	if power_value == null:
 		return
-	var text := PowerGauge.format_text(cfg, float(info.get("rpm", 0.0)))
+	var rpm := float(info.get("rpm", 0.0))
+	var text := PowerGauge.format_text(cfg, rpm)
 	if power_value.text != text:
 		power_value.text = text
+	if torque_value == null:
+		return
+	var torque_text := PowerGauge.format_torque_text(cfg, rpm)
+	if torque_value.text != torque_text:
+		torque_value.text = torque_text
 
 ## Boost gauge beside the cluster: fed from the drive info's additive turbo
 ## keys. set_boost_bar() auto-hides on max_bar <= 0, so NA cars keep the gauge

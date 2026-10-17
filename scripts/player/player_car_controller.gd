@@ -18,9 +18,26 @@ var _night_lamps: Node3D = null
 var _headlight_intensity: float = 0.0
 ## AUTO = follow the DayNightDriver clock; OFF / ON are the X / Cross overrides.
 var _lamp_mode: CarVisuals.LampMode = CarVisuals.LampMode.AUTO
+## The body we registered with VehicleManager in _enter_tree (kept separately
+## from @onready `car`, which is unset that early).
+var _registered_car: VehiclePhysics = null
+
+## Register on ENTER, not in _ready(): _ready runs once per node, but a tree
+## removal + re-add (scene swap, pause-mode churn, respawn rebuild) re-runs
+## _enter_tree. Registering in _ready while unregistering in _exit_tree left
+## VehicleManager.player_car permanently null after any re-add — the car
+## stayed alive while every HUD readout died with no recovery path
+## (docs/HANDOFF_2026-10-18_hud_fix_summary.md). The group join additionally
+## lets VehicleManager.get_player_car() re-find us if the cached ref is lost.
+func _enter_tree() -> void:
+	var physics := get_parent() as VehiclePhysics
+	if physics == null:
+		return
+	_registered_car = physics
+	VehicleManager.register_player_car(physics)
+	add_to_group(VehicleManager.PLAYER_CAR_GROUP)
 
 func _ready() -> void:
-	VehicleManager.register_player_car(car)
 	var garage := Garage.new_from_save()
 	var active := garage.get_active_car()
 	_car_id = active
@@ -33,14 +50,15 @@ func _ready() -> void:
 	_apply_visual()
 	_refresh_interior()
 
-## The car is freed on scene swaps but VehicleManager keeps stale refs (its
-## remove_car() had no callers), so all_cars/player_car could point at a freed
-## body that a later start_race() then calls release_ground_lock() on. Unregister
-## when this controller leaves the tree (children exit before parents, so the
-## car body is still valid here).
+## Unregister when this controller leaves the tree (children exit before
+## parents, so _registered_car — the body registered in _enter_tree — is still
+## valid here). This keeps all_cars/player_car from pointing at a freed body
+## that a later start_race() would call release_ground_lock() on; the
+## re-entry half of the contract lives in _enter_tree() above.
 func _exit_tree() -> void:
-	if is_instance_valid(car):
-		VehicleManager.remove_car(car)
+	if _registered_car != null:
+		VehicleManager.remove_car(_registered_car)
+		_registered_car = null
 
 func _process(delta: float) -> void:
 	if not _visual_ready:
