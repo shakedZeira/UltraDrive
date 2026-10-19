@@ -136,10 +136,41 @@ const TURBO_WHINE_TRIM_DB: float = 6.0
 const TURBO_BOV_TRIM_DB: float = 6.0
 const TURBO_FLUTTER_TRIM_DB: float = 6.0
 
+## Overrun exhaust layer (pops & bangs), presentation-only: a synthesized burst
+## one-shot layered on the bed mix when a high-rpm throttle release is detected.
+## Opt-in per car (CarConfig.exhaust_pop_enabled); never created under the
+## headless display server (same guard as the turbo layer). Every burst is built
+## from a seeded RandomNumberGenerator so identical inputs give identical PCM.
+const POP_STYLES: Array[String] = ["burble", "crackle", "bang"]
+const POP_SAMPLE_RATE: int = 22050
+## Bank size per style (variants the per-event RNG chooses between).
+const POP_VARIANTS: int = 4
+const POP_GAIN_TRIM_DB: float = -6.0        # fallback if cfg.gain missing
+const POP_COOLDOWN_SECONDS: float = 0.15
+const POP_RELEASE_HI: float = 0.5           # matches the lift edge
+const POP_RELEASE_LO: float = 0.15
+const POP_PITCH_MIN: float = 0.94
+const POP_PITCH_MAX: float = 1.06
+const DEFAULT_POP_SEED: int = 90210
+
 ## Optional editor override for the per-band RPM crossfade curves. When left
 ## empty, _ready installs build_default_curves(), which exactly reproduces
 ## band_weights() so runtime and pure-static math always agree.
 @export var volume_curves: Array[Curve] = []
+
+## Spatial defaults applied in _ready (new exports so scenes can override them
+## WITHOUT being stomped by the old hard-coded literals; do NOT reuse the
+## inherited unit_size/max_distance as the override channel -- the serialized
+## player_car.tscn values and the _ready assignment must both stay valid).
+@export var spatial_unit_size: float = 2.0
+@export var spatial_max_distance: float = 80.0
+## Extra level trim (dB) applied AFTER the timbre master trim and BEFORE the
+## floor/ceiling clamp. 0.0 = player. Rivals use a negative value so a pack
+## never overpowers the player's own engine.
+@export var extra_trim_db: float = 0.0
+## When > 0 and this node is NOT the player, distance-cull audio against the
+## player car each physics tick (0 = off: player + traffic keep legacy behaviour).
+@export var auto_cull_range: float = 0.0
 
 var _car: VehiclePhysics = null
 var _beds: Array[Dictionary] = []
@@ -170,11 +201,15 @@ var _turbo_streams: Dictionary = {}
 var _turbo_players: Array[AudioStreamPlayer3D] = []
 var _turbo_vol_ema: Array[float] = []
 var _prev_boost_fraction: float = 0.0
+var _pop_player: AudioStreamPlayer3D = null
+var _pop_rng := RandomNumberGenerator.new()
+var _pop_cooldown: float = 0.0
+static var _pop_bank_cache: Dictionary = {}
 
 
 func _ready() -> void:
-	unit_size = 2.0
-	max_distance = 80.0
+	unit_size = spatial_unit_size
+	max_distance = spatial_max_distance
 	_car = get_parent() as VehiclePhysics
 	_auto_curves = volume_curves.is_empty()
 	_apply_profile(_get_config())
@@ -182,7 +217,9 @@ func _ready() -> void:
 	_create_band_players()
 	for player in _band_players:
 		player.play()
+	_pop_rng.seed = DEFAULT_POP_SEED
 	_ensure_turbo_layer(_get_config())
+	_ensure_pop_layer(_get_config())
 
 
 func _exit_tree() -> void:
@@ -269,6 +306,24 @@ func _ensure_turbo_layer(cfg: CarConfig) -> void:
 	_create_turbo_players()
 
 
+## Lazily creates the exhaust-overrun player once an opted-in config is
+## available (the config may be assigned after _ready by a controller or
+## spawner, same contract as _ensure_turbo_layer). No-op for cars without the
+## flag and under the headless display server.
+func _ensure_pop_layer(cfg: CarConfig) -> void:
+	if _pop_player != null:
+		return
+	if not should_create_pop_players(cfg, DisplayServer.get_name()):
+		return
+	var player := AudioStreamPlayer3D.new()
+	player.name = "ExhaustPop"
+	player.unit_size = unit_size
+	player.max_distance = max_distance
+	add_child(player)
+	player.volume_db = MUTE_FLOOR_DB
+	_pop_player = player
+
+
 ## Per-frame turbo voice update: the spool whine chases the boost fraction x
 ## rpm position; the blow-off valve fires once on the lift edge while boost was
 ## built; the wastegate flutter fires on a gear-change edge while boost is up.
@@ -282,7 +337,7 @@ func _update_turbo(cfg: CarConfig, info: Dictionary, rpm_norm: float, throttle: 
 	var whine_gain := turbo_whine_gain_db(boost, rpm_norm)
 	if cfg != null:
 		whine_gain += linear_to_db(maxf(cfg.turbo_whine_gain, 0.001))
-	var whine_target := clampf(whine_gain, MUTE_FLOOR_DB, 6.0)
+	var whine_target := clampf(whine_gain + extra_trim_db, MUTE_FLOOR_DB, 6.0)
 	var whine_vol: float = move_toward(_turbo_vol_ema[0], whine_target, VOL_SLEW_DB)
 	_turbo_vol_ema[0] = whine_vol
 	whine.volume_db = whine_vol
@@ -290,7 +345,7 @@ func _update_turbo(cfg: CarConfig, info: Dictionary, rpm_norm: float, throttle: 
 		whine.play()
 	# BOV: same lift edge as the lift-off pop, gated on boost actually built.
 	if _prev_throttle > 0.5 and throttle < 0.15 and _prev_boost_fraction > TURBO_BOV_MIN_FRACTION:
-		bov.volume_db = bov_gain_db(_prev_boost_fraction)
+		bov.volume_db = bov_gain_db(_prev_boost_fraction) + extra_trim_db
 		bov.play()
 	# Wastegate flutter ("stutu"): the after-effect of LETTING OFF the gas --
 	# same lift edge as the BOV (throttle drops through 0.5 -> 0.15 while boost
@@ -298,14 +353,65 @@ func _update_turbo(cfg: CarConfig, info: Dictionary, rpm_norm: float, throttle: 
 	# not a gear-change reaction, so a steady throttle holds a clean whistle.
 	if _prev_throttle > 0.5 and throttle < 0.15 and _prev_boost_fraction > TURBO_FLUTTER_MIN_FRACTION \
 			and (cfg == null or cfg.turbo_has_wastegate):
-		flutter.volume_db = flutter_gain_db(_prev_boost_fraction)
+		flutter.volume_db = flutter_gain_db(_prev_boost_fraction) + extra_trim_db
 		flutter.play()
 	_prev_boost_fraction = boost
+
+
+## Per-frame overrun update: decay the anti-machine-gun cooldown, evaluate the
+## pure trigger against the SAME lift edge the BOV/flutter voices use, and fire
+## one burst. MUST be called BEFORE _physics_process() overwrites _prev_throttle
+## (identical ordering rule to _update_turbo()).
+func _update_overrun(cfg: CarConfig, rpm_norm: float, throttle: float, gear: int, delta: float) -> void:
+	_pop_cooldown = maxf(_pop_cooldown - delta, 0.0)
+	if cfg == null:
+		return
+	var enabled: bool = cfg.exhaust_pop_enabled and cfg.exhaust_pop_intensity > 0.0
+	if not enabled:
+		return
+	if not overrun_should_fire(_prev_throttle, throttle, rpm_norm, gear, enabled, cfg.exhaust_pop_min_rpm_fraction, _pop_cooldown):
+		return
+	_pop_cooldown = POP_COOLDOWN_SECONDS
+	_fire_overrun(cfg)
+
+
+## Fires one overrun burst: picks a cached variant, applies a per-event pitch
+## jitter from _pop_rng (so two lifts are not identical), then plays it. No-op
+## when no player exists (headless / not opted in).
+func _fire_overrun(cfg: CarConfig) -> void:
+	if _pop_player == null or cfg == null:
+		return
+	var style := normalize_pop_style(cfg.exhaust_pop_style)
+	var amount := clampf(cfg.exhaust_pop_intensity, 0.0, 2.0)
+	var variant := _pop_rng.randi_range(0, POP_VARIANTS - 1)
+	var seed := DEFAULT_POP_SEED + variant
+	var key := pop_bank_key(style, cfg.exhaust_pop_duration, amount, seed)
+	var stream: AudioStreamWAV = null
+	if _pop_bank_cache.has(key):
+		stream = _pop_bank_cache[key] as AudioStreamWAV
+	else:
+		stream = build_pop_burst(style, cfg.exhaust_pop_duration, amount, POP_SAMPLE_RATE, seed)
+		_pop_bank_cache[key] = stream
+	if stream == null:
+		return
+	_pop_player.stream = stream
+	_pop_player.pitch_scale = pop_pitch_jitter(_pop_rng)
+	var trim: float = cfg.exhaust_pop_gain_db if cfg != null else POP_GAIN_TRIM_DB
+	_pop_player.volume_db = clampf(trim + extra_trim_db, MUTE_FLOOR_DB, 6.0)
+	_pop_player.play()
 
 
 func _physics_process(delta: float) -> void:
 	if _band_players.is_empty():
 		return
+	# Distance LOD for non-player sources (rivals). MUST run BEFORE the _culled
+	# early-return below: once culled the function returns there, so a check
+	# placed after it could never un-cull. A null player (tests / free-roam
+	# moments) keeps the emitter ACTIVE instead of silently muting it.
+	if auto_cull_range > 0.0 and not _is_player:
+		var ref := VehicleManager.get_player_car()
+		if ref != null:
+			cull_by_distance(ref.global_position, auto_cull_range)
 	if _culled:
 		for player in _band_players:
 			if player.playing:
@@ -352,6 +458,13 @@ func _physics_process(delta: float) -> void:
 	_ensure_turbo_layer(cfg)
 	_update_turbo(cfg, info, rpm_norm, throttle)
 
+	# Exhaust overrun layer (presentation-only): create lazily like the turbo
+	# layer, then evaluate the overrun trigger. Same ordering rule -- it reads
+	# _prev_throttle (last frame's value) for the shared lift edge, so it MUST
+	# run before the line that overwrites _prev_throttle just below.
+	_ensure_pop_layer(cfg)
+	_update_overrun(cfg, rpm_norm, throttle, gear, delta)
+
 	if _prev_throttle > 0.5 and throttle < 0.15:
 		_lift_env = LIFT_ENV_SECONDS
 	_prev_throttle = throttle
@@ -377,7 +490,7 @@ func _physics_process(delta: float) -> void:
 	for i in range(_band_players.size()):
 		var player := _band_players[i]
 		player.pitch_scale = band_pitch_scale_window(live_rpm, _band_rpms[i], _pitch_min, _pitch_max) * shift_pitch
-		var target_db := clampf(band_gain_db(weights[i], load_gain, trans_db) + _trim_db, MUTE_FLOOR_DB, 6.0)
+		var target_db := clampf(band_gain_db(weights[i], load_gain, trans_db) + _trim_db + extra_trim_db, MUTE_FLOOR_DB, 6.0)
 		var vol: float = move_toward(_vol_ema[i], target_db, VOL_SLEW_DB)
 		_vol_ema[i] = vol
 		player.volume_db = vol
@@ -417,6 +530,27 @@ func set_audio_active(active: bool) -> void:
 
 func cull_by_distance(camera_pos: Vector3, range_m: float) -> void:
 	set_audio_active(global_position.distance_to(camera_pos) <= range_m)
+
+
+## Idempotent, additive sibling of the rival scene's own EngineAudio node: returns
+## the existing "EngineAudio" child when the car already ships one, otherwise
+## creates a configured rivals-grade node and parents it to `car`. Lets a
+## swapped-in rival scene (RaceManager.set_rival_vehicle_scene) or a future
+## spawner guarantee audible rival engines without duplicating the node. Player +
+## traffic already own their nodes, so this is a no-op for them.
+static func ensure_for(car: VehiclePhysics) -> EngineAudio:
+	if car == null:
+		return null
+	var existing := car.get_node_or_null("EngineAudio") as EngineAudio
+	if existing != null:
+		return existing
+	var audio := EngineAudio.new()
+	audio.name = "EngineAudio"
+	audio.auto_cull_range = 150.0
+	audio.extra_trim_db = -4.0
+	audio.spatial_max_distance = 60.0
+	car.add_child(audio)
+	return audio
 
 
 ## Loads the five bed streams and forces them to seamless LOOP_FORWARD; missing
@@ -780,6 +914,201 @@ static func load_turbo_assets() -> Dictionary:
 						wav.loop_end = maxi(frames - 1, 1)
 		streams[key] = stream
 	return streams
+
+
+## --- Exhaust overrun (pops & bangs) statics --------------------------------
+## Pure, deterministic core of the overrun layer: style normalization, the
+## burst's pop count / window, the trigger truth table, the per-event pitch
+## jitter, the bank cache key and the runtime burst synthesis. No engine/scene
+## dependency, so every one is unit-testable headless.
+
+## Unknown/empty styles fall back to the shipped "crackle" character.
+static func normalize_pop_style(style: String) -> String:
+	if POP_STYLES.has(style):
+		return style
+	return "crackle"
+
+
+## Pop count for a burst: a style-aware base scaled by the clamped intensity.
+## Monotonic non-decreasing in intensity; a zero intensity gives zero pops.
+static func pop_count_for(style: String, intensity: float) -> int:
+	var amt := clampf(intensity, 0.0, 2.0)
+	var base := 9.0
+	match normalize_pop_style(style):
+		"burble":
+			base = 3.0
+		"bang":
+			base = 2.0
+		_:
+			base = 9.0
+	return clampi(int(round(base * amt)), 0, 24)
+
+
+## Overrun window (seconds): the requested duration clamped to [0.1, 3.0], with
+## a small style nudge (burbles run long, bangs short). Sampled from real
+## overrun maps only approximately -- these are ear-tuned starting points.
+static func pop_duration_for(style: String, duration: float) -> float:
+	var scale := 1.0
+	match normalize_pop_style(style):
+		"burble":
+			scale = 1.15
+		"bang":
+			scale = 0.85
+	return clampf(duration * scale, 0.1, 3.0)
+
+
+## Pure overrun trigger truth: opted in AND the shared throttle-lift edge AND
+## revs above the per-car floor AND not reverse AND the anti-machine-gun cooldown
+## has expired. Built on the same edge as the BOV/flutter voices so a single
+## lift produces one coherent event.
+static func overrun_should_fire(prev_throttle: float, throttle: float, rpm_norm: float, gear: int, enabled: bool, min_rpm_fraction: float, cooldown: float) -> bool:
+	if not enabled:
+		return false
+	if cooldown > 0.0:
+		return false
+	if gear == -1:
+		return false
+	if clampf(rpm_norm, 0.0, 1.0) < clampf(min_rpm_fraction, 0.0, 1.0):
+		return false
+	return prev_throttle > POP_RELEASE_HI and throttle < POP_RELEASE_LO
+
+
+## Per-event pitch jitter (deterministic given the caller's RNG) so two lifts
+## are audibly not identical. Pure static for testability.
+static func pop_pitch_jitter(rng: RandomNumberGenerator) -> float:
+	return rng.randf_range(POP_PITCH_MIN, POP_PITCH_MAX)
+
+
+## Bank cache key for one burst (style + window + intensity bucket + seed).
+static func pop_bank_key(style: String, duration: float, intensity: float, seed: int) -> String:
+	return "%s|%.3f|%.3f|%d" % [normalize_pop_style(style), pop_duration_for(style, duration), clampf(intensity, 0.0, 2.0), seed]
+
+
+## True when the pop players should exist for this config on this display
+## server: an opted-in car NOT running headless (mirrors
+## should_create_turbo_players). Pure static for testability.
+static func should_create_pop_players(cfg: CarConfig, display_name: String) -> bool:
+	if cfg == null or not cfg.exhaust_pop_enabled:
+		return false
+	return display_name != "headless"
+
+
+## Builds one deterministic overrun burst as a 16-bit mono AudioStreamWAV. The
+## whole burst is a single stream, so once started Godot mixes it
+## sample-accurately and the sound is identical at any frame rate. `intensity`
+## is clamped to [0, 2]; every random draw comes from an RNG seeded with `seed`,
+## so identical inputs produce byte-identical data. Runtime-built WAVs also
+## sidestep the QOA loop-end import trap entirely.
+static func build_pop_burst(style: String, duration: float, intensity: float, sample_rate: int, seed: int) -> AudioStreamWAV:
+	var named := normalize_pop_style(style)
+	var sr := clampi(sample_rate, 4000, 192000)
+	var dur := pop_duration_for(named, duration)
+	var amt := clampf(intensity, 0.0, 2.0)
+	var frames := maxi(int(round(dur * float(sr))), 1)
+	var samples := PackedFloat32Array()
+	samples.resize(frames)
+
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+
+	# Per-style transient shaping (APPROXIMATE ear-tuned starting points, not
+	# measurements): crackle = sharp high-passed noise, bang = dull low-passed
+	# boom with a strong body tone, burble = soft band-limited thock.
+	var pop_tc := 0.02
+	var body_gain := 0.18
+	var noise_gain := 1.0
+	var lp_hz := 0.0
+	var hp_hz := 0.0
+	var body_lo := 80.0
+	var body_hi := 130.0
+	match named:
+		"burble":
+			pop_tc = 0.05
+			body_gain = 0.55
+			noise_gain = 0.7
+			lp_hz = 1400.0
+			body_lo = 60.0
+			body_hi = 110.0
+		"bang":
+			pop_tc = 0.09
+			body_gain = 1.0
+			noise_gain = 0.5
+			lp_hz = 700.0
+			body_lo = 55.0
+			body_hi = 95.0
+		_:
+			pop_tc = 0.02
+			body_gain = 0.18
+			noise_gain = 1.0
+			hp_hz = 1600.0
+			body_lo = 80.0
+			body_hi = 130.0
+
+	var count := pop_count_for(named, amt)
+	var mean_gap := dur / float(maxi(count, 1))
+	var pos := 0.0
+	for p in range(count):
+		if p == 0:
+			pos = rng.randf() * minf(0.02, mean_gap * 0.3)
+		else:
+			pos += mean_gap * (0.45 + 1.1 * rng.randf())
+		var t_start := pos
+		if t_start >= dur:
+			break
+		var this_tc := pop_tc * (0.7 + 0.8 * rng.randf())
+		var body_freq := lerpf(body_lo, body_hi, rng.randf())
+		var pop_amp := 0.7 + 0.3 * rng.randf()
+		var env := pow(maxf(1.0 - t_start / dur, 0.0), 0.8)
+		var start_frame := int(round(t_start * float(sr)))
+		var tail := int(round(this_tc * 6.0 * float(sr)))
+		var hp_alpha := 0.0
+		if hp_hz > 0.0:
+			hp_alpha = 1.0 - exp(-TAU * hp_hz / float(sr))
+		var lp_alpha := 0.0
+		if lp_hz > 0.0:
+			lp_alpha = 1.0 - exp(-TAU * lp_hz / float(sr))
+		var lp_state := 0.0
+		for k in range(tail):
+			var idx := start_frame + k
+			if idx >= frames:
+				break
+			var t := float(k) / float(sr)
+			var shape := (1.0 - exp(-t / 0.0015)) * exp(-t / maxf(this_tc, 0.001))
+			var noise := rng.randf() * 2.0 - 1.0
+			var shaped := noise
+			if hp_hz > 0.0:
+				lp_state += (noise - lp_state) * hp_alpha
+				shaped = noise - lp_state
+			elif lp_hz > 0.0:
+				lp_state += (noise - lp_state) * lp_alpha
+				shaped = lp_state
+			var body := sin(TAU * body_freq * t) * body_gain
+			samples[idx] += (shaped * noise_gain + body) * pop_amp * env * shape
+
+	# Normalize to an intensity-scaled target peak (never above 0.95) so the
+	# burst level is monotonic in intensity and can never clip.
+	var raw_peak := 0.0
+	for i in range(frames):
+		raw_peak = maxf(raw_peak, absf(samples[i]))
+	var target_peak := 0.95 * clampf(0.25 + 0.75 * amt / 2.0, 0.0, 1.0)
+	var gain := 0.0
+	if raw_peak > 0.0000001:
+		gain = target_peak / raw_peak
+	var data := PackedByteArray()
+	data.resize(frames * 2)
+	for i in range(frames):
+		var s := clampf(samples[i] * gain, -0.95, 0.95)
+		data.encode_s16(i * 2, int(round(s * 32767.0)))
+
+	var wav := AudioStreamWAV.new()
+	wav.format = AudioStreamWAV.FORMAT_16_BITS
+	wav.mix_rate = sr
+	wav.stereo = false
+	wav.loop_mode = AudioStreamWAV.LOOP_DISABLED
+	wav.loop_begin = 0
+	wav.loop_end = 0
+	wav.data = data
+	return wav
 
 
 static func load_shaping(load: float) -> Dictionary:

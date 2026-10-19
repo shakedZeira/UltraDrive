@@ -51,6 +51,9 @@ turbo_spool_time = 0.85
 turbo_blowdown_time = 0.35
 turbo_whine_gain = 1.0
 turbo_has_wastegate = true
+exhaust_pop_enabled = true
+exhaust_pop_style = "crackle"
+exhaust_pop_gain_db = -6.0
 default_setup = {
 "anti_roll_bar": 12000.0,
 "brake_bias": 0.63,

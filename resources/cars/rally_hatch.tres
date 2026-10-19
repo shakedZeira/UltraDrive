@@ -37,6 +37,9 @@ handbrake_grip_reduction = 0.35
 hood_cam_height = 1.0
 hood_cam_forward = 1.7
 cockpit_seat_height = 0.72
+exhaust_pop_enabled = true
+exhaust_pop_style = "bang"
+exhaust_pop_gain_db = -6.0
 default_setup = {
 "anti_roll_bar": 10000.0,
 "brake_bias": 0.65,

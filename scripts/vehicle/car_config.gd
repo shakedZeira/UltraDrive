@@ -8,6 +8,14 @@ extends Resource
 @export var car_class: String = "D"  # D, C, B, A, S
 @export var visual_path: String = "res://assets/cars/sports_coupe.glb"  # 3D model shown & driven
 
+# --- Brand (garage grouping; see CarBrands) ---
+# brand is a CarBrands brand id (e.g. "nissan"); "" derives the brand from the
+# resource_path / visual_path / car_name token scan. brand_display_name is an
+# optional display-only override. Both default to "" so fieldless saves and
+# configs keep resolving through the in-house fallback.
+@export var brand: String = ""
+@export var brand_display_name: String = ""
+
 # --- Economy (item 11) ---
 @export var price: int = 0  # sticker price in career credits (0 = not purchasable)
 
@@ -49,12 +57,34 @@ func get_engine_bed_set() -> String:
 @export var turbo_whine_gain: float = 1.0  # scale on the compressor-whine voice
 @export var turbo_has_wastegate: bool = true  # upshift boost dip + flutter voice
 
+# --- Exhaust overrun (pops & bangs) ---
+# Opt-in, presentation-only overrun layer: EngineAudio synthesizes one exhaust
+# crackle/bang burst and plays it on a high-rpm throttle release (a fuel-cut
+# overrun). All defaults are OFF / neutral so every existing .tres keeps
+# today's behaviour byte-for-byte; the GT-R R35 is the first adopter (crackle).
+@export var exhaust_pop_enabled: bool = false  # false = zero behaviour change
+@export_enum("burble", "crackle", "bang") var exhaust_pop_style: String = "crackle"  # burst character
+@export var exhaust_pop_intensity: float = 1.0        # clamp [0,2]: scales level + pop count
+@export var exhaust_pop_min_rpm_fraction: float = 0.40  # lift must exceed this x redline
+@export var exhaust_pop_duration: float = 0.9         # s overrun burst window, clamp [0.1,3.0]
+@export var exhaust_pop_gain_db: float = -6.0         # layer trim, inside MUTE_FLOOR_DB..6.0
+
 # --- Transmission ---
 @export var gear_ratios: Array[float] = [3.5, 2.1, 1.4, 1.0, 0.75, 0.6]
 @export var final_drive_ratio: float = 3.7
 @export var reverse_ratio: float = 3.2
-@export var reverse_torque_multiplier: float = 1.5  # extra torque multiplier for reverse on steep climbs
+@export var reverse_torque_multiplier: float = 2.2  # extra torque multiplier for reverse on steep climbs
 @export var max_reverse_speed_kmh: float = 30.0  # hard cap; reverse stays well below 1st gear
+## Fraction of gravity ALONG THE CHASSIS cancelled by the reverse grade
+## assist while reversing under throttle (0 = off, 1 = full gravity cancel).
+## Force-based and body-applied, so it works where tire traction cannot move
+## the car (low-grip slopes); clamped to [0,1] internally so it can never add
+## energy beyond cancelling gravity. Zero on flat ground.
+@export var reverse_grade_assist: float = 0.5
+## Speed in km/h at which the reverse grade assist has faded to zero. Kept
+## below max_reverse_speed_kmh (30) so the reverse cap and top-speed feel are
+## untouched - the assist only covers hill starts / corner exits.
+@export var reverse_grade_assist_max_speed_kmh: float = 20.0
 @export var shift_time: float = 0.15  # seconds to shift gears
 @export var auto_shift_rpm_fraction: float = 0.92  # fraction of redline at which the auto-box upshifts
 
