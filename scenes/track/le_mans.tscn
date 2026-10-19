@@ -1,0 +1,120 @@
+[gd_scene load_steps=15 format=3]
+
+[ext_resource type="Script" path="res://scripts/track/le_mans.gd" id="1_lemans"]
+[ext_resource type="PackedScene" path="res://scenes/vehicle/player_car.tscn" id="2_car"]
+[ext_resource type="Script" path="res://scripts/camera/chase_camera.gd" id="3_chase"]
+[ext_resource type="PackedScene" path="res://scenes/ui/pause_menu.tscn" id="4_pause"]
+[ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="5_hud"]
+[ext_resource type="Script" path="res://scripts/camera/orbit_camera.gd" id="6_orbit"]
+[ext_resource type="Script" path="res://scripts/world/sun_driver.gd" id="7_sun"]
+[ext_resource type="Script" path="res://scripts/camera/hood_camera.gd" id="8_hood"]
+[ext_resource type="Script" path="res://scripts/camera/cockpit_camera.gd" id="9_cockpit"]
+[ext_resource type="Script" path="res://scripts/world/road_network.gd" id="10_road"]
+[ext_resource type="Script" path="res://scripts/track/le_mans_dressing.gd" id="11_dressing"]
+
+[sub_resource type="PhysicalSkyMaterial" id="sky_mat"]
+turbidity = 4.0
+rayleigh_coefficient = 2.0
+mie_coefficient = 0.008
+ground_color = Color(0.12, 0.1, 0.07, 1)
+energy_multiplier = 1.5
+
+[sub_resource type="Sky" id="sky"]
+sky_material = SubResource("sky_mat")
+radiance_size = 3
+
+[sub_resource type="Environment" id="env"]
+background_mode = 2
+sky = SubResource("sky")
+ambient_light_source = 3
+reflected_light_source = 2
+ambient_light_color = Color(0.6, 0.62, 0.7, 1)
+ambient_light_energy = 1.0
+ambient_light_sky_contribution = 0.7
+fog_enabled = true
+fog_light_color = Color(0.82, 0.85, 0.92, 1)
+fog_light_energy = 1.0
+fog_density = 0.0008
+fog_sky_affect = 0.5
+fog_aerial_perspective = true
+tonemap_mode = 3
+tonemap_exposure = 0.9
+tonemap_white = 6.0
+sdfgi_enabled = false
+sdfgi_cascades = 4
+sdfgi_min_cell_size = 0.5
+sdfgi_bounce_feedback = 0.4
+sdfgi_energy = 0.85
+ssao_enabled = false
+ssao_intensity = 3.0
+ssao_radius = 0.6
+ssao_power = 2.0
+ssao_light_affect = 0.4
+ssao_ao_channel_affect = 0.1
+ssr_enabled = false
+ssr_max_steps = 24
+ssr_fade_in = 0.15
+ssr_fade_out = 2.0
+ssr_depth_tolerance = 0.6
+volumetric_fog_enabled = false
+volumetric_fog_density = 0.008
+volumetric_fog_albedo = Color(1, 0.92, 0.82, 1)
+volumetric_fog_emission = Color(0.18, 0.14, 0.11, 1)
+volumetric_fog_length = 64.0
+volumetric_fog_gi_inject = 0.0
+glow_enabled = false
+glow_intensity = 0.4
+glow_strength = 0.8
+glow_bloom = 0.6
+glow_hdr_threshold = 1.0
+
+[node name="LeMans" type="Node3D"]
+script = ExtResource("1_lemans")
+
+[node name="RoadNetwork" type="Node" parent="."]
+script = ExtResource("10_road")
+
+[node name="Dressing" type="Node3D" parent="."]
+script = ExtResource("11_dressing")
+
+[node name="PlayerCar" parent="." instance=ExtResource("2_car")]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -639.35, 1.0, -608.7)
+
+[node name="ChaseCamera" type="Node3D" parent="."]
+script = ExtResource("3_chase")
+target = NodePath("%PlayerCar")
+transients_enabled = true
+
+[node name="OrbitCamera" type="Node3D" parent="."]
+script = ExtResource("6_orbit")
+target = NodePath("%PlayerCar")
+chase_camera_path = NodePath("../ChaseCamera")
+hood_camera_path = NodePath("../HoodCamera")
+cockpit_camera_path = NodePath("../CockpitCamera")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -635, 5.7, -605)
+
+[node name="HoodCamera" type="Node3D" parent="."]
+script = ExtResource("8_hood")
+target = NodePath("%PlayerCar")
+
+[node name="CockpitCamera" type="Node3D" parent="."]
+script = ExtResource("9_cockpit")
+target = NodePath("%PlayerCar")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+script = ExtResource("7_sun")
+transform = Transform3D(0.707107, -0.40558, 0.579228, 0, 0.819152, 0.573576, -0.707107, -0.40558, 0.579228, 0, 10, 0)
+shadow_enabled = true
+light_color = Color(1, 0.93, 0.82, 1)
+light_energy = 1.1
+light_angular_distance = 1.0
+shadow_filter = 1
+directional_shadow_max_distance = 140.0
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("env")
+
+[node name="PauseMenu" parent="." instance=ExtResource("4_pause")]
+
+[node name="HUD" parent="." instance=ExtResource("5_hud")]
