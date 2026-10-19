@@ -1,7 +1,9 @@
-[gd_scene load_steps=13 format=3]
+[gd_scene load_steps=15 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/track_select.gd" id="1_track_select"]
 [ext_resource type="Script" path="res://scripts/ui/ui_blip.gd" id="2_blip"]
+[ext_resource type="Script" path="res://scripts/ui/track_map.gd" id="3_track_map"]
+[ext_resource type="Script" path="res://scripts/ui/track_layout_preview.gd" id="4_layout_preview"]
 
 [sub_resource type="StyleBoxFlat" id="panel_box"]
 content_margin_left = 12.0
@@ -143,56 +145,212 @@ mouse_filter = 2
 texture = SubResource("grad_tex")
 stretch_mode = 5
 
-[node name="Center" type="CenterContainer" parent="."]
+[node name="Margin" type="MarginContainer" parent="."]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+mouse_filter = 2
+theme_override_constants/margin_left = 28
+theme_override_constants/margin_top = 22
+theme_override_constants/margin_right = 28
+theme_override_constants/margin_bottom = 36
 
-[node name="Panel" type="Panel" parent="Center"]
-custom_minimum_size = Vector2(720, 480)
-theme_override_styles/panel = SubResource("panel_box")
-
-[node name="Layout" type="VBoxContainer" parent="Center/Panel"]
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = 28.0
-offset_top = 22.0
-offset_right = -28.0
-offset_bottom = -22.0
-grow_horizontal = 2
-grow_vertical = 2
+[node name="Row" type="HBoxContainer" parent="Margin"]
+layout_mode = 2
 theme_override_constants/separation = 16
 
-[node name="TitleLabel" type="Label" parent="Center/Panel/Layout"]
-text = "SELECT TRACK"
+[node name="MapPanel" type="Panel" parent="Margin/Row"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+custom_minimum_size = Vector2(1000, 640)
+theme_override_styles/panel = SubResource("panel_box")
+
+[node name="MapColumn" type="VBoxContainer" parent="Margin/Row/MapPanel"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = -8.0
+offset_bottom = -8.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 8
+
+[node name="RegionTabs" type="HFlowContainer" parent="Margin/Row/MapPanel/MapColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/h_separation = 6
+theme_override_constants/v_separation = 6
+
+[node name="TrackMap" type="Control" parent="Margin/Row/MapPanel/MapColumn"]
+unique_name_in_owner = true
+clip_contents = true
+layout_mode = 2
+size_flags_vertical = 3
+script = ExtResource("3_track_map")
+
+[node name="MapControls" type="HBoxContainer" parent="Margin/Row/MapPanel/MapColumn/TrackMap"]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -132.0
+offset_top = -52.0
+offset_right = -10.0
+offset_bottom = -10.0
+grow_horizontal = 0
+grow_vertical = 0
+mouse_filter = 2
+theme_override_constants/separation = 6
+
+[node name="ZoomOutButton" type="Button" parent="Margin/Row/MapPanel/MapColumn/TrackMap/MapControls"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(36, 36)
+layout_mode = 2
+focus_mode = 0
+text = "-"
+theme_override_font_sizes/font_size = 18
+theme_override_styles/normal = SubResource("btn_dark")
+theme_override_styles/hover = SubResource("btn_dark_hover")
+theme_override_styles/pressed = SubResource("btn_dark_down")
+theme_override_styles/focus = SubResource("btn_dark")
+
+[node name="ZoomResetButton" type="Button" parent="Margin/Row/MapPanel/MapColumn/TrackMap/MapControls"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(36, 36)
+layout_mode = 2
+focus_mode = 0
+text = "0"
+theme_override_font_sizes/font_size = 14
+theme_override_styles/normal = SubResource("btn_dark")
+theme_override_styles/hover = SubResource("btn_dark_hover")
+theme_override_styles/pressed = SubResource("btn_dark_down")
+theme_override_styles/focus = SubResource("btn_dark")
+
+[node name="ZoomInButton" type="Button" parent="Margin/Row/MapPanel/MapColumn/TrackMap/MapControls"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(36, 36)
+layout_mode = 2
+focus_mode = 0
+text = "+"
+theme_override_font_sizes/font_size = 18
+theme_override_styles/normal = SubResource("btn_dark")
+theme_override_styles/hover = SubResource("btn_dark_hover")
+theme_override_styles/pressed = SubResource("btn_dark_down")
+theme_override_styles/focus = SubResource("btn_dark")
+
+[node name="RightColumn" type="VBoxContainer" parent="Margin/Row"]
+layout_mode = 2
+custom_minimum_size = Vector2(430, 0)
+theme_override_constants/separation = 10
+
+[node name="TitleLabel" type="Label" parent="Margin/Row/RightColumn"]
+layout_mode = 2
+text = "SELECT CIRCUIT"
 theme_override_colors/font_color = Color(0.902, 0.698, 0.235, 1)
 theme_override_font_sizes/font_size = 24
 theme_override_fonts/font = SubResource("font_bold")
 
-[node name="TrackNameLabel" type="Label" parent="Center/Panel/Layout"]
+[node name="TrackNameLabel" type="Label" parent="Margin/Row/RightColumn"]
 unique_name_in_owner = true
-text = "PICK A TRACK"
+layout_mode = 2
+text = "PICK A CIRCUIT"
 theme_override_colors/font_color = Color(0.95, 0.96, 0.98, 1)
 theme_override_font_sizes/font_size = 18
+autowrap_mode = 3
 
-[node name="TrackGrid" type="GridContainer" parent="Center/Panel/Layout"]
+[node name="MetaLabel" type="Label" parent="Margin/Row/RightColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+text = ""
+theme_override_colors/font_color = Color(0.902, 0.698, 0.235, 1)
+theme_override_font_sizes/font_size = 13
+autowrap_mode = 3
+
+[node name="LapsLabel" type="Label" parent="Margin/Row/RightColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+text = ""
+theme_override_colors/font_color = Color(0.80, 0.83, 0.90, 1)
+theme_override_font_sizes/font_size = 15
+
+[node name="BestLapLabel" type="Label" parent="Margin/Row/RightColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+text = ""
+theme_override_colors/font_color = Color(0.62, 0.66, 0.74, 1)
+theme_override_font_sizes/font_size = 13
+
+[node name="PreviewPanel" type="Panel" parent="Margin/Row/RightColumn"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 240)
+theme_override_styles/panel = SubResource("panel_box")
+
+[node name="LayoutPreview" type="Control" parent="Margin/Row/RightColumn/PreviewPanel"]
+unique_name_in_owner = true
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = 28.0
+offset_right = -10.0
+offset_bottom = -10.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("4_layout_preview")
+
+[node name="PreviewCaption" type="Label" parent="Margin/Row/RightColumn/PreviewPanel"]
+unique_name_in_owner = true
+anchors_preset = 0
+offset_left = 14.0
+offset_top = 7.0
+offset_right = 418.0
+offset_bottom = 25.0
+text = "LAYOUT PREVIEW"
+theme_override_colors/font_color = Color(0.62, 0.66, 0.74, 1)
+theme_override_font_sizes/font_size = 12
+
+[node name="FieldSummaryLabel" type="Label" parent="Margin/Row/RightColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+text = ""
+theme_override_colors/font_color = Color(0.902, 0.698, 0.235, 1)
+theme_override_font_sizes/font_size = 13
+autowrap_mode = 3
+
+[node name="RivalsBox" type="VBoxContainer" parent="Margin/Row/RightColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="CardScroll" type="ScrollContainer" parent="Margin/Row/RightColumn"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+follow_focus = true
+
+[node name="TrackGrid" type="GridContainer" parent="Margin/Row/RightColumn/CardScroll"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-size_flags_vertical = 3
-theme_override_constants/h_separation = 14
-theme_override_constants/v_separation = 14
+columns = 1
+theme_override_constants/h_separation = 10
+theme_override_constants/v_separation = 10
 
-[node name="ButtonsRow" type="HBoxContainer" parent="Center/Panel/Layout"]
+[node name="ButtonsRow" type="HBoxContainer" parent="Margin/Row/RightColumn"]
 layout_mode = 2
 alignment = 1
 theme_override_constants/separation = 14
 
-[node name="PlayButton" type="Button" parent="Center/Panel/Layout/ButtonsRow"]
+[node name="PlayButton" type="Button" parent="Margin/Row/RightColumn/ButtonsRow"]
 unique_name_in_owner = true
+layout_mode = 2
 custom_minimum_size = Vector2(180, 48)
 text = "PLAY"
 theme_override_colors/font_color = Color(0.09, 0.1, 0.14, 1)
@@ -205,8 +363,9 @@ theme_override_styles/hover = SubResource("btn_gold_hover")
 theme_override_styles/pressed = SubResource("btn_gold_down")
 theme_override_styles/focus = SubResource("btn_gold")
 
-[node name="BackButton" type="Button" parent="Center/Panel/Layout/ButtonsRow"]
+[node name="BackButton" type="Button" parent="Margin/Row/RightColumn/ButtonsRow"]
 unique_name_in_owner = true
+layout_mode = 2
 custom_minimum_size = Vector2(180, 48)
 text = "BACK"
 theme_override_colors/font_color = Color(0.85, 0.88, 0.95, 1)
@@ -224,9 +383,9 @@ anchor_top = 1.0
 anchor_bottom = 1.0
 offset_left = 28.0
 offset_top = -20.0
-offset_right = 600.0
+offset_right = 700.0
 offset_bottom = -4.0
 grow_vertical = 0
-text = "PICK A TRACK, THEN PLAY"
+text = "CLICK A PIN, PICK A CIRCUIT, THEN PLAY"
 theme_override_colors/font_color = Color(0.4, 0.45, 0.55, 1)
 theme_override_font_sizes/font_size = 12

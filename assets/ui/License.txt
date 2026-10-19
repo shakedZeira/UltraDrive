@@ -1,0 +1,30 @@
+World map backdrop — race menu ("SELECT CIRCUIT" map)
+
+	Asset:      BlankMap-Equirectangular.svg (blank equirectangular world map)
+	Source:     https://commons.wikimedia.org/wiki/File:BlankMap-Equirectangular.svg
+	Downloaded: https://commons.wikimedia.org/wiki/Special:FilePath/BlankMap-Equirectangular.svg
+	Retrieved:  2026-10-16
+	Size:       1,469,626 bytes; header viewBox="0 0 360 180" (360x180 map units,
+	            1 unit = 1 degree, exact equirectangular bounds).
+
+	Authors:    Tom Patterson, Nathaniel Vaughn Kelso, Bjorn Sandvik (2012-02-09)
+	Source data: Natural Earth (public domain)
+
+			------------------------------
+
+	License: Creative Commons CC0 1.0 Universal Public Domain Dedication
+	http://creativecommons.org/publicdomain/zero/1.0/
+
+	The file page states: "This file is made available under the Creative Commons
+	CC0 1.0 Universal Public Domain Dedication."
+
+	CC0 requires no attribution; this file is kept for the record. If the asset is
+	swapped later, re-verify its license and update this file — a CC-BY-SA or
+	photo-real replacement would add license debt the project does not carry.
+
+			------------------------------
+
+	Note: the race menu uses this SVG for the WORLD region backdrop only. The
+	ISRAEL region is drawn procedurally from hand-authored lon/lat rings
+	(scripts/ui/levant_outline.gd), because at world scale Israel is ~7 pixels
+	wide. See scripts/ui/track_map.gd and docs/plans/race_menu_world_map_plan.md.
