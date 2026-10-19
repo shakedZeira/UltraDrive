@@ -1,6 +1,13 @@
-[gd_scene load_steps=69 format=3]
+[gd_scene load_steps=70 format=3]
 
 [sub_resource type="StandardMaterial3D" id="mat_interior"]
+albedo_color = Color(0.155, 0.155, 0.18, 1)
+roughness = 0.92
+emission_enabled = true
+emission = Color(0.155, 0.155, 0.18, 1)
+emission_energy_multiplier = 0.15
+
+[sub_resource type="StandardMaterial3D" id="mat_wheel"]
 albedo_color = Color(0.1, 0.1, 0.13, 1)
 roughness = 0.92
 emission_enabled = true
@@ -8,26 +15,26 @@ emission = Color(0.1, 0.1, 0.13, 1)
 emission_energy_multiplier = 0.15
 
 [sub_resource type="StandardMaterial3D" id="mat_leather"]
-albedo_color = Color(0.055, 0.055, 0.062, 1)
+albedo_color = Color(0.1, 0.094, 0.088, 1)
 roughness = 0.7
 emission_enabled = true
-emission = Color(0.055, 0.055, 0.062, 1)
+emission = Color(0.1, 0.094, 0.088, 1)
 emission_energy_multiplier = 0.15
 
 [sub_resource type="StandardMaterial3D" id="mat_alcantara"]
-albedo_color = Color(0.042, 0.042, 0.05, 1)
+albedo_color = Color(0.075, 0.075, 0.085, 1)
 roughness = 0.95
 metallic_specular = 0.2
 emission_enabled = true
-emission = Color(0.042, 0.042, 0.05, 1)
+emission = Color(0.075, 0.075, 0.085, 1)
 emission_energy_multiplier = 0.15
 
 [sub_resource type="StandardMaterial3D" id="mat_carbon"]
-albedo_color = Color(0.028, 0.028, 0.034, 1)
+albedo_color = Color(0.055, 0.055, 0.062, 1)
 roughness = 0.28
 metallic = 0.35
 emission_enabled = true
-emission = Color(0.028, 0.028, 0.034, 1)
+emission = Color(0.055, 0.055, 0.062, 1)
 emission_energy_multiplier = 0.15
 
 [sub_resource type="StandardMaterial3D" id="mat_metal"]
@@ -70,26 +77,26 @@ emission_energy_multiplier = 0.3
 albedo_color = Color(0.34, 0.24, 0.17, 1)
 roughness = 0.72
 emission_enabled = true
-emission = Color(0.12, 0.08, 0.055, 1)
+emission = Color(0.17, 0.115, 0.07, 1)
 emission_energy_multiplier = 0.2
 
 [sub_resource type="StandardMaterial3D" id="mat_pad_black"]
-albedo_color = Color(0.075, 0.075, 0.085, 1)
+albedo_color = Color(0.12, 0.12, 0.13, 1)
 roughness = 0.85
 emission_enabled = true
-emission = Color(0.075, 0.075, 0.085, 1)
+emission = Color(0.12, 0.12, 0.13, 1)
 emission_energy_multiplier = 0.15
 
 [sub_resource type="StandardMaterial3D" id="mat_hub"]
-albedo_color = Color(0.09, 0.09, 0.11, 1)
+albedo_color = Color(0.14, 0.14, 0.16, 1)
 roughness = 0.65
 emission_enabled = true
-emission = Color(0.09, 0.09, 0.11, 1)
+emission = Color(0.14, 0.14, 0.16, 1)
 emission_energy_multiplier = 0.15
 
-[sub_resource type="BoxMesh" id="mesh_dash_pad"]
-size = Vector3(1.2, 0.08, 0.5)
-material = SubResource("mat_pad_amber")
+[sub_resource type="QuadMesh" id="mesh_dash_pad"]
+size = Vector2(2.21, 0.5)
+material = SubResource("mat_pad_black")
 
 [sub_resource type="BoxMesh" id="mesh_dash_body"]
 size = Vector3(1.2, 0.22, 0.4)
@@ -150,7 +157,7 @@ inner_radius = 0.1
 outer_radius = 0.18
 rings = 16
 ring_segments = 32
-material = SubResource("mat_interior")
+material = SubResource("mat_wheel")
 
 [sub_resource type="StandardMaterial3D" id="mat_tach"]
 albedo_color = Color(0.03, 0.015, 0.02, 1)
@@ -299,9 +306,10 @@ ring_segments = 28
 material = SubResource("mat_metal")
 
 [node name="NissanGTR35Cockpit" type="Node3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.32, 0)
 
 [node name="DashPad" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.24, -0.8)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.01, -0.8)
 mesh = SubResource("mesh_dash_pad")
 cast_shadow = 0
 
