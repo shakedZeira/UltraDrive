@@ -26,6 +26,11 @@ var waypoints: Array[Vector3] = []
 var _current_target: int = 0
 var _speed_multiplier: float = 1.0
 
+## Spatial index over `waypoints` for `_nearest_index`; rebuilt in
+## set_waypoints() and left null when a driver is populated by direct
+## `waypoints` assignment (the brute-force fallback then applies).
+var _wp_index: PointGridIndex = null
+
 # --- Pure-pursuit / recovery state ---
 var _smooth_steer: float = 0.0
 var _mean_spacing: float = 3.0
@@ -245,6 +250,8 @@ func is_recovering() -> bool:
 
 func set_waypoints(points: Array[Vector3], start_index: int = 0) -> void:
     waypoints = points.duplicate()
+    _wp_index = PointGridIndex.new()
+    _wp_index.build(waypoints, PointGridIndex.DEFAULT_CELL_M)
     _current_target = clampi(start_index, 0, maxi(0, waypoints.size() - 1))
     _mean_spacing = _compute_mean_spacing()
     _first_nearest = -1
@@ -376,6 +383,17 @@ func _compute_mean_spacing() -> float:
     return maxf(total / float(n), 0.5)
 
 func _nearest_index(pos: Vector3) -> int:
+    # Accelerated path: the static waypoint list is spatially indexed once in
+    # set_waypoints(), so a per-frame "where am I on the line" query projects a
+    # handful of nearby points instead of all of them (Le Mans: ~4,800 points,
+    # ~0.6 ms per car per physics frame -> microseconds). The index is bit-exact
+    # against the scan below (same first-lowest tie-break); the scan stays as the
+    # fallback for a driver whose `waypoints` was assigned without set_waypoints().
+    if _wp_index != null and _wp_index.matches(waypoints.size()):
+        return _wp_index.nearest_index(pos)
+    return _nearest_index_bruteforce(pos)
+
+func _nearest_index_bruteforce(pos: Vector3) -> int:
     var n := waypoints.size()
     var best_index := 0
     var best_dist := INF

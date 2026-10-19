@@ -54,11 +54,19 @@ const RIVAL_SIZE := MapRoads.RIVAL_SIZE
 
 const _CULL_OVERLAP := 1.1
 const _ROUTE_CACHE_CELL := 25.0
+## Cell size (m) of the per-chain spatial index used to WINDOW a chain before the
+## per-frame world->screen transform + circle clip. Big on purpose: the minimap
+## sees a ~550 m radius, so a coarse cell keeps the "which indices are in view"
+## query to a few dozen cells while still enumerating every in-view vertex.
+const _CHAIN_INDEX_CELL := 256.0
 
 var _player_car: VehiclePhysics
 var _road_source: Node = null
 var _road_signature := ""
 var _scene_roads: Array = []  # cached chains for the current signature
+## One PointGridIndex per `_scene_roads` chain (XZ vertex grid), rebuilt beside
+## `_scene_roads`. Used to cull the per-redraw transform to the visible span.
+var _chain_indexes: Array = []
 var _discovery_source: WorldDiscovery = null
 var _last_redraw_pos := Vector3(INF, INF, INF)
 var _last_heading := INF
@@ -88,6 +96,7 @@ func _ready() -> void:
 	_road_source = MapRoads.resolve_road_source(self) as Node
 	_road_signature = MapRoads.signature(_road_source)
 	_scene_roads = MapRoads.get_roads(_road_source)
+	_rebuild_chain_indexes()
 	_discovery_source = MapRoads.resolve_discovery_source(self) as WorldDiscovery
 	_collect_collectibles()
 	_rivals = MapRoads.live_rivals(rival_source)
@@ -174,6 +183,30 @@ func _roster_signature(cars: Array) -> String:
 		parts.append("%d,%d" % [roundi(p.x), roundi(p.z)])
 	return "|".join(parts)
 
+func _rebuild_chain_indexes() -> void:
+	_chain_indexes = []
+	for chain in _scene_roads:
+		var grid := PointGridIndex.new()
+		grid.build(chain, _CHAIN_INDEX_CELL)
+		_chain_indexes.append(grid)
+
+## The [first,last] index span of `chain` that lies within `radius_world` of the
+## player, or (-1,-1) when none does. Exact: the index enumerates every in-view
+## vertex, so the span covers them all (a single contiguous slice can be drawn
+## and clipped in place of the whole loop). Falls back to a full brute-force scan
+## -- and, when the chain is entirely out of view, to the old early-out -- while
+## no index is available.
+func _chain_window(road_id: int, chain: Array, player_xz: Vector2, radius_world: float) -> Vector2i:
+	if road_id < _chain_indexes.size():
+		var grid: PointGridIndex = _chain_indexes[road_id]
+		if grid != null and grid.matches(chain.size()):
+			return grid.min_max_within(player_xz, radius_world)
+	# No index (rare pre-bootstrap frame): keep the old behaviour -- skip a chain
+	# with nothing in view, otherwise draw the whole thing.
+	if _chain_stays_outside(player_xz, chain, radius_world * radius_world):
+		return Vector2i(-1, -1)
+	return Vector2i(0, chain.size() - 1)
+
 func _draw_roads(center: Vector2) -> void:
 	if _road_source == null:
 		return
@@ -183,13 +216,19 @@ func _draw_roads(center: Vector2) -> void:
 	var radius_world_sq := radius_world * radius_world
 	for road_id in _scene_roads.size():
 		var chain: Array = _scene_roads[road_id]
-		if _chain_stays_outside(player_xz, chain, radius_world_sq):
+		# Only the in-view span is transformed and clipped: the whole 13.6 km
+		# Le Mans loop is ~4,800 points but the minimap shows ~1.1 km of it, so
+		# slicing to the visible span (plus one segment either side, so the
+		# boundary crossing points are preserved) is what keeps the redraw cheap.
+		# A (-1,-1) span means the chain is entirely out of view -> nothing drawn.
+		var win := _chain_window(road_id, chain, player_xz, radius_world)
+		if win.x < 0:
 			continue
 		var mask: Array[bool] = []
 		if _discovery_source != null:
 			mask = _discovery_source.segment_visited_mask(road_id)
 		if mask.is_empty() or (mask.size() != chain.size() - 1 and mask.size() != chain.size()):
-			_draw_chain_polyline(player_pos, center, chain)
+			_draw_chain_polyline(player_pos, center, chain, win.x, win.y)
 			continue
 		_draw_chain_by_color_runs(player_pos, center, chain, mask, radius_world_sq)
 
@@ -204,8 +243,16 @@ func _point_inside(player_xz: Vector2, w: Vector3, radius_world_sq: float) -> bo
 	var dz := w.z - player_xz.y
 	return dx * dx + dz * dz <= radius_world_sq
 
-func _draw_chain_polyline(player_pos: Vector3, center: Vector2, chain: Array) -> void:
-	var local := MapRoads.world_to_local_points(chain, player_pos, center, zoom)
+func _draw_chain_polyline(player_pos: Vector3, center: Vector2, chain: Array, from_i: int, to_i: int) -> void:
+	# One point outside the span on each side keeps the circle entry/exit
+	# crossing point a full-chain clip would have inserted on the boundary
+	# segment, so the drawn polyline is identical to clipping the whole chain.
+	var lo := maxi(from_i - 1, 0)
+	var hi := mini(to_i + 1, chain.size() - 1)
+	var sub: Array = []
+	for i in range(lo, hi + 1):
+		sub.append(chain[i])
+	var local := MapRoads.world_to_local_points(sub, player_pos, center, zoom)
 	var clipped := MapRoads.clip_circle(local, center, minimap_radius)
 	if clipped.size() >= 2:
 		draw_polyline(clipped, road_color, road_width)
@@ -357,6 +404,7 @@ func _process(delta: float) -> void:
 	if current_signature != _road_signature:
 		_road_signature = current_signature
 		_scene_roads = MapRoads.get_roads(_road_source)
+		_rebuild_chain_indexes()
 	if _player_car == null:
 		_last_redraw_pos = Vector3(INF, INF, INF)
 		_last_heading = INF

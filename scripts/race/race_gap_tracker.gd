@@ -39,6 +39,9 @@ var _step: float = 1.0
 var _vcp_count: int = 0
 var _active: bool = false
 
+## Spatial index over `_pts` for `progress_of`; rebuilt in configure().
+var _grid: PointGridIndex = null
+
 ## Per-car sample state, keyed by the car instance (Object). Streams in
 ## parallel, so no per-frame allocation and no ordering assumptions.
 var _splits: Dictionary = {}  # car -> PackedFloat64Array(_vcp_count), -1 = not crossed
@@ -69,10 +72,13 @@ func configure(path: Array[Vector3], spacing: float = 5.0) -> void:
 	_cum = PackedFloat64Array()
 	_total = 0.0
 	_vcp_count = 0
+	_grid = null
 	if spacing <= 0.0 or path.size() < MIN_PATH_POINTS:
 		return
 	for p in path:
 		_pts.append(p)
+	_grid = PointGridIndex.new()
+	_grid.build(_pts, PointGridIndex.DEFAULT_CELL_M)
 	var n := _pts.size()
 	_cum.resize(n)
 	var acc := 0.0
@@ -105,15 +111,23 @@ func progress_of(pos: Vector3) -> float:
 	if not _active:
 		return 0.0
 	var n := _pts.size()
-	var best_i := 0
-	var best_d2 := INF
-	for i in range(n):
-		var dx := _pts[i].x - pos.x
-		var dz := _pts[i].z - pos.z
-		var d2 := dx * dx + dz * dz
-		if d2 < best_d2:
-			best_d2 = d2
-			best_i = i
+	var best_i := -1
+	# Accelerated nearest-vertex pick (bit-identical to the scan below, same
+	# first-lowest tie-break): the static racing line is indexed once in
+	# configure(), so a per-frame progress query projects a few nearby points
+	# instead of all of them.
+	if _grid != null and _grid.matches(n):
+		best_i = _grid.nearest_index(pos)
+	if best_i < 0:
+		best_i = 0
+		var best_d2 := INF
+		for i in range(n):
+			var dx := _pts[i].x - pos.x
+			var dz := _pts[i].z - pos.z
+			var d2 := dx * dx + dz * dz
+			if d2 < best_d2:
+				best_d2 = d2
+				best_i = i
 	var best_s := _cum[best_i]
 	var best_seg := INF
 	for k in 2:
