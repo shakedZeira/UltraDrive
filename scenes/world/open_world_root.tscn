@@ -1,4 +1,4 @@
-[gd_scene load_steps=27 format=3]
+[gd_scene load_steps=29 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/world_driver.gd" id="1_driver"]
 [ext_resource type="Script" path="res://scripts/world/chunk_streamer.gd" id="2_cs"]
@@ -23,6 +23,8 @@
 [ext_resource type="Script" path="res://scripts/world/speed_trap_visuals.gd" id="21_trapvis"]
 [ext_resource type="Script" path="res://scripts/world/speed_trap_crossing.gd" id="22_crossing"]
 [ext_resource type="PackedScene" path="res://scenes/ui/speed_trap_hud.tscn" id="23_traphud"]
+[ext_resource type="PackedScene" path="res://scenes/ui/music_toast.tscn" id="24_musictoast"]
+[ext_resource type="Script" path="res://scripts/music/music_context_host.gd" id="25_musicctx"]
 
 [sub_resource type="PhysicalSkyMaterial" id="sky_mat"]
 turbidity = 4.0
@@ -159,6 +161,12 @@ environment = SubResource("env")
 [node name="HUD" parent="." instance=ExtResource("6_hud")]
 
 [node name="SpeedTrapHUD" parent="." instance=ExtResource("23_traphud")]
+
+[node name="MusicToast" parent="." instance=ExtResource("24_musictoast")]
+
+[node name="MusicContext" type="Node" parent="."]
+script = ExtResource("25_musicctx")
+context = 1
 
 [node name="Foliage" type="Node3D" parent="."]
 script = ExtResource("13_foliage")

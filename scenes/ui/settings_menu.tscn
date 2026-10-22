@@ -1,7 +1,8 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/settings_menu.gd" id="1_settings"]
 [ext_resource type="Script" path="res://scripts/ui/ui_blip.gd" id="2_blip"]
+[ext_resource type="Script" path="res://scripts/ui/music_settings_section.gd" id="3_musicsec"]
 
 [node name="SettingsMenu" type="Control"]
 anchors_preset = 15
@@ -255,6 +256,10 @@ text = "Motion blur"
 unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(180, 0)
+
+[node name="MusicSection" type="VBoxContainer" parent="CenterLayout/Scroll/Content"]
+layout_mode = 2
+script = ExtResource("3_musicsec")
 
 [node name="BackButton" type="Button" parent="CenterLayout/Scroll/Content"]
 layout_mode = 2

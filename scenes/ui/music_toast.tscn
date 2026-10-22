@@ -1,0 +1,111 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/music_toast.gd" id="1_toast"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_card"]
+bg_color = Color(0.03, 0.05, 0.09, 0.84)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[node name="MusicToast" type="CanvasLayer"]
+layer = 39
+script = ExtResource("1_toast")
+
+[node name="Card" type="Panel" parent="."]
+visible = false
+offset_left = 20.0
+offset_top = 132.0
+offset_right = 400.0
+offset_bottom = 224.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_card")
+
+[node name="Accent" type="ColorRect" parent="Card"]
+layout_mode = 0
+offset_left = 0.0
+offset_top = 10.0
+offset_right = 4.0
+offset_bottom = 82.0
+mouse_filter = 2
+color = Color(0.3, 0.6, 1, 1)
+
+[node name="Cover" type="TextureRect" parent="Card"]
+clip_contents = true
+layout_mode = 0
+offset_left = 12.0
+offset_top = 10.0
+offset_right = 84.0
+offset_bottom = 82.0
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 6
+
+[node name="Letter" type="Label" parent="Card/Cover"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.85)
+theme_override_font_sizes/font_size = 38
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Title" type="Label" parent="Card"]
+layout_mode = 0
+offset_left = 96.0
+offset_top = 8.0
+offset_right = 372.0
+offset_bottom = 36.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0.02, 0.04, 0.09, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 20
+text_overrun_behavior = 3
+clip_text = true
+
+[node name="Artist" type="Label" parent="Card"]
+layout_mode = 0
+offset_left = 96.0
+offset_top = 36.0
+offset_right = 372.0
+offset_bottom = 58.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.78, 0.84, 0.95, 0.9)
+theme_override_font_sizes/font_size = 15
+text_overrun_behavior = 3
+clip_text = true
+
+[node name="Station" type="Label" parent="Card"]
+layout_mode = 0
+offset_left = 96.0
+offset_top = 58.0
+offset_right = 372.0
+offset_bottom = 80.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.5, 0.75, 1, 1)
+theme_override_font_sizes/font_size = 13
+text_overrun_behavior = 3
+clip_text = true
+
+[node name="BarBg" type="ColorRect" parent="Card"]
+layout_mode = 0
+offset_left = 12.0
+offset_top = 86.0
+offset_right = 368.0
+offset_bottom = 88.0
+mouse_filter = 2
+color = Color(1, 1, 1, 0.14)
+
+[node name="Bar" type="ColorRect" parent="Card/BarBg"]
+layout_mode = 0
+offset_right = 0.0
+offset_bottom = 2.0
+mouse_filter = 2
+color = Color(1, 1, 1, 0.8)

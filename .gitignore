@@ -118,3 +118,18 @@ Desktop.ini
 .DS_Store
   
 .uv-cache/  
+
+# -----------------------------------------------------------------------
+# User-supplied music for the FreeRoam radio (personal files, NEVER commit).
+# The default library folder is D:\Music\UltraDrive (outside the repo); these
+# cover an in-project dev folder and local converter output. No blanket *.mp3:
+# the repo root tracks gtr.mp3, sututututch.mp3 and wrx_turbo.mp3.
+# -----------------------------------------------------------------------
+/_music/
+/music_library/
+/ultradrive_music/
+/user_music/
+/music_cache/
+Music/UltraDrive/
+music_index.json
+*.music_convert_state.json
