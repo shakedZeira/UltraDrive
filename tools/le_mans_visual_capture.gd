@@ -56,6 +56,7 @@ var _phase_frames := 0
 var _frame_us: PackedInt64Array = PackedInt64Array()
 var _last_us := 0
 var _busy := false
+var _only: PackedStringArray = PackedStringArray()
 
 
 func _initialize() -> void:
@@ -66,6 +67,11 @@ func _initialize() -> void:
 			_preset = clampi(int(arg.substr(9)), 0, 2)
 		elif arg.begins_with("--perf_frames="):
 			_perf_frames = maxi(int(arg.substr(14)), 0)
+		elif arg.begins_with("--only="):
+			_only = arg.substr(7).split(",", false)
+		elif arg == "--collisions":
+			# Draw every collision shape (the invisible barrier walls included).
+			debug_collisions_hint = true
 
 	DisplayServer.window_set_size(Vector2i(1920, 1080))
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
@@ -100,6 +106,13 @@ func _initialize() -> void:
 		{"label": "aerial_dunlop", "chainage": 60.0, "height": 45.0, "out": 0.0,
 			"ahead": 700.0, "look_h": 0.0},
 	]
+
+	if not _only.is_empty():
+		var kept: Array[Dictionary] = []
+		for v in _views:
+			if _only.has(String(v["label"])):
+				kept.append(v)
+		_views = kept
 
 	var abs_dir := ProjectSettings.globalize_path(OUT_DIR)
 	DirAccess.make_dir_recursive_absolute(abs_dir)

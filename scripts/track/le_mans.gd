@@ -616,3 +616,7 @@ func _reposition_player_to_start() -> void:
 	var forward: Vector3 = frame["forward"]
 	player.global_position = road_points[LeMansLayout.GRID_INDEX] + Vector3(0, 1.0, 0)
 	player.global_rotation = Vector3(0.0, atan2(-forward.x, -forward.z), 0.0)
+	# The car captured its reset point in its own _ready (the scene-authored node
+	# position, ~100 m from the grid and 9 m above the road): point it at the grid.
+	if player.has_method("set_spawn_point"):
+		player.call("set_spawn_point", player.global_position)

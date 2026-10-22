@@ -174,8 +174,46 @@ const ARMCO_PROFILE: Array[Vector2] = [
 ]
 const ARMCO_POST_SIZE := Vector3(0.12, 0.74, 0.1)
 const ARMCO_POST_BACK := 0.09            ## post behind the beam (away from road)
-## Gap left in the armco at every marshal post (m of arc, each way).
-const ARMCO_POST_GAP_M := 5.0
+
+## --- Physical barriers (collision) ---------------------------------------------
+## The armco/tyre walls are MultiMesh visuals with no collision of their own, so
+## `_build_barrier_colliders` lays a continuous chain of oriented boxes along the
+## SAME barrier line (`barrier_offset`, samples on the armco's own 5 m pitch,
+## ground from the same height provider). Long straight runs merge into one box;
+## bends/climbs split so the chain never strays from the line by more than
+## BARRIER_STRAIGHT_TOL_M or from the grade by more than BARRIER_VERTICAL_TOL_M.
+@export var build_barrier_colliders: bool = true
+const BARRIER_MAX_SEGMENT_M := 30.0
+const BARRIER_STRAIGHT_TOL_M := 0.10
+const BARRIER_VERTICAL_TOL_M := 0.35
+## Front face of the wall, metres toward the road from the armco line (the beam
+## bulges 0.065 m toward the road).
+const BARRIER_FRONT_INSET := 0.12
+## Depth of the wall behind the front face (m). Deliberately thick: at 60 Hz a car
+## moving 60-100 m/s covers 1-1.7 m per step, and when it lands deeper than HALF a
+## thin wall's depth the solver's cheapest way out is the BACK face (the car is
+## "pushed through"). Measured: a 1 m wall let a 76 m/s perpendicular crash through;
+## everything behind the armco line is unreachable ground, so depth costs nothing.
+const BARRIER_THICKNESS := 4.0
+## Top of the wall above the local ground / above the road edge (m). Not just
+## "taller than the car": a discrete-step solver resolves a penetration along its
+## SHORTEST axis, and a car arriving at 90 m/s (1.5 m per 60 Hz step) is up to
+## 1.5 m INTO the wall face on first contact. If the way over the top is shorter
+## than that (wall top - car underside), the car is shoved UP and launched across
+## the wall (measured: 90 m/s side-on, wall 1.2 m over the road, vy +8.7 m/s).
+## 2.2 m over the road keeps the vertical exit (>= 1.8 m for a car hovering
+## 0.35 m up) longer than the worst horizontal depth, so the face wins.
+const BARRIER_RISE := 2.3
+const BARRIER_ROAD_RISE := 2.2
+## The box reaches this far BELOW the local ground so no gap opens under it.
+const BARRIER_DROP_BELOW := 1.0
+## Each box is lengthened this much at both ends so a bend leaves no seam.
+const BARRIER_END_OVERLAP := 0.6
+const BARRIER_FRICTION := 0.2
+const BARRIER_BOXES_PER_BODY := 48
+## Tyre-wall zones: the wall face is the tyres' (and panels') front, further
+## toward the road than the armco, so an extra run fills in front of the base.
+const TYRE_WALL_COLLIDER_FRONT := TYRE_WALL_FRONT + TYRE_WALL_RADIUS + 0.05
 ## Hedgerows along the Mulsanne (§3.8 chainage window, literal; along frame).
 const HEDGE_CHAINAGE_FROM := 2000.0
 const HEDGE_CHAINAGE_TO := 7300.0
@@ -384,6 +422,8 @@ func barrier_offset(s: float, side: float) -> float:
 
 func build() -> void:
 	_clear_children()
+	_barrier_root = null
+	_barrier_box_total = 0
 	_transforms = {}
 	_colors = {}
 	_meshes = {}
@@ -421,6 +461,8 @@ func build() -> void:
 	_build_far_treeline()
 	_build_silhouettes()
 	_build_wear_decals()
+	if build_barrier_colliders:
+		_build_barrier_colliders()
 	_built = true
 	if is_inside_tree():
 		_register_zones()
@@ -491,8 +533,9 @@ func _build_arch() -> void:
 
 
 ## WS-C full-lap armco: both sides, every ARMCO_PITCH_M, a galvanised W-beam on
-## posts, following `barrier_offset` (out behind the traps) and leaving a gap at
-## every marshal post. Visual only, like v1 (no collider, §8.3(f)).
+## posts, following `barrier_offset` (out behind the traps). CONTINUOUS (no
+## marshal-post gap: the wall collider behind it is continuous too, so a visible
+## gap would be an invisible wall). The physical wall is `_build_barrier_colliders`.
 func _build_armco() -> void:
 	var beam := _mat(Color(0.66, 0.68, 0.70), 0.42, null, 0.55)
 	beam.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -509,8 +552,6 @@ func _build_armco() -> void:
 	for side: float in [1.0, -1.0]:
 		for k in count:
 			var s := float(k) * ARMCO_PITCH_M
-			if _near_marshal_post(s, side):
-				continue
 			var st := _station(s)
 			var basis := _basis_along_pitched(st)
 			# Local +Z of `_basis_along` is the road's RIGHT; turn the beam so its
@@ -519,6 +560,171 @@ func _build_armco() -> void:
 				basis = basis * Basis(Vector3.UP, PI)
 			_record(KIND_ARMCO, _xform_ground(st, basis, barrier_offset(s, side)))
 	_flush(KIND_ARMCO)
+
+
+## --- physical barriers ----------------------------------------------------------
+
+var _barrier_box_total := 0
+var _barrier_root: Node3D = null
+
+
+## Number of collision boxes the last build emitted (0 when disabled).
+func barrier_box_count() -> int:
+	return _barrier_box_total
+
+
+## The `BarrierColliders` node (null when not built).
+func barrier_root() -> Node3D:
+	return _barrier_root
+
+
+## Builds the solid wall behind/under every armco and tyre wall: a continuous box
+## chain on BOTH sides of the whole lap. Same barrier line as the visuals
+## (`barrier_offset`), same samples as the armco (ARMCO_PITCH_M), same ground
+## (`_ground_y`), so collider and mesh cannot diverge. Layer/mask 1 is what the
+## cars and the ground already use.
+func _build_barrier_colliders() -> void:
+	_barrier_box_total = 0
+	_barrier_root = null
+	if road_points.size() < 3:
+		return
+	var root := Node3D.new()
+	root.name = "BarrierColliders"
+	add_child(root)
+	_barrier_root = root
+	var perimeter := _perimeter()
+	var boxes: Array[Dictionary] = []
+	# Base wall: every metre of the lap, both sides, behind the armco face.
+	for side: float in [1.0, -1.0]:
+		_barrier_run(side, 0.0, perimeter, ARMCO_PITCH_M, BARRIER_FRONT_INSET,
+			BARRIER_THICKNESS - BARRIER_FRONT_INSET, boxes)
+	# Tyre-wall zones: extra boxes from the tyre face back to the base wall.
+	var tyre_half := float(TYRE_WALL_STACKS - 1) * 0.5 * TYRE_WALL_PITCH + TYRE_WALL_RADIUS
+	for ch in TYRE_WALL_ZONE_CHAINAGES:
+		var arc := LeMansLayout.arc_at_chainage(ch)
+		var side2 := float(_outside_side(arc))
+		_barrier_run(side2, arc - tyre_half, arc + tyre_half, 2.0, TYRE_WALL_COLLIDER_FRONT,
+			BARRIER_THICKNESS, boxes)
+	var material := PhysicsMaterial.new()
+	material.friction = BARRIER_FRICTION
+	var body: StaticBody3D = null
+	for i in boxes.size():
+		if i % BARRIER_BOXES_PER_BODY == 0:
+			body = StaticBody3D.new()
+			body.name = "BarrierCollision_%d" % (i / BARRIER_BOXES_PER_BODY)
+			body.collision_layer = 1
+			body.collision_mask = 1
+			body.physics_material_override = material
+			root.add_child(body)
+		var box: Dictionary = boxes[i]
+		var shape := BoxShape3D.new()
+		shape.size = box["size"]
+		var cs := CollisionShape3D.new()
+		cs.shape = shape
+		cs.transform = Transform3D(box["basis"], box["origin"])
+		body.add_child(cs)
+	_barrier_box_total = boxes.size()
+
+
+## One polyline of the wall on `side` from arc `s0` to `s1`, sampled every `pitch`
+## m, merged greedily into long boxes and appended to `out`. The wall spans from
+## `front` m toward the road to `back` m away from it, measured from the armco line.
+func _barrier_run(side: float, s0: float, s1: float, pitch: float, front: float,
+		back: float, out: Array[Dictionary]) -> void:
+	var count := maxi(int(ceil((s1 - s0) / pitch)), 1)
+	var shift := side * (back - front) * 0.5
+	var pts: Array[Dictionary] = []
+	for k in count + 1:
+		var s := minf(s0 + float(k) * pitch, s1)
+		var st := _station(s)
+		var lateral := barrier_offset(s, side) + shift
+		var center: Vector3 = st["center"]
+		var right: Vector3 = st["right"]
+		var cross: Vector3 = st["cross"]
+		var ground := _ground_y(st, lateral)
+		var edge_y := center.y + cross.y * side * road_width * 0.5
+		pts.append({
+			"x": center.x + right.x * lateral,
+			"z": center.z + right.z * lateral,
+			"g": ground,
+			"top": maxf(ground + BARRIER_RISE, edge_y + BARRIER_ROAD_RISE),
+		})
+	var thickness := front + back
+	var a := 0
+	while a < pts.size() - 1:
+		var b := a + 1
+		while b + 1 < pts.size() and _barrier_can_extend(pts, a, b + 1):
+			b += 1
+		var box := _barrier_box(pts, a, b, thickness)
+		if not box.is_empty():
+			out.append(box)
+		a = b
+
+
+## True when one box from sample `a` to sample `c` still hugs the polyline: every
+## in-between sample within BARRIER_STRAIGHT_TOL_M of the chord in plan, and the
+## ground / required top within BARRIER_VERTICAL_TOL_M of the chord's height.
+func _barrier_can_extend(pts: Array[Dictionary], a: int, c: int) -> bool:
+	var pa := Vector2(pts[a]["x"], pts[a]["z"])
+	var pc := Vector2(pts[c]["x"], pts[c]["z"])
+	var chord := pc - pa
+	var length := chord.length()
+	if length > BARRIER_MAX_SEGMENT_M or length < 0.001:
+		return false
+	var dir := chord / length
+	var ya: float = pts[a]["g"]
+	var yc: float = pts[c]["g"]
+	var lo_g := 0.0
+	var hi_g := 0.0
+	var lo_t := 0.0
+	var hi_t := 0.0
+	for k in range(a, c + 1):
+		var pk := Vector2(pts[k]["x"], pts[k]["z"])
+		var rel := pk - pa
+		if absf(rel.x * dir.y - rel.y * dir.x) > BARRIER_STRAIGHT_TOL_M:
+			return false
+		var t := clampf(rel.dot(dir) / length, 0.0, 1.0)
+		var cy := lerpf(ya, yc, t)
+		var dg: float = float(pts[k]["g"]) - cy
+		var dt: float = float(pts[k]["top"]) - cy
+		if k == a:
+			lo_g = dg
+			hi_g = dg
+			lo_t = dt
+			hi_t = dt
+		else:
+			lo_g = minf(lo_g, dg)
+			hi_g = maxf(hi_g, dg)
+			lo_t = minf(lo_t, dt)
+			hi_t = maxf(hi_t, dt)
+	return hi_g - lo_g <= BARRIER_VERTICAL_TOL_M and hi_t - lo_t <= BARRIER_VERTICAL_TOL_M
+
+
+## Box for samples a..b: oriented along the 3D chord (so it pitches with a climb),
+## vertically spanning from DROP_BELOW under the lowest ground to the highest
+## required top, lengthened at both ends so neighbours overlap.
+func _barrier_box(pts: Array[Dictionary], a: int, b: int, thickness: float) -> Dictionary:
+	var pa := Vector3(pts[a]["x"], pts[a]["g"], pts[a]["z"])
+	var pb := Vector3(pts[b]["x"], pts[b]["g"], pts[b]["z"])
+	var dir := pb - pa
+	var length := dir.length()
+	if length < 0.001:
+		return {}
+	var zaxis := dir / length
+	var xaxis := Vector3.UP.cross(zaxis).normalized()
+	var yaxis := zaxis.cross(xaxis)
+	var lo := INF
+	var hi := -INF
+	for k in range(a, b + 1):
+		var t := float(k - a) / float(b - a)
+		var cy := lerpf(pa.y, pb.y, t)
+		lo = minf(lo, float(pts[k]["g"]) - cy - BARRIER_DROP_BELOW)
+		hi = maxf(hi, float(pts[k]["top"]) - cy)
+	return {
+		"basis": Basis(xaxis, yaxis, zaxis),
+		"origin": (pa + pb) * 0.5 + Vector3.UP * ((lo + hi) * 0.5),
+		"size": Vector3(thickness, hi - lo, length + 2.0 * BARRIER_END_OVERLAP),
+	}
 
 
 ## WS-C catch fencing: chain-link panels (alpha scissor, texture-mipped so it
@@ -717,18 +923,6 @@ func _post_arc(k: int) -> float:
 
 func _post_side(k: int) -> float:
 	return 1.0 if k % 2 == 0 else -1.0
-
-
-func _near_marshal_post(s: float, side: float) -> bool:
-	var perimeter := _perimeter()
-	var posts := int(perimeter / POST_CADENCE_M)
-	for k in posts:
-		if _post_side(k) != side:
-			continue
-		var d := absf(fposmod(s - _post_arc(k) + perimeter * 0.5, perimeter) - perimeter * 0.5)
-		if d < ARMCO_POST_GAP_M:
-			return true
-	return false
 
 
 ## WS-D countdown boards (300 / 200 / 100 m) before each braking corner, just

@@ -827,6 +827,13 @@ func try_manual_respawn(reset_pressed: bool, controls_locked: bool) -> bool:
     respawn_at(_spawn_point)
     return true
 
+## Where the reset key / fall-through-world recovery puts the car. `_spawn_point`
+## is captured in this node's own _ready, i.e. BEFORE a track scene that moves the
+## car to its start grid runs; such a scene calls this so a reset returns to the
+## grid instead of the scene-authored node position.
+func set_spawn_point(pos: Vector3) -> void:
+    _spawn_point = pos
+
 func respawn_at(pos: Vector3) -> void:
     linear_velocity = Vector3.ZERO
     angular_velocity = Vector3.ZERO
