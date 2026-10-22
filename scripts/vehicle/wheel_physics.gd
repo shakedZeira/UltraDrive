@@ -172,7 +172,9 @@ func step_wheel_spin(
             )
             return wheel_angular_velocity
 
-    var net_torque := drive_axle_torque - brake_torque - tire_force * WHEEL_RADIUS
+    # The foot brake is handled separately below (dissipative), so the torque
+    # balance here carries only the axle drive and the tire's ground reaction.
+    var net_torque := drive_axle_torque - tire_force * WHEEL_RADIUS
 
     # Slip-ratio denominator seen by the tire (how fast slip changes per rad/s
     # of spin). Floor at 1 rad/s so a standstill launch gets a finite, honest
@@ -189,6 +191,24 @@ func step_wheel_spin(
     var damping := clampf(1.0 / (1.0 + kd), 0.0, 1.0)
 
     wheel_angular_velocity += net_torque * delta / WHEEL_SPIN_INERTIA * damping
+
+    # Dissipative foot brake. A friction brake can only bleed spin toward zero;
+    # it can never drive a wheel through zero and wind it up the other way.
+    # Folding brake_torque into net_torque as a plain signed torque did exactly
+    # that: the starter's 2000 N*m brake out-muscles its ~1000 N*m tire peak, so
+    # a held pedal kept pushing the spin ever more negative while the slip ratio
+    # (clamped to -1) hid it from the tire. The wound-up spin then took seconds
+    # (growing with the hold time) to unwind after release, dragging the car
+    # down the whole time - "braking continues after I let go". Now the brake
+    # stops at a locked wheel (spin 0), so release recovers in a few frames
+    # regardless of how long the pedal was held. Only the brake's MAGNITUDE
+    # matters here (it opposes the spin whichever way it turns); the travel-keyed
+    # sign still drives the parked-hold band and the tests that pin it. The same
+    # clamp also stops the engine-brake pull (drive < 0) or an airborne wheel
+    # from pushing a locked, braked wheel backward.
+    if brake_torque != 0.0:
+        var brake_dw := absf(brake_torque) * delta / WHEEL_SPIN_INERTIA * damping
+        wheel_angular_velocity = move_toward(wheel_angular_velocity, 0.0, brake_dw)
     return wheel_angular_velocity
 
 func get_speed_along_heading(car_velocity: Vector3) -> float:
