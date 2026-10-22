@@ -102,6 +102,9 @@ const RECOVER_THROTTLE_CUT := 0.2
 ## having no reverse). 5.0 gives ~62 km/h through that corner (~0.51 g) so the
 ## cars brake for it instead of arriving at the limit.
 const CORNER_LAT_ACCEL := 4.5
+## Floor of the surface grip factor folded into CORNER_LAT_ACCEL (see
+## _corner_grip), so an icy reading never asks for a crawl.
+const MIN_CORNER_GRIP := 0.3
 ## Corner curvature is sampled this far ahead, scaled by speed.
 const CORNER_LOOKAHEAD_MIN_M := 16.0
 const CORNER_LOOKAHEAD_MAX_M := 60.0
@@ -359,7 +362,22 @@ func _corner_speed_target(nearest: int, speed: float) -> float:
     var k := RacingLine.lookahead_curvature(waypoints, nearest, arc)
     if k <= 0.000001:
         return INF
-    return sqrt(CORNER_LAT_ACCEL / k)
+    return sqrt(CORNER_LAT_ACCEL * _corner_grip(nearest, arc) / k)
+
+## Lateral grip factor the corner-speed target assumes: the LOWER of the
+## surface under the car and the surface at the corner lookahead point, so a
+## car on tarmac brakes for a loose corner before it reaches the dirt (mixed
+## surface circuits, Barcelona RX), and a car that ran wide onto grass slows
+## for the corner it is rejoining. Asphalt is 1.0, so every all-asphalt track
+## keeps its exact old target. Only evaluated while a corner is in view.
+func _corner_grip(nearest: int, arc: float) -> float:
+    var grip := SurfaceRegistry.get_lateral(car.get_surface_key())
+    if car.surface_provider.is_valid():
+        var ahead := waypoints[wrapi(nearest + _lookahead_steps(arc), 0, waypoints.size())]
+        var report: Variant = car.surface_provider.call(ahead)
+        if report is Dictionary and (report as Dictionary).has("lateral"):
+            grip = minf(grip, float((report as Dictionary)["lateral"]))
+    return clampf(grip, MIN_CORNER_GRIP, 1.0)
 
 # --- Geometry helpers --------------------------------------------------------
 

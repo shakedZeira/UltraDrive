@@ -314,16 +314,18 @@ func test_checkpoints_and_grid_contract() -> void:
 func test_bank_profile_contract() -> void:
 	var pts := _points()
 	var bank := LeMansLayout.build_bank_profile()
+	var elev := LeMansLayout.build_elevation_profile()
 	assert_int(bank.size()).is_equal(LeMansLayout.TOTAL_POINTS)
 	var max_rad := deg_to_rad(LeMansLayout.BANK_MAX_DEG)
 	var positives := 0
 	var negatives := 0
 	for i in bank.size():
 		assert_float(absf(bank[i])).is_less_equal(max_rad + 0.0001)
-		# Y rule: centerline Y = base + (W/2)|sin(bank)| (inner-edge invariant).
+		# Y rule: centerline Y = base + real elevation + (W/2)|sin(bank)| (the
+		# inner-edge invariant, carried along the SRTM profile).
 		assert_float(pts[i].y).is_equal_approx(
-				LeMansLayout.ROAD_BASE_Y + (LeMansLayout.WIDTH_M * 0.5) * absf(sin(bank[i])), 0.0001)
-		assert_float(pts[i].y).is_greater_equal(LeMansLayout.ROAD_BASE_Y - 0.0001)
+				LeMansLayout.ROAD_BASE_Y + elev[i] + (LeMansLayout.WIDTH_M * 0.5) * absf(sin(bank[i])), 0.0001)
+		assert_float(pts[i].y - elev[i]).is_greater_equal(LeMansLayout.ROAD_BASE_Y - 0.0001)
 		if bank[i] > 0.000001:
 			positives += 1
 		elif bank[i] < -0.000001:
@@ -400,3 +402,70 @@ func test_build_is_deterministic() -> void:
 		assert_float(a[i].x).is_equal_approx(b[i].x, 0.0000001)
 		assert_float(a[i].y).is_equal_approx(b[i].y, 0.0000001)
 		assert_float(a[i].z).is_equal_approx(b[i].z, 0.0000001)
+
+
+# --- real elevation (SRTM profile, 2026-10-22) ----------------------------------
+
+## The smoothed SRTM lap profile: ~37 m of relief between ~45 m ASL (Maison
+## Blanche / Porsche Curves low point) and ~82 m (the crest past the Dunlop
+## bridge), the S/F line as the world datum, and the published shape: a climb
+## from the pit straight to Dunlop, a drop through the Esses to Tertre Rouge, a
+## low undulating Hunaudieres, Indianapolis below the Mulsanne-Indy plateau.
+func test_elevation_profile_matches_real_relief() -> void:
+	var elev := LeMansLayout.build_elevation_profile()
+	assert_int(elev.size()).is_equal(LeMansLayout.TOTAL_POINTS)
+	var lo := INF
+	var hi := -INF
+	for v in elev:
+		lo = minf(lo, v)
+		hi = maxf(hi, v)
+	var datum := LeMansLayout.elevation_datum_asl()
+	print("[elev] datum %.1f m ASL, min %.1f, max %.1f, relief %.1f m" % [datum, lo + datum, hi + datum, hi - lo])
+	assert_float(elev[0]).is_equal_approx(0.0, 0.0001)
+	assert_float(datum).is_between(55.0, 65.0)
+	assert_float(hi - lo).is_between(30.0, 45.0)
+	assert_float(lo + datum).is_between(40.0, 50.0)
+	assert_float(hi + datum).is_between(75.0, 88.0)
+	var at := func(ch: float) -> float: return LeMansLayout.elevation_asl_at_arc(LeMansLayout.arc_at_chainage(ch))
+	# Pit straight -> Dunlop: a real climb.
+	assert_float(float(at.call(800.0)) - float(at.call(0.0))).is_greater(15.0)
+	# Dunlop -> Tertre Rouge exit: down through the Esses.
+	assert_float(float(at.call(800.0)) - float(at.call(2100.0))).is_greater(15.0)
+	# Hunaudieres stays in a low band.
+	for ch in [2500.0, 3500.0, 4500.0, 5500.0]:
+		assert_float(float(at.call(ch))).is_between(45.0, 62.0)
+	# Mulsanne-Indy plateau above Indianapolis, Indianapolis above Maison Blanche.
+	assert_float(float(at.call(8300.0)) - float(at.call(9653.0))).is_greater(5.0)
+	assert_float(float(at.call(9653.0)) - float(at.call(12245.0))).is_greater(5.0)
+
+
+## Drivability: no grade beyond 6 % anywhere, and every Hunaudieres crest
+## gentle enough that 350 km/h (97 m/s) unloads the car by < 0.6 g
+## (v^2 / R < 0.6 g  ->  R > ~1,600 m) -- no ski-jumps on the Mulsanne.
+func test_elevation_grades_and_crests_are_drivable() -> void:
+	var elev := LeMansLayout.build_elevation_profile()
+	var n := elev.size()
+	var sp := LeMansLayout.spacing()
+	var max_grade := 0.0
+	for i in n:
+		max_grade = maxf(max_grade, absf(elev[(i + 1) % n] - elev[(i - 1 + n) % n]) / (2.0 * sp))
+	var a0 := int(LeMansLayout.arc_at_chainage(2100.0) / sp)
+	var a1 := int(LeMansLayout.arc_at_chainage(7300.0) / sp)
+	var max_crest := 0.0
+	for i in range(a0, a1):
+		var k := (elev[i + 1] - 2.0 * elev[i] + elev[i - 1]) / (sp * sp)
+		max_crest = maxf(max_crest, -k)
+	var min_r := 1.0 / maxf(max_crest, 1.0e-9)
+	print("[elev] max grade %.2f %%, min Hunaudieres crest radius %.0f m" % [max_grade * 100.0, min_r])
+	assert_float(max_grade).is_less(0.06)
+	assert_float(min_r).is_greater(97.0 * 97.0 / (0.6 * 9.81))
+
+
+## Deterministic: two builds of the profile are element-wise identical.
+func test_elevation_profile_is_deterministic() -> void:
+	var a := LeMansLayout.build_elevation_profile()
+	var b := LeMansLayout.build_elevation_profile()
+	assert_int(a.size()).is_equal(b.size())
+	for i in range(0, a.size(), 7):
+		assert_float(a[i]).is_equal(b[i])
+	assert_int(LeMansElevationData.PROFILE_CHAINAGES.size()).is_equal(LeMansElevationData.PROFILE_M.size())

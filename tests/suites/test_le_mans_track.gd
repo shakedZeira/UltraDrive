@@ -17,8 +17,9 @@ extends GdUnitTestSuite
 ##     lap 1 at 13,955 m (329 m standing-start run-up) and laps 2+ at exactly
 ##     13,626 m -- distances are summed from the layout's own arc coordinates,
 ##     never from a wall clock (plan §7 risk 2);
-##   * A7: flat ground plane at PLAIN_Y + the full-edge 0.40 m verge skirt on
-##     both sides, no Terrain3D;
+##   * A7 (re-cut for real elevation, 2026-10-22): the SRTM height-field
+##     ground (`LeMansTerrain`) sits 0.40 m under the road edge along the whole
+##     lap and the full-edge skirt reaches into it on both sides, no Terrain3D;
 ##   * the `TrackLayoutSource` off-tree probe returning `build_centerline()`.
 ##
 ## The registry reverse-lookup (`_resolve_track_id() == "le_mans"`) lands with
@@ -29,10 +30,16 @@ extends GdUnitTestSuite
 
 const SCENE_LE_MANS := "res://scenes/track/le_mans.tscn"
 
-## The visible lip the flat ground drops over at a road edge (m) -- the same
+## The visible lip the ground drops over at a road edge (m) -- the same
 ## constant the scene builds the skirt with, restated here so loosening the
-## scene cannot loosen the gate (plan §3.7: ROAD_BASE_Y 0.15 -> PLAIN_Y -0.25).
+## scene cannot loosen the gate (plan §3.7: ROAD_BASE_Y 0.15 -> PLAIN_Y -0.25,
+## now relative to the real elevation at that station).
 const EDGE_DROP := 0.40
+## How far the 16 m terrain triangles may stray from the exact road-ground
+## profile under the carriageway (curves/crests between grid vertices).
+const TERRAIN_TOL := 0.2
+## le_mans.gd SKIRT_BURY, restated (a const is not readable through get()).
+const SKIRT_BURY := 0.3
 
 ## A5 tolerances, straight from the acceptance table.
 const LAP_1_TARGET := 13955.0
@@ -370,9 +377,9 @@ func test_generate_road_points_probe_matches_build_centerline() -> void:
 	assert_that(probe_scene.get_node_or_null("RoadNetwork/RoadSurface")).is_null()
 	probe_scene.free()
 
-# --- P2 flat ground + verge skirt (A7) -------------------------------------
+# --- P2 ground + verge skirt (A7, real elevation) ------------------------
 
-func test_flat_ground_plane_and_full_edge_skirt() -> void:
+func test_elevated_ground_and_full_edge_skirt() -> void:
 	var runner := scene_runner(SCENE_LE_MANS)
 	await runner.simulate_frames(3)
 	var scene := runner.scene()
@@ -380,63 +387,74 @@ func test_flat_ground_plane_and_full_edge_skirt() -> void:
 	if scene == null:
 		return
 
-	# v1 is FLAT: no Terrain3D anywhere in the scene (plan §3.7).
+	# Still no Terrain3D: the scene owns its height field (LeMansTerrain).
 	assert_that(_first_of_type(scene, "Terrain3D")).is_null()
-
-	# The plane: 6,000 x 7,000 m at PLAIN_Y, centred on the layout bbox centre.
-	var ground := scene.get_node_or_null("Ground") as MeshInstance3D
+	assert_bool(LeMansTerrain.is_ready()).is_true()
+	var tiles := LeMansTerrain.tiles()
+	var ground := scene.get_node_or_null("Ground") as Node3D
 	assert_that(ground).is_not_null()
 	if ground == null:
 		return
-	var plane := ground.mesh as PlaneMesh
-	assert_that(plane).is_not_null()
-	if plane != null:
-		assert_float(plane.size.x).is_equal_approx(6000.0, 0.01)
-		assert_float(plane.size.y).is_equal_approx(7000.0, 0.01)
-	assert_float(ground.position.y).is_equal_approx(LeMansLayout.PLAIN_Y, 0.001)
-	var center: Vector3 = scene.get("ground_center")
-	assert_float(ground.position.x).is_equal_approx(center.x, 0.001)
-	assert_float(ground.position.z).is_equal_approx(center.z, 0.001)
-
-	# Collision: one box whose TOP face is exactly the plain, so a skirt bottom
-	# on the plain is never floating above the physics ground.
+	assert_int(ground.get_child_count()).is_equal(tiles.size())
+	assert_int(tiles.size()).is_greater(100)
+	# Collision: one trimesh per visual tile, built FROM that tile's mesh, so
+	# the physics ground is exactly the drawn ground.
 	var body := scene.get_node_or_null("GroundBody") as StaticBody3D
 	assert_that(body).is_not_null()
 	if body != null:
-		var shapes := body.get_children()
-		assert_int(shapes.size()).is_equal(1)
-		if shapes.size() == 1:
-			var box := (shapes[0] as CollisionShape3D).shape as BoxShape3D
-			assert_that(box).is_not_null()
-			if box != null:
-				assert_float(box.size.x).is_equal_approx(6000.0, 0.01)
-				assert_float(box.size.y).is_equal_approx(1.0, 0.01)
-				assert_float(box.size.z).is_equal_approx(7000.0, 0.01)
-				var top_y := body.global_position.y + box.size.y * 0.5
-				assert_float(top_y).is_equal_approx(LeMansLayout.PLAIN_Y, 0.001)
+		assert_int(body.get_child_count()).is_equal(tiles.size())
+		var shape := (body.get_child(0) as CollisionShape3D).shape
+		assert_bool(shape is ConcavePolygonShape3D).is_true()
+	# Coverage: the grid spans the old 6 x 7 km plane around the bbox centre.
+	var center: Vector3 = scene.get("ground_center")
+	var g0 := LeMansTerrain.grid_origin()
+	var gs := LeMansTerrain.grid_size()
+	assert_float(g0.x).is_less_equal(center.x - 2999.0)
+	assert_float(g0.y).is_less_equal(center.z - 3499.0)
+	assert_float(g0.x + float(gs.x - 1) * LeMansTerrain.CELL_M).is_greater_equal(center.x + 2999.0)
+	assert_float(g0.y + float(gs.y - 1) * LeMansTerrain.CELL_M).is_greater_equal(center.z + 3499.0)
+	# Real relief in the surrounding terrain, not a plane.
+	var hs := LeMansTerrain.heights()
+	var lo := INF
+	var hi := -INF
+	for v in hs:
+		lo = minf(lo, v)
+		hi = maxf(hi, v)
+	print("[a7] terrain relief %.1f m (%.1f .. %.1f world Y), bake %d ms" % [hi - lo, lo, hi, LeMansTerrain.bake_ms()])
+	assert_float(hi - lo).is_between(30.0, 70.0)
+
+	# Under the road: the terrain follows the road-ground profile everywhere
+	# (0.40 m under the inner edge), and never rises through the carriageway.
+	var n := LeMansLayout.TOTAL_POINTS
+	var road: Array = scene.get("road_points")
+	var worst_under := 0.0
+	var worst_poke := -INF
+	for i in range(0, n, 7):
+		var arc := LeMansLayout.arc_of_index(i)
+		var c: Vector3 = road[i]
+		var t := float(scene.call("terrain_height", c.x, c.z))
+		worst_under = maxf(worst_under, absf(t - LeMansLayout.ground_y_at_arc(arc)))
+		for side: float in [-1.0, 1.0]:
+			var e: Vector3 = scene.call("edge_point", i, side)
+			worst_poke = maxf(worst_poke, float(scene.call("terrain_height", e.x, e.z)) - e.y)
+	print("[a7] terrain vs road-ground worst %.3f m, worst (terrain - edge) %.3f m" % [worst_under, worst_poke])
+	assert_float(worst_under).is_less(TERRAIN_TOL)
+	assert_float(worst_poke).is_less(-(EDGE_DROP - TERRAIN_TOL))
 
 	# The skirt ribbon: 2 sides x 2 vertices per station x every station.
 	var skirt := scene.get_node_or_null("Skirt") as MeshInstance3D
 	assert_that(skirt).is_not_null()
 	if skirt == null:
 		return
-	var mesh := skirt.mesh as ArrayMesh
-	assert_that(mesh).is_not_null()
-	if mesh == null:
-		return
-	var arrays := mesh.surface_get_arrays(0)
+	var arrays := (skirt.mesh as ArrayMesh).surface_get_arrays(0)
 	var verts := arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array
 	var indices := arrays[Mesh.ARRAY_INDEX] as PackedInt32Array
-	var n := LeMansLayout.TOTAL_POINTS
 	assert_int(verts.size()).is_equal(n * 4)
 	assert_int(verts.size()).is_equal(int(scene.get("skirt_vertex_count")))
-	# One wrapped quad per station per side (the ribbon closes on itself with
-	# `(i + 1) % n`), so 6 indices per station per side -- NOT per vertex.
 	assert_int(indices.size()).is_equal(n * 2 * 6)
-
-	# Coverage, both sides, every station: the top vertex IS the road mesh's
-	# edge (same frame math -> no gap/underlap), the bottom vertex sits on the
-	# plain, and the ribbon is exactly vertical.
+	# Every station, both sides: top = the road mesh's own edge vertex, bottom
+	# driven SKIRT_BURY into the terrain at its foot, exactly vertical.
+	var bury := SKIRT_BURY
 	var worst_top := 0.0
 	var worst_bottom := 0.0
 	var worst_vertical := 0.0
@@ -446,17 +464,19 @@ func test_flat_ground_plane_and_full_edge_skirt() -> void:
 			var top: Vector3 = verts[base + i * 2]
 			var bottom: Vector3 = verts[base + i * 2 + 1]
 			var edge: Vector3 = scene.call("edge_point", i, side)
-			worst_top = maxf(worst_top, Vector2(top.x - edge.x, top.z - edge.z).length())
-			worst_bottom = maxf(worst_bottom, absf(bottom.y - LeMansLayout.PLAIN_Y))
+			worst_top = maxf(worst_top, top.distance_to(edge))
+			var foot := float(scene.call("terrain_height", bottom.x, bottom.z))
+			worst_bottom = maxf(worst_bottom, absf(bottom.y - (foot - bury)))
 			worst_vertical = maxf(worst_vertical, Vector2(top.x - bottom.x, top.z - bottom.z).length())
 	assert_float(worst_top).is_less(0.001)
 	assert_float(worst_bottom).is_less(0.001)
 	assert_float(worst_vertical).is_less(0.001)
 
-	# Y rule: a FLAT station drops exactly 0.40 m (road edge 0.15 -> plain
-	# -0.25) and a fully banked one starts at the lifted outer edge and drops
-	# further -- both still land on the plain.
+	# Y rule at real heights: a FLAT station's edge rides ROAD_BASE_Y above the
+	# profile and 0.40 m above the ground; the banked inner edge rides
+	# ROAD_BASE_Y, the outer edge carries the full WIDTH * |sin(bank)| lift.
 	var bank: PackedFloat32Array = scene.get("bank_profile")
+	var elev := LeMansLayout.build_elevation_profile()
 	var flat_i := -1
 	var bank_i := -1
 	var max_bank := 0.0
@@ -467,38 +487,214 @@ func test_flat_ground_plane_and_full_edge_skirt() -> void:
 			max_bank = absf(bank[i])
 			bank_i = i
 	assert_that(flat_i).is_greater_equal(0)
-	assert_that(bank_i).is_greater_equal(0)
 	assert_float(max_bank).is_greater(deg_to_rad(2.0))
 	for side: float in [-1.0, 1.0]:
 		var base := 0 if side < 0.0 else n * 2
 		var top: Vector3 = verts[base + flat_i * 2]
-		var bottom: Vector3 = verts[base + flat_i * 2 + 1]
-		var drop := top.y - bottom.y
-		print("[a7] flat station %d side %.0f top=%.4f drop=%.4f" % [flat_i, side, top.y, drop])
-		assert_float(top.y).is_equal_approx(LeMansLayout.ROAD_BASE_Y, 0.005)
-		assert_float(drop).is_equal_approx(EDGE_DROP, 0.005)
-	# Banked station: the barcelona invariant the layout's Y rule encodes --
-	# exactly ONE edge rides at ROAD_BASE_Y (the banked-down, inner edge) and
-	# the other carries the full `WIDTH * |sin(bank)|` lift. WHICH side block
-	# that is follows the bank sign, so read the two tops and sort them
-	# rather than re-deriving the frame convention here.
+		var foot := float(scene.call("terrain_height", top.x, top.z))
+		print("[a7] flat station %d side %.0f top=%.4f drop-to-ground=%.4f" % [flat_i, side, top.y, top.y - foot])
+		assert_float(top.y - elev[flat_i]).is_equal_approx(LeMansLayout.ROAD_BASE_Y, 0.005)
+		assert_float(top.y - foot).is_equal_approx(EDGE_DROP, TERRAIN_TOL)
 	var side_a: Vector3 = verts[bank_i * 2]
 	var side_b: Vector3 = verts[n * 2 + bank_i * 2]
 	var inner_top := side_a if side_a.y < side_b.y else side_b
 	var outer_top := side_b if side_a.y < side_b.y else side_a
 	var lift := LeMansLayout.WIDTH_M * absf(sin(bank[bank_i]))
-	print("[a7] banked station %d bank=%.4f deg inner_y=%.4f outer_y=%.4f lift=%.4f"
-		% [bank_i, rad_to_deg(bank[bank_i]), inner_top.y, outer_top.y, lift])
-	assert_float(inner_top.y).is_equal_approx(LeMansLayout.ROAD_BASE_Y, 0.005)
-	assert_float(outer_top.y - LeMansLayout.ROAD_BASE_Y).is_equal_approx(lift, 0.005)
-	assert_float(outer_top.y - inner_top.y).is_greater(0.4)
+	assert_float(inner_top.y - elev[bank_i]).is_equal_approx(LeMansLayout.ROAD_BASE_Y, 0.005)
+	assert_float(outer_top.y - inner_top.y).is_equal_approx(lift, 0.005)
 
-	# Foliage present (its own clearance contract is §8.3(e), deliberately NOT
-	# asserted here: Foliage's bounded rejection may leave a stray tuft).
+	# Foliage present (its own clearance contract is §8.3(e)).
 	var foliage := scene.get_node_or_null("Foliage") as Foliage
 	assert_that(foliage).is_not_null()
 	if foliage != null:
 		assert_int(foliage.get_instance_count()).is_greater(0)
+
+
+## Every dressing kind stands ON the real ground: barrier/prop origins at the
+## terrain height at their own XZ (minus the documented bury for trees and
+## buildings), on-road kinds on the road surface, and nothing floating.
+func test_dressing_follows_the_terrain() -> void:
+	var runner := scene_runner(SCENE_LE_MANS)
+	await runner.simulate_frames(3)
+	var scene := runner.scene()
+	var dressing := scene.get_node_or_null("Dressing") as LeMansDressing
+	assert_that(dressing).is_not_null()
+	if dressing == null:
+		return
+	var exact_kinds: Array[String] = [
+		LeMansDressing.KIND_ARMCO, LeMansDressing.KIND_CATCH_FENCE,
+		LeMansDressing.KIND_BARRIER_PANEL, LeMansDressing.KIND_HEDGE,
+		LeMansDressing.KIND_POST, LeMansDressing.KIND_AD_BOARD,
+		LeMansDressing.KIND_DISTANCE_BOARD, LeMansDressing.KIND_CAMERA_TOWER,
+		LeMansDressing.KIND_SAUSAGE_KERB, LeMansDressing.KIND_TRAP,
+		LeMansDressing.KIND_RUNOFF,
+	]
+	for kind in exact_kinds:
+		var worst := 0.0
+		var origins := dressing.origins_of(kind)
+		for i in range(0, origins.size(), maxi(1, origins.size() >> 7)):
+			var o := origins[i]
+			worst = maxf(worst, absf(o.y - float(scene.call("terrain_height", o.x, o.z))))
+		assert_float(worst).override_failure_message("%s off the ground by %.3f m" % [kind, worst]).is_less(0.01)
+	var buried: Dictionary = {
+		LeMansDressing.KIND_TREELINE: LeMansDressing.TREE_BURY,
+		LeMansDressing.KIND_FOREST_WALL: LeMansDressing.TREE_BURY,
+		LeMansDressing.KIND_FAR_TREELINE: LeMansDressing.TREE_BURY * 4.0,
+		LeMansDressing.KIND_GRANDSTAND: LeMansDressing.BUILDING_BURY,
+		LeMansDressing.KIND_PIT_BUILDING: LeMansDressing.BUILDING_BURY,
+	}
+	for kind2: String in buried:
+		var depth: float = buried[kind2]
+		var worst2 := 0.0
+		var origins2 := dressing.origins_of(kind2)
+		for i in range(0, origins2.size(), maxi(1, origins2.size() >> 7)):
+			var o2 := origins2[i]
+			worst2 = maxf(worst2, absf(o2.y + depth - float(scene.call("terrain_height", o2.x, o2.z))))
+		assert_float(worst2).override_failure_message("%s off the ground by %.3f m" % [kind2, worst2]).is_less(0.01)
+	# On-road kinds: on the (elevated, banked) carriageway -- within the bank
+	# lift of the centerline height at the nearest point.
+	var center_line := LeMansLayout.build_centerline()
+	for kerb in dressing.origins_of(LeMansDressing.KIND_KERB):
+		var q := _nearest_point(center_line, kerb)
+		assert_float(absf(kerb.y - q.y)).is_less(0.35)
+	# Long props follow the grade: armco on the Dunlop climb is pitched.
+	var climb_arc := LeMansLayout.arc_at_chainage(500.0)
+	var max_pitch := 0.0
+	for t in dressing.transforms_of(LeMansDressing.KIND_ARMCO):
+		var c := LeMansLayout.point_at_arc(climb_arc)
+		if Vector2(t.origin.x - c.x, t.origin.z - c.z).length() < 60.0:
+			max_pitch = maxf(max_pitch, absf(t.basis.x.normalized().y))
+	assert_float(max_pitch).is_greater(0.01)
+
+
+## Centerline point nearest `p` (XZ), full resolution.
+func _nearest_point(points: Array[Vector3], p: Vector3) -> Vector3:
+	var best := INF
+	var best_q := Vector3.ZERO
+	for q in points:
+		var d := Vector2(p.x - q.x, p.z - q.z).length_squared()
+		if d < best:
+			best = d
+			best_q = q
+	return best_q
+
+
+# --- WS-B: ground macro variation (Le Mans visual realism plan) ---------------
+
+
+func test_le_mans_ground_has_macro_variation() -> void:
+	var runner := scene_runner(SCENE_LE_MANS)
+	await runner.simulate_frames(3)
+	var scene := runner.scene()
+	assert_that(scene).is_not_null()
+	if scene == null:
+		return
+
+	# Plain, skirt and verge all run the shared world-space ground shader
+	# (le_mans_visual_realism_plan WS-B): same shader + same noise texture is
+	# the seamless-edge contract, so check both, not just "a material exists".
+	var shared_noise: Texture2D = LeMansSurfaces.noise_texture()
+	for node_name: String in ["Ground/GroundTile_0", "Skirt", "Verge"]:
+		var mi := scene.get_node_or_null(node_name) as MeshInstance3D
+		assert_that(mi).is_not_null()
+		if mi == null:
+			continue
+		var mat := mi.material_override as ShaderMaterial
+		assert_that(mat).is_not_null()
+		if mat == null:
+			continue
+		assert_str(mat.shader.resource_path).is_equal(LeMansSurfaces.GROUND_SHADER)
+		assert_that(mat.get_shader_parameter("lm_noise")).is_same(shared_noise)
+	# Only the verge turns the vertex-colour wear on.
+	var verge := scene.get_node_or_null("Verge") as MeshInstance3D
+	var ground := scene.get_node_or_null("Ground/GroundTile_0") as MeshInstance3D
+	if verge != null and ground != null:
+		assert_float(float((verge.material_override as ShaderMaterial).get_shader_parameter("vertex_wear"))).is_equal(1.0)
+		assert_float(float((ground.material_override as ShaderMaterial).get_shader_parameter("vertex_wear"))).is_equal(0.0)
+		# Verge ribbon: 2 sides x 2 rows x every station, wear on the inner
+		# row only (the outer row is exactly 0 -> dissolves into the plain).
+		var arrays := (verge.mesh as ArrayMesh).surface_get_arrays(0)
+		var verts := arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array
+		var colors := arrays[Mesh.ARRAY_COLOR] as PackedColorArray
+		assert_int(verts.size()).is_equal(LeMansLayout.TOTAL_POINTS * 4)
+		var inner_max := 0.0
+		var outer_max := 0.0
+		for i in colors.size():
+			if i % 2 == 0:
+				inner_max = maxf(inner_max, colors[i].r)
+			else:
+				outer_max = maxf(outer_max, colors[i].r)
+		assert_float(inner_max).is_greater(0.5)
+		assert_float(outer_max).is_equal(0.0)
+
+	# Skirt structure unchanged (still the ArrayMesh the A7 contract pins).
+	var skirt := scene.get_node_or_null("Skirt") as MeshInstance3D
+	if skirt != null:
+		var sarrays := (skirt.mesh as ArrayMesh).surface_get_arrays(0)
+		assert_int((sarrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()).is_equal(LeMansLayout.TOTAL_POINTS * 4)
+
+
+# --- WS-B/WS-F: carriageway surface -------------------------------------------
+
+func test_road_surface_asphalt_shader_and_racing_line() -> void:
+	var runner := scene_runner(SCENE_LE_MANS)
+	await runner.simulate_frames(3)
+	var scene := runner.scene()
+	assert_that(scene).is_not_null()
+	if scene == null:
+		return
+	var surfaces := scene.get_node("RoadNetwork").find_children("RoadSurface", "MeshInstance3D", true, false)
+	assert_int(surfaces.size()).is_equal(1)
+	if surfaces.is_empty():
+		return
+	var surface := surfaces[0] as MeshInstance3D
+	var mat := surface.material_override as ShaderMaterial
+	assert_that(mat).is_not_null()
+	if mat != null:
+		assert_str(mat.shader.resource_path).is_equal(LeMansSurfaces.ASPHALT_SHADER)
+	# Receives the wear decals.
+	assert_int(surface.layers & LeMansDressing.DECAL_LAYER).is_equal(LeMansDressing.DECAL_LAYER)
+	# The visual strip is the road's own edge vertices (+ one closing row), with
+	# arc-length UVs and the racing-line UV2.
+	var arrays := (surface.mesh as ArrayMesh).surface_get_arrays(0)
+	var verts := arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array
+	var uv := arrays[Mesh.ARRAY_TEX_UV] as PackedVector2Array
+	var uv2 := arrays[Mesh.ARRAY_TEX_UV2] as PackedVector2Array
+	var n := LeMansLayout.TOTAL_POINTS
+	assert_int(verts.size()).is_equal((n + 1) * 2)
+	assert_int(uv2.size()).is_equal(verts.size())
+	var worst := 0.0
+	for i in range(0, n, 37):
+		worst = maxf(worst, verts[i * 2].distance_to(scene.call("edge_point", i, -1.0) as Vector3))
+		worst = maxf(worst, verts[i * 2 + 1].distance_to(scene.call("edge_point", i, 1.0) as Vector3))
+	assert_float(worst).is_less(0.001)
+	assert_float(uv[n * 2].y).is_equal_approx(LeMansLayout.spacing() * float(n), 0.01)
+	# Every front face points up (a back face reads near-black under the sun).
+	var idx := arrays[Mesh.ARRAY_INDEX] as PackedInt32Array
+	var down := 0
+	for t in range(0, idx.size(), 3):
+		var nrm := (verts[idx[t + 1]] - verts[idx[t]]).cross(verts[idx[t + 2]] - verts[idx[t]])
+		if nrm.y > 0.0:
+			down += 1
+	assert_int(down).is_equal(0)
+	# Racing line: bounded, swings well off-centre somewhere (corners), and
+	# stays near the middle mid-Hunaudieres (chainage 4,000, dead straight).
+	var profile: Dictionary = scene.call("racing_line_profile")
+	var line := profile["line"] as PackedFloat32Array
+	var max_abs := 0.0
+	for v in line:
+		max_abs = maxf(max_abs, absf(v))
+	assert_float(max_abs).is_less_equal(0.721)
+	assert_float(max_abs).is_greater(0.3)
+	var straight_i := int(roundf(LeMansLayout.arc_at_chainage(4000.0) / LeMansLayout.spacing())) % n
+	assert_float(absf(line[straight_i])).is_less(0.15)
+	# TrackBuilder's 1 m ARTERIAL red/white edge strips are replaced by the
+	# shader's painted lines.
+	for edge_name: String in ["RoadEdgeRight", "RoadEdgeLeft"]:
+		var edges := scene.get_node("RoadNetwork").find_children(edge_name, "MeshInstance3D", true, false)
+		for e in edges:
+			assert_bool((e as MeshInstance3D).visible).is_false()
+
 
 # --- A8: dressing -------------------------------------------------------------
 
@@ -539,16 +735,48 @@ func test_dressing_budgets_placement_and_no_trademarks() -> void:
 	assert_int(dressing.count_of(LeMansDressing.KIND_ARMCO)).is_greater(50)
 	assert_int(dressing.count_of(LeMansDressing.KIND_KERB)).is_greater(20)
 	assert_int(dressing.count_of(LeMansDressing.KIND_POST)).is_greater(8)
+	# WS-C: barriers/fences/tyre walls/panels
+	assert_int(dressing.count_of(LeMansDressing.KIND_CATCH_FENCE)).is_greater(40)
+	assert_int(dressing.count_of(LeMansDressing.KIND_TYRE_WALL)).is_greater(100)
+	assert_int(dressing.count_of(LeMansDressing.KIND_BARRIER_PANEL)).is_greater(30)
+	# WS-D: ad boards/posts/towers/service tracks
+	assert_int(dressing.count_of(LeMansDressing.KIND_AD_BOARD)).is_greater(50)
+	assert_int(dressing.count_of(LeMansDressing.KIND_DISTANCE_BOARD)).is_greater(10)
+	assert_int(dressing.count_of(LeMansDressing.KIND_CAMERA_TOWER)).is_greater(2)
+	assert_int(dressing.count_of(LeMansDressing.KIND_SERVICE_TRACK)).is_greater(10)
+	assert_int(dressing.count_of(LeMansDressing.KIND_SAUSAGE_KERB)).is_greater(5)
+	assert_int(dressing.count_of(LeMansDressing.KIND_GRANDSTAND)).is_greater(3)
+	assert_int(dressing.count_of(LeMansDressing.KIND_PIT_BUILDING)).is_greater(3)
+	# WS-E: tree lines + horizon silhouettes
+	assert_int(dressing.count_of(LeMansDressing.KIND_TREELINE)).is_greater(800)
+	assert_int(dressing.count_of(LeMansDressing.KIND_FOREST_WALL)).is_greater(800)
+	assert_int(dressing.count_of(LeMansDressing.KIND_FAR_TREELINE)).is_greater(500)
+	for sil: String in [LeMansDressing.KIND_SILHOUETTE_INDUSTRIAL, LeMansDressing.KIND_SILHOUETTE_CHURCH,
+			LeMansDressing.KIND_SILHOUETTE_HANGAR, LeMansDressing.KIND_SILHOUETTE_WALLS]:
+		assert_int(dressing.count_of(sil)).is_equal(1)
 
 	# Every kind resolves a procedural mesh (a GLB-less builder cannot drop).
 	var kinds: Array[String] = [
 		LeMansDressing.KIND_GANTRY, LeMansDressing.KIND_PAINT,
 		LeMansDressing.KIND_ARCH, LeMansDressing.KIND_ARMCO,
+		LeMansDressing.KIND_CATCH_FENCE, LeMansDressing.KIND_TYRE_WALL,
+		LeMansDressing.KIND_BARRIER_PANEL,
 		LeMansDressing.KIND_HEDGE, LeMansDressing.KIND_TYRE,
 		LeMansDressing.KIND_KERB, LeMansDressing.KIND_POST,
+		LeMansDressing.KIND_DISTANCE_BOARD, LeMansDressing.KIND_AD_BOARD,
+		LeMansDressing.KIND_CAMERA_TOWER, LeMansDressing.KIND_SERVICE_TRACK,
+		LeMansDressing.KIND_TRAP, LeMansDressing.KIND_RUNOFF,
+		LeMansDressing.KIND_SAUSAGE_KERB, LeMansDressing.KIND_GRANDSTAND,
+		LeMansDressing.KIND_PIT_BUILDING, LeMansDressing.KIND_TREELINE,
+		LeMansDressing.KIND_FOREST_WALL, LeMansDressing.KIND_FAR_TREELINE,
+		LeMansDressing.KIND_SILHOUETTE_INDUSTRIAL, LeMansDressing.KIND_SILHOUETTE_CHURCH,
+		LeMansDressing.KIND_SILHOUETTE_HANGAR, LeMansDressing.KIND_SILHOUETTE_WALLS,
 	]
 	for kind in kinds:
 		assert_that(dressing.prop_mesh(kind)).is_not_null()
+	# WS-A: sand/gravel traps and run-off present
+	assert_int(dressing.count_of(LeMansDressing.KIND_TRAP)).is_greater(10)
+	assert_int(dressing.count_of(LeMansDressing.KIND_RUNOFF)).is_greater(10)
 
 	# Landmark placement: the gantry at the S/F line (arc 0), the neutral arch
 	# at the Dunlop-bridge chainage (869) -- both within one road width of the
@@ -575,10 +803,13 @@ func test_dressing_budgets_placement_and_no_trademarks() -> void:
 		for i in mini(off_road.size(), 24):
 			var lateral2 := _xz_distance_to_centerline(off_road[i].origin)
 			assert_float(lateral2).is_greater(road_half + 0.5)
-	# Ground-bound kinds stand on the v1 plain exactly.
+	# Ground-bound kinds stand on the (real-elevation) ground exactly -- see
+	# test_dressing_follows_the_terrain for every kind.
 	for kind3: String in [LeMansDressing.KIND_ARMCO, LeMansDressing.KIND_POST]:
-		for origin: Vector3 in dressing.origins_of(kind3):
-			assert_float(origin.y).is_equal_approx(LeMansLayout.PLAIN_Y, 0.001)
+		var origins3 := dressing.origins_of(kind3)
+		for k3 in range(0, origins3.size(), 97):
+			var origin := origins3[k3]
+			assert_float(origin.y).is_equal_approx(float(scene.call("terrain_height", origin.x, origin.z)), 0.001)
 
 	# No trademarked brand in any node name or label text anywhere under the
 	# dressing (the neutral-banner contract, machine-checked).
@@ -596,7 +827,9 @@ func test_dressing_budgets_placement_and_no_trademarks() -> void:
 		LeMansLayout.WIDTH_M)
 	probe2.build()
 	assert_bool(probe.is_built()).is_true()
-	for kind4 in kinds:
+	var det_kinds: Array[String] = kinds.duplicate()
+	det_kinds.append(LeMansDressing.KIND_DECAL)
+	for kind4 in det_kinds:
 		var a := probe.transforms_of(kind4)
 		var b := probe2.transforms_of(kind4)
 		assert_int(a.size()).is_equal(b.size())
@@ -604,6 +837,159 @@ func test_dressing_budgets_placement_and_no_trademarks() -> void:
 		assert_int(dressing.count_of(kind4)).is_equal(a.size())
 	probe2.free()
 	probe.free()
+
+
+## WS-C: the armco runs (nearly) the full lap on BOTH sides -- every 25 m
+## sample of the barrier line has an armco instance within 3.5 m, except the
+## deliberate marshal-post gaps -- and stands behind any trap.
+func test_full_lap_armco_coverage() -> void:
+	var runner := scene_runner(SCENE_LE_MANS)
+	await runner.simulate_frames(3)
+	var dressing := runner.scene().get_node_or_null("Dressing") as LeMansDressing
+	assert_that(dressing).is_not_null()
+	if dressing == null:
+		return
+	var grid := {}
+	for o in dressing.origins_of(LeMansDressing.KIND_ARMCO):
+		var key := Vector2i(floori(o.x / 10.0), floori(o.z / 10.0))
+		if not grid.has(key):
+			grid[key] = PackedVector2Array()
+		var arr: PackedVector2Array = grid[key]
+		arr.append(Vector2(o.x, o.z))
+		grid[key] = arr
+	var perimeter := LeMansLayout.spacing() * float(LeMansLayout.TOTAL_POINTS)
+	var samples := int(perimeter / 25.0)
+	for side: float in [1.0, -1.0]:
+		var hit := 0
+		for k in samples:
+			var s := float(k) * 25.0
+			var frame := LeMansLayout.frame_at_arc(s)
+			var c: Vector3 = frame["center"]
+			var f: Vector3 = frame["forward"]
+			var right := f.cross(Vector3.UP).normalized()
+			var p := Vector2(c.x, c.z) + Vector2(right.x, right.z) * dressing.barrier_offset(s, side)
+			var found := false
+			var cell := Vector2i(floori(p.x / 10.0), floori(p.y / 10.0))
+			for dx in range(-1, 2):
+				for dz in range(-1, 2):
+					var arr2: PackedVector2Array = grid.get(Vector2i(cell.x + dx, cell.y + dz), PackedVector2Array())
+					for q in arr2:
+						if q.distance_to(p) < 3.5:
+							found = true
+			if found:
+				hit += 1
+		var coverage := float(hit) / float(samples)
+		print("[ws-c] armco coverage side %.0f = %.3f (%d/%d)" % [side, coverage, hit, samples])
+		assert_float(coverage).is_greater(0.95)
+	# Behind every trap: the barrier line at the trap centre clears the sand.
+	for ch in LeMansDressing.TRAP_CHAINAGES:
+		var arc := LeMansLayout.arc_at_chainage(ch)
+		var side2 := float(dressing.call("_outside_side", arc))
+		assert_float(absf(dressing.barrier_offset(arc, side2))).is_greater(
+			LeMansLayout.WIDTH_M * 0.5 + LeMansDressing.APRON_WIDTH_M + LeMansDressing.TRAP_WIDTH_M)
+
+
+## WS-A: a sand trap + paved apron at every TRAP_CHAINAGES corner, on the
+## outside; the scene's dressing registers them in SurfaceRegistry (sand grip
+## below asphalt), the carriageway itself is never inside a zone, and the zones
+## exist only while the dressing is in the tree.
+func test_sand_traps_at_chainages_drive_surface_grip() -> void:
+	var runner := scene_runner(SCENE_LE_MANS)
+	await runner.simulate_frames(3)
+	var dressing := runner.scene().get_node_or_null("Dressing") as LeMansDressing
+	assert_that(dressing).is_not_null()
+	if dressing == null:
+		return
+	var zones := dressing.surface_zones()
+	assert_int(zones.size()).is_equal(LeMansDressing.TRAP_CHAINAGES.size() * 2)
+	var classifier := SurfaceRegistry.build_classifier(Callable(), Callable())
+	var asphalt_lat := SurfaceRegistry.get_lateral(SurfaceRegistry.ASPHALT)
+	for ch in LeMansDressing.TRAP_CHAINAGES:
+		var arc := LeMansLayout.arc_at_chainage(ch)
+		var side := float(dressing.call("_outside_side", arc))
+		var frame := LeMansLayout.frame_at_arc(arc)
+		var c: Vector3 = frame["center"]
+		var f: Vector3 = frame["forward"]
+		var right := f.cross(Vector3.UP).normalized()
+		var sand_lat := LeMansLayout.WIDTH_M * 0.5 + LeMansDressing.APRON_WIDTH_M + LeMansDressing.TRAP_WIDTH_M * 0.5
+		var in_sand := c + right * (side * sand_lat)
+		var on_apron := c + right * (side * (LeMansLayout.WIDTH_M * 0.5 + LeMansDressing.APRON_WIDTH_M * 0.5))
+		assert_str(SurfaceRegistry.classify_zone_at(in_sand)).is_equal(SurfaceRegistry.SAND)
+		assert_str(SurfaceRegistry.classify_zone_at(on_apron)).is_equal(SurfaceRegistry.ASPHALT)
+		assert_str(SurfaceRegistry.classify_zone_at(c)).is_equal("")
+		assert_str(SurfaceRegistry.classify_zone_at(c + right * (-side * sand_lat))).is_equal("")
+		# What the car's own classifier reports (vehicle_physics wiring):
+		var grip: Dictionary = classifier.call(in_sand)
+		assert_str(String(grip["surface_key"])).is_equal(SurfaceRegistry.SAND)
+		assert_float(float(grip["lateral"])).is_less(asphalt_lat)
+		# Visual trap instances exist around this corner.
+		var near := 0
+		for o in dressing.origins_of(LeMansDressing.KIND_TRAP):
+			if Vector2(o.x - c.x, o.z - c.z).length() < LeMansDressing.TRAP_HALF_WINDOW_M + 20.0:
+				near += 1
+		assert_int(near).is_greater(10)
+
+	# Lifecycle: a standalone (off-tree) build registers nothing; entering the
+	# tree registers; leaving clears.
+	var probe_arc := LeMansLayout.arc_at_chainage(LeMansDressing.TRAP_CHAINAGES[0])
+	var probe_side := float(dressing.call("_outside_side", probe_arc))
+	var pf := LeMansLayout.frame_at_arc(probe_arc)
+	var pc: Vector3 = pf["center"]
+	var pr := (pf["forward"] as Vector3).cross(Vector3.UP).normalized()
+	var probe_pt := pc + pr * (probe_side * (LeMansLayout.WIDTH_M * 0.5 + LeMansDressing.APRON_WIDTH_M + LeMansDressing.TRAP_WIDTH_M * 0.5))
+	SurfaceRegistry.clear_zones()
+	var probe := LeMansDressing.new()
+	probe.configure(LeMansLayout.build_centerline(), LeMansLayout.build_bank_profile(), LeMansLayout.WIDTH_M)
+	probe.build()
+	assert_str(SurfaceRegistry.classify_zone_at(probe_pt)).is_equal("")
+	add_child(probe)
+	assert_str(SurfaceRegistry.classify_zone_at(probe_pt)).is_equal(SurfaceRegistry.SAND)
+	remove_child(probe)
+	assert_str(SurfaceRegistry.classify_zone_at(probe_pt)).is_equal("")
+	probe.free()
+
+
+## Plan §6: "sand zone -> grip factor < asphalt" at the registry level.
+func test_le_mans_surface_registry() -> void:
+	SurfaceRegistry.clear_zones()
+	var poly := [Vector2(0, 0), Vector2(10, 0), Vector2(10, 10), Vector2(0, 10)]
+	SurfaceRegistry.add_zone(poly, SurfaceRegistry.SAND)
+	var near: Dictionary = SurfaceRegistry.classify(SurfaceRegistry.BAND_PLAINS, 100.0, RoadDef.Tier.ARTERIAL, -1.0, Vector3(5, 0, 5))
+	assert_that(near["surface_key"]).is_equal(SurfaceRegistry.SAND)
+	assert_float(float(near["lateral"])).is_less(SurfaceRegistry.get_lateral(SurfaceRegistry.ASPHALT))
+	assert_float(float(near["longitudinal"])).is_less(SurfaceRegistry.get_longitudinal(SurfaceRegistry.ASPHALT))
+	var outside: Dictionary = SurfaceRegistry.classify(SurfaceRegistry.BAND_PLAINS, 100.0, RoadDef.Tier.ARTERIAL, -1.0, Vector3(25, 0, 5))
+	assert_that(outside["surface_key"]).is_not_equal(SurfaceRegistry.SAND)
+	SurfaceRegistry.clear_zones()
+
+
+## WS-F: wear decals exist (braking/exit per sharp corner, dirt per trap, S/F),
+## carry generated textures, project ONLY onto DECAL_LAYER (never the cars),
+## and the quality ladder hides them on Low and shows them on Medium/High.
+func test_wear_decals_textured_layered_and_preset_gated() -> void:
+	var runner := scene_runner(SCENE_LE_MANS)
+	await runner.simulate_frames(3)
+	var dressing := runner.scene().get_node_or_null("Dressing") as LeMansDressing
+	assert_that(dressing).is_not_null()
+	if dressing == null:
+		return
+	var decals := dressing.find_children("*", "Decal", true, false)
+	var corners := LeMansLayout.sharp_corner_chainages(LeMansDressing.SHARP_TURN_DEG).size()
+	assert_int(decals.size()).is_greater_equal(corners * 2 + LeMansDressing.TRAP_CHAINAGES.size() + 2)
+	assert_int(dressing.count_of(LeMansDressing.KIND_DECAL)).is_equal(decals.size())
+	for d in decals:
+		var decal := d as Decal
+		assert_that(decal.texture_albedo).is_not_null()
+		assert_int(decal.cull_mask).is_equal(LeMansDressing.DECAL_LAYER)
+		assert_bool(decal.distance_fade_enabled).is_true()
+	var settings: GDScript = load("res://scripts/ui/settings_menu.gd")
+	for preset_i in 3:
+		var preset: Dictionary = settings.call("preset_for", preset_i)
+		settings.call("apply_quality_preset", null, null, preset, null, dressing)
+		var want := preset_i >= 1
+		for d2 in decals:
+			assert_bool((d2 as Decal).visible).is_equal(want)
+
 
 ## Horizontal distance from `p` to the nearest centerline point (full
 ## resolution: a strided search has a half-stride along-arc bias, which at

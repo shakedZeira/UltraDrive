@@ -231,7 +231,10 @@ func nearest_road_lookup(pos: Vector3) -> Dictionary:
         if best_dist <= _near_ring_inner_dist(q, base, ring):
             break
         ring += 1
-    return {"pos": best_pos, "id": best_id, "distance": best_dist}
+    # "seg" = the nearest segment's index j (the one starting at point j; a
+    # closed road's wrap segment is count-1): SurfaceRegistry reads a mixed
+    # road's per-segment surface (RoadDef.point_surfaces) with it.
+    return {"pos": best_pos, "id": best_id, "distance": best_dist, "seg": best_seg}
 
 ## Builds `_near_index` from `_roads` if it is stale. Cheap and one-shot: the
 ## circuit/open-world road set is static once the scene has bootstrapped.

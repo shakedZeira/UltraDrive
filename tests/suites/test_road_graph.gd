@@ -513,6 +513,12 @@ func test_track_builder_default_asphalt_arterial_flat() -> void:
 		return
 	assert_float(vertices[0].distance_to(vertices[1])).is_equal_approx(12.0, 0.001)
 
+## The DIRT carriageway contract (docs/plans/barcelona_dirt_surface_plan.md).
+## The root cause the plan found: `Tier.DIRT` used to reach only the two 1 m edge
+## strips, while the 12 m carriageway was rendered from `def.surface` alone --
+## which for DIRT is `GRAVEL`, i.e. the pale tan that read as asphalt. This test
+## asserts the DIRT tier now overlays the carriageway material, and pins the
+## DIRT edge + detail-map values so the look cannot silently regress.
 func test_track_builder_dirt_surface_and_edge_colors() -> void:
 	var builder := TrackBuilder.new()
 	add_child(builder)
@@ -526,26 +532,90 @@ func test_track_builder_dirt_surface_and_edge_colors() -> void:
 	assert_that(mat).is_not_null()
 	if mat == null:
 		return
-	assert_float(mat.albedo_color.r).is_equal_approx(0.55, 0.001)
-	assert_float(mat.albedo_color.g).is_equal_approx(0.48, 0.001)
-	assert_float(mat.albedo_color.b).is_equal_approx(0.38, 0.001)
-	assert_float(mat.roughness).is_equal_approx(0.95, 0.001)
+	assert_float(mat.albedo_color.r).is_equal_approx(0.34, 0.001)
+	assert_float(mat.albedo_color.g).is_equal_approx(0.24, 0.001)
+	assert_float(mat.albedo_color.b).is_equal_approx(0.15, 0.001)
+	assert_float(mat.roughness).is_equal_approx(1.0, 0.001)
+	# DIRT-only surface detail (docs/plans/barcelona_dirt_surface_plan.md D2):
+	# triplanar projection + a mottling albedo map, because the road mesh has no
+	# UVs (so a plain texture would sample at one constant UV and be inert).
+	assert_bool(mat.uv1_triplanar).is_true()
+	assert_that(mat.albedo_texture).is_not_null()
+	assert_float(mat.uv1_scale.x).is_equal_approx(0.08, 0.0001)
+	assert_float(mat.uv1_scale.y).is_equal_approx(0.08, 0.0001)
+	assert_float(mat.uv1_scale.z).is_equal_approx(0.08, 0.0001)
 	var edges := _edge_materials(builder)
 	assert_that(edges.size() >= 2).is_true()
 	if edges.size() < 2:
 		return
-	assert_float(edges[0].albedo_color.r).is_equal_approx(0.55, 0.001)
-	assert_float(edges[0].albedo_color.g).is_equal_approx(0.40, 0.001)
-	assert_float(edges[0].albedo_color.b).is_equal_approx(0.28, 0.001)
-	assert_float(edges[1].albedo_color.r).is_equal_approx(0.60, 0.001)
-	assert_float(edges[1].albedo_color.g).is_equal_approx(0.55, 0.001)
-	assert_float(edges[1].albedo_color.b).is_equal_approx(0.48, 0.001)
+	# DIRT edge strips are earth-toned: no pale grey-tan "kerb" line that reads
+	# as paving on the outer (left) strip.
+	assert_float(edges[0].albedo_color.r).is_equal_approx(0.40, 0.001)
+	assert_float(edges[0].albedo_color.g).is_equal_approx(0.29, 0.001)
+	assert_float(edges[0].albedo_color.b).is_equal_approx(0.19, 0.001)
+	assert_float(edges[1].albedo_color.r).is_equal_approx(0.30, 0.001)
+	assert_float(edges[1].albedo_color.g).is_equal_approx(0.22, 0.001)
+	assert_float(edges[1].albedo_color.b).is_equal_approx(0.15, 0.001)
 	# DIRT width (7.0) overrides the builder road_width default (12.0).
 	var vertices: PackedVector3Array = _first_surface_vertices(builder)
 	assert_that(vertices.size() >= 2).is_true()
 	if vertices.size() < 2:
 		return
 	assert_float(vertices[0].distance_to(vertices[1])).is_equal_approx(7.0, 0.001)
+
+## Blast-radius gate for the DIRT overlay: every non-DIRT tier must defer to the
+## untouched `surface_albedo` / `surface_roughness` values and must NOT gain the
+## DIRT-only triplanar / mottling detail. Only DIRT-tier roads (Barcelona RX and
+## the two open-world `dirt-a` / `dirt-b` cuts) may change look.
+func test_track_builder_tier_overlay_changes_only_dirt() -> void:
+	var surfaces: Array[int] = [
+		RoadDef.Surface.ASPHALT,
+		RoadDef.Surface.CONCRETE,
+		RoadDef.Surface.GRAVEL,
+		RoadDef.Surface.SNOW,
+	]
+	var non_dirt_tiers: Array[int] = [
+		RoadDef.Tier.HIGHWAY,
+		RoadDef.Tier.ARTERIAL,
+		RoadDef.Tier.TOUGE,
+		RoadDef.Tier.COASTAL,
+	]
+	for tier in non_dirt_tiers:
+		for surface in surfaces:
+			var expected := TrackBuilder.surface_albedo(surface)
+			var overlaid := TrackBuilder.tier_surface_albedo(tier, surface)
+			assert_float(overlaid.r).is_equal_approx(expected.r, 0.0001)
+			assert_float(overlaid.g).is_equal_approx(expected.g, 0.0001)
+			assert_float(overlaid.b).is_equal_approx(expected.b, 0.0001)
+			assert_float(TrackBuilder.tier_surface_roughness(tier, surface)).is_equal_approx(
+				TrackBuilder.surface_roughness(surface), 0.0001)
+	# DIRT overrides whatever Surface the road declares.
+	for surface in surfaces:
+		var dirt_albedo := TrackBuilder.tier_surface_albedo(RoadDef.Tier.DIRT, surface)
+		assert_float(dirt_albedo.r).is_equal_approx(0.34, 0.0001)
+		assert_float(dirt_albedo.g).is_equal_approx(0.24, 0.0001)
+		assert_float(dirt_albedo.b).is_equal_approx(0.15, 0.0001)
+		assert_float(TrackBuilder.tier_surface_roughness(RoadDef.Tier.DIRT, surface)).is_equal_approx(
+			1.0, 0.0001)
+
+	# A non-DIRT road renders EXACTLY the legacy material: concrete values, no
+	# triplanar projection, no albedo map.
+	var builder := TrackBuilder.new()
+	add_child(builder)
+	_track(builder)
+	var arterial := RoadDef.make(RoadDef.Tier.ARTERIAL, _square_points(), "", true,
+		-1.0, RoadDef.Surface.CONCRETE)
+	builder.build_track(_square_points(), true, arterial)
+	var mat := _surface_material(builder)
+	assert_that(mat).is_not_null()
+	if mat == null:
+		return
+	assert_bool(mat.uv1_triplanar).is_false()
+	assert_bool(mat.albedo_texture == null).is_true()
+	assert_float(mat.albedo_color.r).is_equal_approx(0.52, 0.001)
+	assert_float(mat.albedo_color.g).is_equal_approx(0.52, 0.001)
+	assert_float(mat.albedo_color.b).is_equal_approx(0.53, 0.001)
+	assert_float(mat.roughness).is_equal_approx(0.85, 0.001)
 
 func test_track_builder_banking_lowers_right_edge_on_right_turn() -> void:
 	var right_turn: Array[Vector3] = [

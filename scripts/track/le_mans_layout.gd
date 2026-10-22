@@ -16,8 +16,14 @@ extends RefCounted
 ## APPROXIMATE. ±10-30 m lateral on straights, worse inside the corner complexes;
 ## the S/F line is ±100 m; the Dunlop bridge chainage is ±150 m; every chicane
 ## removal is a geometric chord, NOT the historic alignment; the Mulsanne kink is
-## reconstructed from secondary sources; elevation is not modelled (flat v1).
-## © OpenStreetMap contributors, ODbL.
+## reconstructed from secondary sources. Elevation (2026-10-22) is REAL survey
+## data, not a guess: NASA SRTM GL1 30 m (public domain) sampled every <= 50 m
+## along the same OSM trace (`LeMansElevationData`, baked by
+## tools/le_mans_fetch_elevation.py, cross-checked against EU-DEM v1.1), keyed by
+## chainage and smoothed (ELEVATION_SMOOTH_HALF_M, 3 box passes) because SRTM is
+## a surface model and the trace is +-10-30 m laterally. World Y is relative to
+## the smoothed S/F height (`elevation_datum_asl()`), so the grid/line keep
+## their v1 heights. © OpenStreetMap contributors, ODbL.
 
 
 ## Published lap length (m). The whole layout is rescaled to this exactly.
@@ -41,6 +47,14 @@ const GRID_INDEX := 4684
 ## Road surface base height and the flat v1 ground plane height (m).
 const ROAD_BASE_Y := 0.15
 const PLAIN_Y := -0.25
+
+## Elevation smoothing: half-window (m of arc) of each of ELEVATION_SMOOTH_PASSES
+## circular box filters over the per-point SRTM profile (3 passes ~ a Gaussian of
+## sigma ~60 m). 60 m keeps relief ~37 m and the Dunlop climb, caps the grade at
+## ~4.7 % and holds every Hunaudieres crest above R ~2,300 m (0.4 g of unload at
+## 350 km/h -- no ski-jumps).
+const ELEVATION_SMOOTH_HALF_M := 60.0
+const ELEVATION_SMOOTH_PASSES := 3
 
 ## Peak bank angle for every bermed corner (deg). Flat straights, sine-eased
 ## banks in the big corners; sign convention = barcelona (positive = right turn,
@@ -133,6 +147,10 @@ static var _real_scale := -1.0
 static var _bank_apex := PackedFloat32Array()
 ## Sign of each BANK_REGION's built curvature (+1/-1).
 static var _bank_sign := PackedFloat32Array()
+## Smoothed elevation per final point, metres ABOVE SEA LEVEL.
+static var _elev_asl := PackedFloat32Array()
+## Smoothed elevation at the S/F line (m ASL): world Y 0-offset.
+static var _datum_asl := 0.0
 
 
 ## Uniform arc-length spacing between two consecutive centerline points.
@@ -220,6 +238,43 @@ static func bank_rad_at_arc(s: float) -> float:
 		var peak := deg_to_rad(BANK_MAX_DEG) * float(r["deg"]) * _bank_sign[_region_index(String(r["name"]))]
 		total += peak * sin(PI * (0.5 + d / (2.0 * half)))
 	return total
+
+
+## Smoothed real elevation per centerline point, world-relative (m above the
+## S/F datum): what every point's Y carries on top of ROAD_BASE_Y + bank lift.
+static func build_elevation_profile() -> PackedFloat32Array:
+	_ensure_built()
+	var out := PackedFloat32Array()
+	out.resize(TOTAL_POINTS)
+	for i in TOTAL_POINTS:
+		out[i] = _elev_asl[i] - _datum_asl
+	return out
+
+
+## Smoothed S/F elevation (m ASL) -- the world-Y datum.
+static func elevation_datum_asl() -> float:
+	_ensure_built()
+	return _datum_asl
+
+
+## World-relative elevation (m) at arc `s`, linear between points, wrapping.
+static func elevation_at_arc(s: float) -> float:
+	return elevation_asl_at_arc(s) - _datum_asl
+
+
+## Smoothed elevation (m ASL) at arc `s`.
+static func elevation_asl_at_arc(s: float) -> float:
+	_ensure_built()
+	var idx := fposmod(s, TARGET_PERIMETER) / spacing()
+	var i0 := int(idx) % TOTAL_POINTS
+	var i1 := (i0 + 1) % TOTAL_POINTS
+	return lerpf(_elev_asl[i0], _elev_asl[i1], idx - floorf(idx))
+
+
+## Height of the ground beside the road at arc `s` (the v1 PLAIN_Y relation,
+## 0.40 m under the road edge, carried up and down the real profile).
+static func ground_y_at_arc(s: float) -> float:
+	return PLAIN_Y + elevation_at_arc(s)
 
 
 ## Centerline point (Y included) at arc `s`, wrapping around the loop.
@@ -337,6 +392,7 @@ static func _ensure_built() -> void:
 		_labels.append(_label_at(dense, float(i) * spacing() / _real_scale))
 	_built = true # before _build_bank: it queries arc_at_chainage (re-entrant)
 	_build_bank()
+	_build_elevation()
 	for i in TOTAL_POINTS:
 		_centerline[i].y = _make_y(arc_of_index(i))
 
@@ -538,7 +594,46 @@ static func _build_bank() -> void:
 ## above it, so the centerline height follows the angle exactly (not the angle
 ## in radians). The mesh and dressing read the cross-section through frame_at_arc.
 static func _make_y(s: float) -> float:
-	return ROAD_BASE_Y + (WIDTH_M * 0.5) * absf(sin(bank_rad_at_arc(s)))
+	return ROAD_BASE_Y + elevation_at_arc(s) + (WIDTH_M * 0.5) * absf(sin(bank_rad_at_arc(s)))
+
+
+## Per-point smoothed elevation (m ASL): the SRTM lap profile is keyed by the
+## OSM chainage, so each final point reads it at its own chainage LABEL (the
+## same arc<->chainage map the landmarks use), then ELEVATION_SMOOTH_PASSES
+## circular box filters of +-ELEVATION_SMOOTH_HALF_M remove DEM/trace noise.
+## Deterministic: constant table in, pure arithmetic out.
+static func _build_elevation() -> void:
+	var chs: Array[float] = LeMansElevationData.PROFILE_CHAINAGES
+	var hs: Array[float] = LeMansElevationData.PROFILE_M
+	var m := chs.size()
+	var raw := PackedFloat32Array()
+	raw.resize(TOTAL_POINTS)
+	var j := 0
+	for i in TOTAL_POINTS:
+		var c := fposmod(_labels[i], TARGET_PERIMETER)
+		while j + 1 < m and chs[j + 1] <= c:
+			j += 1
+		while j > 0 and chs[j] > c:
+			j -= 1
+		var c0 := chs[j]
+		var c1 := chs[j + 1] if j + 1 < m else TARGET_PERIMETER
+		var h1 := hs[j + 1] if j + 1 < m else hs[0]
+		var t := clampf((c - c0) / maxf(c1 - c0, 0.001), 0.0, 1.0)
+		raw[i] = lerpf(hs[j], h1, t)
+	var half := maxi(int(roundf(ELEVATION_SMOOTH_HALF_M / spacing())), 1)
+	for _pass in ELEVATION_SMOOTH_PASSES:
+		var out := PackedFloat32Array()
+		out.resize(TOTAL_POINTS)
+		var sum := 0.0
+		for k in range(-half, half + 1):
+			sum += raw[(k + TOTAL_POINTS) % TOTAL_POINTS]
+		var count := float(half * 2 + 1)
+		for i in TOTAL_POINTS:
+			out[i] = sum / count
+			sum += raw[(i + half + 1) % TOTAL_POINTS] - raw[(i - half + TOTAL_POINTS) % TOTAL_POINTS]
+		raw = out
+	_elev_asl = raw
+	_datum_asl = raw[0]
 
 
 ## Bank-region lookup by name (small const table; clarity over speed).

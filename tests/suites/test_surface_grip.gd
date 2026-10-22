@@ -356,3 +356,67 @@ func test_real_perimeter_highway_is_asphalt_between_its_vertices() -> void:
 		var off := Vector3(mid.x + normal.x * 20.0, mid.y, mid.z + normal.y * 20.0)
 		assert_float(float(provider.call(off)["distance"])).is_equal_approx(20.0, 0.01)
 		assert_that(classifier.call(off)["surface_key"]).is_equal(SurfaceRegistry.GRASS)
+# --- mixed-surface roads (RoadDef.point_surfaces) -------------------------------
+
+## A road with a per-point profile reports the nearest SEGMENT's surface on the
+## carriageway (asphalt vs gravel), and the tier's loose verge past the paved
+## edge; the same road without a profile is unchanged (tier rule everywhere).
+func test_mixed_surface_road_reports_the_segment_surface() -> void:
+	var pts: Array[Vector3] = []
+	for i in 21:
+		pts.append(Vector3(float(i) * 10.0, 0.0, 0.0))
+	var def := RoadDef.make(RoadDef.Tier.DIRT, pts, "mixed", false, 12.0, RoadDef.Surface.GRAVEL, RoadDef.RailSide.NONE)
+	var profile := PackedByteArray()
+	for i in pts.size():
+		profile.append(RoadDef.Surface.GRAVEL if i >= 10 else RoadDef.Surface.ASPHALT)
+	def.point_surfaces = profile
+	var net := _new_road_network()
+	net.add_road_def(def)
+	var classifier := SurfaceRegistry.build_classifier(
+		SurfaceRegistry.default_road_tier_provider(self), Callable())
+	var tarmac: Dictionary = classifier.call(Vector3(45.0, 0.0, 3.0))
+	assert_that(tarmac["surface_key"]).is_equal(SurfaceRegistry.ASPHALT)
+	assert_float(float(tarmac["lateral"])).is_equal(1.0)
+	var dirt: Dictionary = classifier.call(Vector3(155.0, 0.0, -3.0))
+	assert_that(dirt["surface_key"]).is_equal(SurfaceRegistry.GRAVEL)
+	assert_float(float(dirt["lateral"])).is_equal_approx(0.85, 0.001)
+	assert_float(float(dirt["longitudinal"])).is_equal_approx(0.80, 0.001)
+	# Past the paved edge (6 m + 0.5 m margin) the DIRT tier's loose verge.
+	var verge: Dictionary = classifier.call(Vector3(45.0, 0.0, 7.5))
+	assert_that(verge["surface_key"]).is_equal(SurfaceRegistry.GRAVEL)
+	# Beyond the topping it is grass, whatever the segment.
+	var grass: Dictionary = classifier.call(Vector3(45.0, 0.0, 20.0))
+	assert_that(grass["surface_key"]).is_equal(SurfaceRegistry.GRASS)
+	# The lookup exposes the segment index the surface came from.
+	assert_int(int(net.nearest_road_lookup(Vector3(155.0, 0.0, 0.0))["seg"])).is_equal(15)
+
+## A wrong-sized profile is ignored: the road is its uniform tier surface.
+func test_mismatched_surface_profile_is_ignored() -> void:
+	var pts: Array[Vector3] = [Vector3(0, 0, 0), Vector3(100, 0, 0), Vector3(200, 0, 0)]
+	var def := RoadDef.make(RoadDef.Tier.DIRT, pts, "bad-profile", false, 12.0)
+	def.point_surfaces = PackedByteArray([RoadDef.Surface.ASPHALT])
+	assert_bool(def.has_surface_profile()).is_false()
+	var net := _new_road_network()
+	net.add_road_def(def)
+	var classifier := SurfaceRegistry.build_classifier(
+		SurfaceRegistry.default_road_tier_provider(self), Callable())
+	var report: Dictionary = classifier.call(Vector3(50.0, 0.0, 0.0))
+	assert_that(report["surface_key"]).is_equal(SurfaceRegistry.GRAVEL)
+
+## Zones are per-owner: clearing one owner's zones keeps another's (two tracks
+## can no longer wipe each other), while the legacy no-argument clear still
+## removes everything.
+func test_zone_owners_clear_independently() -> void:
+	SurfaceRegistry.clear_zones()
+	var square: Array = [Vector2(0, 0), Vector2(10, 0), Vector2(10, 10), Vector2(0, 10)]
+	var far_square: Array = [Vector2(100, 0), Vector2(110, 0), Vector2(110, 10), Vector2(100, 10)]
+	SurfaceRegistry.add_zone(square, SurfaceRegistry.SAND, "track_a")
+	SurfaceRegistry.add_zone(far_square, SurfaceRegistry.GRAVEL, "track_b")
+	assert_int(SurfaceRegistry.zone_count()).is_equal(2)
+	SurfaceRegistry.clear_zones("track_a")
+	assert_int(SurfaceRegistry.zone_count("track_a")).is_equal(0)
+	assert_int(SurfaceRegistry.zone_count("track_b")).is_equal(1)
+	assert_str(SurfaceRegistry.classify_zone_at(Vector3(5, 0, 5))).is_equal("")
+	assert_str(SurfaceRegistry.classify_zone_at(Vector3(105, 0, 5))).is_equal(SurfaceRegistry.GRAVEL)
+	SurfaceRegistry.clear_zones()
+	assert_int(SurfaceRegistry.zone_count()).is_equal(0)

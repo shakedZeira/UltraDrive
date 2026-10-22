@@ -120,6 +120,27 @@ const JUMP_REGIONS: Array[Dictionary] = [
 ## the two bermed ones). The rest of the loop is open dirt with run-off.
 const BARRIER_CORNERS: Array[int] = [1, 2, 6]
 
+## MIXED SURFACE -- the single source of truth for where the circuit is loose.
+## The real Barcelona-Catalunya rallycross course is ~60 % asphalt (borrowed from
+## the F1 circuit) and ~40 % loose gravel/dirt (the infield rallycross section).
+## Here that is ONE loose section by public arc (m from the grid), [from, to):
+## it starts on the exit of the T1 hairpin (72.1 m) -- the cars leave the tarmac
+## hairpin onto the dirt -- carries the single-crest jump (108-130), the T2 berm
+## and T3, and rejoins the asphalt on the exit of T4 (522.7 m). Everything else
+## (T5, the T6 berm, T7, the S/F line, the grid, the table-top jump and the T1
+## hairpin) is asphalt. 453 m of 1,133 = 40.0 % loose.
+##
+## Consumers, all reading THIS table (never a copy):
+##   * `build_surface_profile()` -> `RoadDef.point_surfaces` -> TrackBuilder's
+##     mixed asphalt/dirt road material AND SurfaceRegistry's per-segment grip
+##     (Surface.GRAVEL -> the GRAVEL grip contract, 0.85 / 0.80);
+##   * the scene's ground bake (loose verge colour beside the dirt section).
+## The layout has no joker branch: a joker needs an alternative route + a
+## per-car joker counter, which this single-loop layout does not model.
+const DIRT_SECTIONS: Array[Vector2] = [
+	Vector2(72.0, 525.0),
+]
+
 ## --- static build cache (build once, deterministic, no engine state) ---------
 
 static var _built := false
@@ -225,6 +246,47 @@ static func jump_arc_ranges() -> Array[Vector2]:
 	for r in JUMP_REGIONS:
 		ranges.append(Vector2(r["from"], r["to"]))
 	return ranges
+
+
+## True when public arc `s` (wrapped) lies on a loose (dirt/gravel) section.
+static func is_loose_at_arc(s: float) -> bool:
+	var arc := fposmod(s, TARGET_PERIMETER)
+	for r in DIRT_SECTIONS:
+		if arc >= r.x and arc < r.y:
+			return true
+	return false
+
+
+## `RoadDef.Surface` at public arc `s`: GRAVEL on a DIRT_SECTIONS range, else
+## ASPHALT.
+static func surface_at_arc(s: float) -> int:
+	return RoadDef.Surface.GRAVEL if is_loose_at_arc(s) else RoadDef.Surface.ASPHALT
+
+
+## The `SurfaceRegistry` key a car ON the road reports at public arc `s`.
+static func surface_key_at_arc(s: float) -> String:
+	return SurfaceRegistry.GRAVEL if is_loose_at_arc(s) else SurfaceRegistry.ASPHALT
+
+
+## One `RoadDef.Surface` per centerline point = the surface of the segment that
+## STARTS at that point (`RoadDef.point_surfaces` semantics), sampled at the
+## segment MIDPOINT so a section boundary is honoured to within half a spacing
+## (1.4 m). Deterministic.
+static func build_surface_profile() -> PackedByteArray:
+	var profile := PackedByteArray()
+	profile.resize(TOTAL_POINTS)
+	var step := spacing()
+	for i in TOTAL_POINTS:
+		profile[i] = surface_at_arc((float(i) + 0.5) * step)
+	return profile
+
+
+## Total loose arc length (m) over every DIRT_SECTIONS range.
+static func dirt_arc_length() -> float:
+	var total := 0.0
+	for r in DIRT_SECTIONS:
+		total += r.y - r.x
+	return total
 
 
 ## Public arc of a corner's apex (the midpoint of its arc), 1-based `corner`.

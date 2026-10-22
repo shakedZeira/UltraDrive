@@ -53,6 +53,21 @@ const FIELD_WINDOW := 10
 ## 0.30/0.36/0.27; a dirt circuit bakes a drier, more yellow surface).
 const GRASS_COLOR := Color(0.34, 0.33, 0.20)
 
+## Loose verge beside the DIRT section (`BarcelonaRxLayout.DIRT_SECTIONS`): the
+## dirt that is thrown wide and graded off the racing surface. Fully loose out to
+## LOOSE_VERGE_FULL m past the road edge, fading to grass by LOOSE_VERGE_FADE.
+const LOOSE_VERGE_COLOR := Color(0.42, 0.33, 0.22)
+const LOOSE_VERGE_FULL := 4.0
+const LOOSE_VERGE_FADE := 11.0
+## Narrow gravel run-off shoulder beside the ASPHALT sections -- the strip
+## SurfaceRegistry already reports as GRAVEL (road edge + ROAD_EDGE_MARGIN).
+const RUNOFF_COLOR := Color(0.50, 0.45, 0.36)
+const RUNOFF_FULL := 2.0
+const RUNOFF_FADE := 4.5
+## Arc distance (m) over which the verge colour blends at a surface change, so
+## the verge never steps from grass to dirt at one texel row.
+const VERGE_ARC_BLEND := 12.0
+
 ## Bounded re-rolls of the foliage seed looking for a placement whose every
 ## instance clears the road corridor. `Foliage`'s rejection sampling can leave a
 ## stray instance inside the corridor (the same unchecked last-sample fallback
@@ -81,6 +96,16 @@ var ground_bake_ms: int = 0
 var _hint_index := PackedInt32Array()
 var _hint_dist := PackedFloat32Array()
 var _hint_stride := 0
+
+## Side outputs of the last `_terrain_height` call (no allocation in the bake
+## loop): |lateral offset| from the centerline (INF on the plain early-out) and
+## the public arc of the nearest centerline position. Read by `_verge_color`.
+var _last_abs_s := INF
+var _last_arc := 0.0
+
+## Per-point loose weight along the loop (1 on the DIRT section, blended over
+## VERGE_ARC_BLEND at each change), built once per bake for the verge colour.
+var _verge_loose := PackedFloat32Array()
 
 ## Export gates. Defaults keep the standalone scene behaving as the tests
 ## expect; a future lean `barcelona_rx_zone.tscn` (the `mountain_pass_zone`
@@ -168,6 +193,11 @@ func _build_road(network: RoadNetwork) -> void:
 		RoadDef.RailSide.NONE)
 	def.bank_angles = bank_profile
 	def.show_lane_dividers = false
+	# Mixed surface: asphalt with one loose section, from the layout's
+	# DIRT_SECTIONS table. The tier stays DIRT (its GRAVEL default is still what
+	# the verge reports); the per-segment profile decides the carriageway's grip
+	# and TrackBuilder's mixed asphalt/dirt material.
+	def.point_surfaces = BarcelonaRxLayout.build_surface_profile()
 	network.add_road_def(def)
 
 
@@ -412,6 +442,7 @@ func _build_ground() -> Terrain3D:
 	terrain.region_size = Terrain3D.SIZE_256
 
 	_build_hint_field()
+	_build_verge_profile()
 
 	var size := int(TERRAIN_SPAN)
 	var height_img := Image.create_empty(size, size, false, Image.FORMAT_RF)
@@ -423,7 +454,7 @@ func _build_ground() -> Terrain3D:
 			var elevation := _terrain_height(wx, wz)
 			height_img.set_pixel(ix, iz, Color(elevation, 0.0, 0.0, 0.0))
 			var shade := 0.82 + 0.36 * clampf((elevation + 1.0) / 7.0, 0.0, 1.0)
-			color_img.set_pixel(ix, iz, Color(GRASS_COLOR * shade, 0.5))
+			color_img.set_pixel(ix, iz, Color(_verge_color(ix, iz) * shade, 0.5))
 
 	terrain.data.import_images(
 		[height_img, null, color_img],
@@ -520,6 +551,7 @@ func _plain_cutoff() -> float:
 ## (EDGE_DROP -> PLAIN_Y over BLEND_RUN) outside it. Both sides blend, because a
 ## rallycross circuit is a closed loop with no distinct infield shoulder.
 func _terrain_height(wx: float, wz: float) -> float:
+	_last_abs_s = INF
 	if _hint_dist_at(wx, wz) > _plain_cutoff():
 		return BarcelonaRxLayout.PLAIN_Y
 
@@ -529,6 +561,8 @@ func _terrain_height(wx: float, wz: float) -> float:
 	var best_s := 0.0
 	var best_y := 0.0
 	var best_bank := 0.0
+	var best_j := 0
+	var best_t := 0.0
 	for k in range(-FIELD_WINDOW, FIELD_WINDOW + 1):
 		var j := posmod(hint + k, n)
 		var jn := (j + 1) % n
@@ -550,8 +584,12 @@ func _terrain_height(wx: float, wz: float) -> float:
 			best_s = dx * (-abz * inv) + dz * (abx * inv)
 			best_y = a.y + (b.y - a.y) * t
 			best_bank = bank_profile[j] + (bank_profile[jn] - bank_profile[j]) * t
+			best_j = j
+			best_t = t
 
 	var half := BarcelonaRxLayout.WIDTH * 0.5
+	_last_abs_s = absf(best_s)
+	_last_arc = BarcelonaRxLayout.arc_of_index(best_j) + best_t * BarcelonaRxLayout.spacing()
 	# 1. Under the road: the exact (banked) surface minus the washbed.
 	if absf(best_s) <= half:
 		return best_y - best_s * sin(best_bank) - WASHBED_DEPTH
@@ -562,6 +600,50 @@ func _terrain_height(wx: float, wz: float) -> float:
 	var edge_y := best_y - sgn * half * sin(best_bank)
 	var blend := smoothstep(0.0, BarcelonaRxLayout.BLEND_RUN, absf(best_s) - half)
 	return lerpf(edge_y - EDGE_DROP, BarcelonaRxLayout.PLAIN_Y, blend)
+
+
+## Per-point loose weight for the verge colour: 1 on a DIRT_SECTIONS point, 0 on
+## asphalt, linearly blended over VERGE_ARC_BLEND m of arc centred on each
+## surface change. Reads the layout table directly (the road's own source).
+func _build_verge_profile() -> void:
+	var n := BarcelonaRxLayout.TOTAL_POINTS
+	_verge_loose.resize(n)
+	var half_blend := VERGE_ARC_BLEND * 0.5
+	for i in n:
+		var arc := BarcelonaRxLayout.arc_of_index(i)
+		var w := 1.0 if BarcelonaRxLayout.is_loose_at_arc(arc) else 0.0
+		for r in BarcelonaRxLayout.DIRT_SECTIONS:
+			for edge: float in [r.x, r.y]:
+				var d := fposmod(arc - edge + BarcelonaRxLayout.TARGET_PERIMETER * 0.5,
+					BarcelonaRxLayout.TARGET_PERIMETER) - BarcelonaRxLayout.TARGET_PERIMETER * 0.5
+				if absf(d) < half_blend:
+					# Inside the blend window of this edge: entering (r.x) ramps up
+					# with d, leaving (r.y) ramps down with d.
+					var u := (d + half_blend) / VERGE_ARC_BLEND
+					w = u if edge == r.x else 1.0 - u
+		_verge_loose[i] = clampf(w, 0.0, 1.0)
+
+
+## Ground colour of texel (ix, iz), from the side outputs of the
+## `_terrain_height` call that just ran for it: grass, a loose dirt verge beside
+## the DIRT section, and a narrow gravel run-off beside the asphalt. A
+## deterministic per-texel hash breaks the band edges up (no RNG).
+func _verge_color(ix: int, iz: int) -> Color:
+	if not is_finite(_last_abs_s):
+		return GRASS_COLOR
+	var beyond := _last_abs_s - BarcelonaRxLayout.WIDTH * 0.5
+	var n := _verge_loose.size()
+	var loose := 0.0
+	if n > 0:
+		var f := _last_arc / BarcelonaRxLayout.spacing()
+		var i0 := posmod(int(floorf(f)), n)
+		loose = lerpf(_verge_loose[i0], _verge_loose[(i0 + 1) % n], f - floorf(f))
+	var jitter := float(posmod(ix * 73856093 ^ iz * 19349663, 1000)) / 1000.0
+	var dirt_w := 1.0 - smoothstep(LOOSE_VERGE_FULL, LOOSE_VERGE_FADE, beyond + (jitter - 0.5) * 3.0)
+	var run_w := 1.0 - smoothstep(RUNOFF_FULL, RUNOFF_FADE, beyond + (jitter - 0.5) * 1.5)
+	var verge := RUNOFF_COLOR.lerp(LOOSE_VERGE_COLOR, loose)
+	var weight := lerpf(run_w, dirt_w, loose)
+	return GRASS_COLOR.lerp(verge * (0.92 + 0.16 * jitter), clampf(weight, 0.0, 1.0))
 
 
 ## Player spawn: the grid point (checkpoint 0), one metre up, facing down the

@@ -111,6 +111,17 @@ enum RailSide {
 ## array means "no suppression" and is the default for every non-ramp road.
 @export var rail_open_ranges: Array[Dictionary] = []
 
+## Optional per-point surface profile: one `Surface` value per centerline point,
+## the surface of the segment that STARTS at that point (a closed road's wrap
+## segment uses the last entry). Honoured only when it holds exactly one entry
+## per point (`has_surface_profile`); the default EMPTY array keeps the road one
+## uniform `surface`, which is every road authored before this field existed.
+## A mixed road (Barcelona RX: asphalt with a loose section) is ONE closed road,
+## so laps, the minimap, rivals and the collision stay a single loop, while
+## TrackBuilder renders the asphalt/dirt split and SurfaceRegistry reports the
+## per-segment grip from this same array.
+@export var point_surfaces: PackedByteArray = PackedByteArray()
+
 ## Factory: tier defaults applied, explicit width/surface/banking override.
 ## rail_sides defaults to BOTH so every existing caller is unchanged.
 static func make(tier: int, points: Array[Vector3], id: String = "", closed: bool = true, \
@@ -125,6 +136,17 @@ static func make(tier: int, points: Array[Vector3], id: String = "", closed: boo
 	def.rail_sides = rail_sides_override
 	def.points = points
 	return def
+
+## True when `point_surfaces` is a usable per-point profile (one per point).
+func has_surface_profile() -> bool:
+	return not points.is_empty() and point_surfaces.size() == points.size()
+
+## Surface of segment `seg` (the one starting at point `seg`), honouring the
+## per-point profile; the road-wide `surface` without one.
+func surface_at_segment(seg: int) -> int:
+	if not has_surface_profile():
+		return surface
+	return int(point_surfaces[clampi(seg, 0, point_surfaces.size() - 1)])
 
 ## The player-facing name for this road: `name` when it has one, else the id,
 ## else a last-resort literal. NEVER empty -- a consumer drawing this string
