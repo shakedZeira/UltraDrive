@@ -15,7 +15,7 @@
 - Core autoloads (all in `project.godot`): `GameState` (`scripts/autoload/game_state.gd`, the central scene/flow/vehicle-context state machine), `AudioManager` (`scripts/autoload/audio_manager.gd`), `SettingsStore` (`scripts/autoload/settings_store.gd`, persisted via `user://settings.json`), `WorldDiscovery` (persisted path discovery), `EventRegistry` (persisted placed events), and race/weather/terrain registries.
 - Two full play surfaces: an **open world** (`res://scenes/world/open_world_root.tscn`) and **dedicated tracks** (`scenes/track/mountain_pass.tscn`, `scenes/track/test_circuit.tscn`), plus a test arena (`scenes/test/test_track.tscn`).
 - A single `PlayerCar` vehicle scene (`scenes/vehicle/player_car.tscn`) that consumes `CarConfig` resources; six garage cars are configured and selectable.
-- A complete **core loop**: main menu → **Free Roam** (open world, live traffic, day/night + weather, discovery, fast-travel via map) or **Track Select** (two maps) → per-map **Kiosk/Race Setup** screen → drive → results.
+- A complete **core loop**: main menu → **Free Roam** (open world, live traffic, day/night + weather, discovery, fast-travel via map) or **Track Select** (circuit map: Israel + World tiers, 36 pins) → per-map **Kiosk/Race Setup** screen → drive → results.
 - Event "seeding": the open world already *places* 10 event sites (drag strip, drift zone, touge duel, night street loop, marathon highway, plus five time-attack anchors) in `world_discovery`-style `EventRegistry` — the launcher/score-management for them is **(PLANNED Phase 1.4)**.
 - Determinism: everything generated from seeds (`MASTER_SEED = 1337 * 1337 = 1787569` in `res://scripts/world/corridor_planner.gd`; per-region seeds derived from it in `scripts/world/region_dresser.gd`) so the same machine always builds the same world.
 - Expensive generation work lives in **worker threads** that report progress to `GameState.progress` (`terrain_seeder.gd`) and uses **idempotent, re-entrant** region dressing (`region_dresser.gd`), so "Press Start again" re-cycle works without duplication.
@@ -112,7 +112,7 @@
 
 **IMPLEMENTED**
 - `scenes/ui/main_menu.tscn` + `scripts/ui/main_menu.gd` — title, backdrop, and **Free Roam / Track Select / Settings / Quit** entry points, wrapped by the fade layer `SceneTransition` (`scripts/autoload/scene_transition.gd`, canvas layer 100, 0.5 s fade, then `GameState.change_scene`).
-- `scenes/ui/track_select.tscn` — choose a track with preview tiles.
+- `scenes/ui/track_select.tscn` — **circuit map**: a two-tier equirectangular world map (`scripts/ui/track_map.gd`) with clickable pins at real circuit lat/longs (Israel is the default framed region, drawn as a vector Levant silhouette; WORLD shows the CC0 world SVG raster). Pin → circuit card (name / layout / class / laps / best lap) → PLAY, wired into the existing `RaceManager.queue_race()` flow. Pins live additively in `TrackRegistry.pins` and map many-to-one onto the three shipped layouts.
 - `scenes/ui/garage.tscn` + `scripts/ui/garage_ui.gd` — **rail-card carousel** of the six cars, rotating turntable preview, and **6 stat bars** rendered from real `CarConfig` numbers plus a specs readout line.
 - `scenes/ui/pause_menu.tscn` — Resume / Restart / Settings / Map / Quit, with the **World Map** (`scripts/ui/world_map.gd`, fit-all, north-up) and **fast-travel** on discovered waypoints.
 - `scenes/ui/settings_menu.tscn` + `scripts/ui/settings_menu.gd` — audio, video quality, input, gameplay, accessibility.

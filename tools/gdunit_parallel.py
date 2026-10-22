@@ -111,6 +111,7 @@ CONTENDED_SUITES: set[str] = {
     "test_collectibles",
     "test_discovery",
     "test_event_rewards",
+    "test_garage_layout",
     "test_garage_tuning",
     "test_manual_transmission_default",
     "test_profile_slots",

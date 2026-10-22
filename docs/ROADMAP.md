@@ -33,7 +33,7 @@ part to read first**; the phase detail below is the working plan.
 
 | Capability | GT7 | FH6 | UltraDrive | Status |
 |---|---|---|---|---|
-| Drivable open world w/ classified road tiers | 121 layouts | ~960 roads, 74 districts | 19 named corridors, 60 km target, 5 tiers; 3 track layouts — Sunset Oval, Mountain Pass, Northern Isle Speedway | `[PARTIAL]` scale, `[SHIPPED]` system |
+| Drivable open world w/ classified road tiers | 121 layouts | ~960 roads, 74 districts | 19 named corridors, 60 km target, 5 tiers; 4 track layouts — Sunset Oval, Mountain Pass, Northern Isle Speedway, Barcelona Rallycross | `[PARTIAL]` scale, `[SHIPPED]` system |
 | Terrain relief / biomes | massif-scale | Japan: touge/coast/forest/snow | spawn/rolling/highland/alpine + sea level, colour-baked | `[SHIPPED]` |
 | GPS route line + map discovery | Sport-mode route | GPS drive-line, district discovery | `MapRoads` route line, reveal bitset, fast travel | `[SHIPPED]` |
 | Handling depth / assists | 1.71 physics overhaul | assist levels | surface grip table, ABS/TCS, manual+auto transmission | `[SHIPPED]` |
@@ -138,6 +138,7 @@ Priority P0 items from `self_audit.md §2.1`. **This phase is complete** — all
 - **What:** Tuning sliders in `scenes/ui/garage.tscn` that mutate `CarConfig` (`car_config.gd`) live (gears, springs/dampers, downforce); 2–3 upgrade tiers per car; stats-bar comparison UI.
 - **Why:** FH6's customization is its most-lauded feature; GT7's setup/tuning is core. We have the data-driven config already — this is UI + mutation over it. Audit P0 "GT core fantasy". [self_audit.md §2.1 Car personalization; competitors.md L20, L117]
 - **Effort:** M–L (3–4 wks). **Shipped** (`test_garage_tuning`, `test_car_paint_materials`).
+- **Brand grouping `[SHIPPED 2026-10-16]`:** the garage car rail groups owned cars into per-brand sections (emblem + brand-name headers) from `scripts/career/car_brands.gd`, with 13 original SVG monograms in `assets/ui/brands/` and optional `CarConfig.brand` / `brand_display_name` fields (path/name derivation fallback for fieldless saves). Gate: `test_garage_brands`.
 
 ### 1.4 Event-type framework wired to POI markers `[SHIPPED]`
 - **What:** Refactor race-start to an event-type framework (circuit / sprint / elimination / time-attack / drift / checkpoint), placed as destination markers on the existing `poi_registry.gd` + map systems.
@@ -256,6 +257,21 @@ fence, barrier line, grandstands, S/F gantry and billboards from
 `test_northern_isle_layout`, `test_track_bank_profile` (+ `test_road_graph` /
 `test_multi_lane_rails` regression proof), `test_northern_isle_track`,
 `test_northern_isle_dressing`.
+
+**2026-10-17 — Circuit de Barcelona-Catalunya Rallycross `[SHIPPED]`**
+(`docs/plans/track_barcelona_rallycross.md`): our 4th drivable layout
+(`TrackRegistry`: Sunset Oval / Mountain Pass / Northern Isle Speedway /
+Barcelona Rallycross) and the **first DIRT/jump circuit** — a ~1,133 m closed
+rallycross loop on `RoadDef.Tier.DIRT` + `RoadDef.Surface.GRAVEL` with two
+sine-eased banked berms, a chicane, a hairpin and **two raised-cosine jumps**,
+built entirely on build #1's capabilities (`RoadDef.bank_angles` →
+`TrackBuilder._frame`) with **no new shared tooling**. `rx_dressing.gd` (a
+dedicated class, not `OvalDressing`) builds the S/F gantry, start-finish paint,
+barrier line + box colliders, apex cones and start flag from
+`assets/track_props/*.glb`. Gates: `test_barcelona_rx_layout` (15),
+`test_barcelona_rx_track` (7), `test_barcelona_rx_dressing` (11),
+`test_barcelona_rx_barriers` (3) — **36/36 cases, 0 errors, 0 failures**; plus
+`test_track_system` / `test_race_layout_preview` / `test_race_menu_map` green.
 
 ---
 

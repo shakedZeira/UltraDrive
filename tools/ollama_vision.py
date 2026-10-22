@@ -12,6 +12,12 @@ import sys
 import time
 import urllib.request
 
+import os as _os, sys as _sys
+if _os.environ.get("ULTRADRIVE_ALLOW_OLLAMA") != "1":
+    _sys.exit("Ollama vision is disabled (user directive 2026-10-21). "
+              "Claude analyzes images directly - see CLAUDE.md / AGENTS.md.")
+
+
 OLLAMA_EXE = r"D:\Ollama\ollama.exe"
 PORT = 11434
 

@@ -9,6 +9,34 @@ hardcode it:
 GDUnit4 addon at `addons/gdUnit4`, tests under `tests/` (suite:
 `tests/suites`).
 
+## graphify — KNOWLEDGE GRAPH (query it FIRST, before grepping code)
+
+`graphify-out/graph.json` is a **built** knowledge graph over this project's
+code + docs (god nodes, communities, cross-file edges). For any codebase
+question, query the graph **before** your first `grep` / search / source-file
+read, and put this rule in every subagent prompt that explores code. Read raw
+files only for lines the graph (or an earlier read) already located.
+
+- `graphify query "<question>"` — BFS context for a question (add `--dfs` to
+  trace one path, `--budget N` to cap tokens).
+- `graphify path "<A>" "<B>"` — shortest path between two concepts.
+- `graphify explain "<concept>"` — plain-language explanation of one node.
+- `graphify-out/GRAPH_REPORT.md` — read only for a broad architecture review
+  (god nodes, surprising connections, community hubs, suggested questions).
+- After modifying code, run `graphify update .` to refresh it (AST-only, no
+  API cost).
+- `graph.json` is rewritten whole on every build, so a large diff to it is
+  expected — not churn, and not a reason to skip the rebuild.
+
+**SCOPE LIMIT — GDScript is NOT in the graph.** graphify has no GDScript
+extractor, so the ~510 gameplay files under `scripts/**.gd` (plus every
+`.tscn` / `.tres`) are **absent**. The graph covers the Python/shell/C#/JS
+tooling (`tools/*.py`, addons' C#/JS/shell) and the documentation corpus
+(`docs/**`, `AGENTS.md`, `CLAUDE.md`, addon READMEs/licenses). For questions
+about actual game behaviour, read the GDScript source directly — a
+`graphify query` cannot see it. Run `graphify query "how does X work"` only
+for tooling/docs; otherwise go straight to the scripts.
+
 ## READ FIRST — THE `head`/`tail`/`grep` TRAP (top of file on purpose)
 
 **The `bash` tool in this project is NOT bash.** It is **cmd.exe** on the PC and
@@ -197,6 +225,15 @@ If you must use PowerShell, wrap it explicitly:
 
 ## VISION BRIDGE (local image analysis)
 
+> **DISABLED — USER DIRECTIVE 2026-10-21: Ollama must NOT be used, at all.**
+> No `tools\ollama_vision.py`, no `analyze_image` plugin tool, no
+> `ollama serve`. Image critique (renders,
+> game captures, reference photos) is done by Claude itself by opening the
+> image directly (Read tool on PNG/JPG). Gemini is also off. `tools\ollama_vision.py`
+> refuses to run unless `ULTRADRIVE_ALLOW_OLLAMA=1` is set, which only the user
+> sets. Sub-agent prompts that involve visual checks must repeat this rule.
+> The notes below are kept for history only.
+
 - A text-only session (opencode/big-pickle) can still "see" via the
   `vision-bridge` plugin (`.opencode/plugins/vision-bridge.js`): pasted images
   are staged to `.vision/inbox/`, screen/window captures to `.vision/captures/`,
@@ -243,6 +280,17 @@ If you must use PowerShell, wrap it explicitly:
 
 ### GEMINI VISION — use `gemini_vision.bat` for image critique (stronger/faster than local Ollama)
 
+> **USER DIRECTIVE 2026-10-21 — CURRENT (supersedes 2026-10-18): do NOT use
+> Gemini Vision OR local Ollama for image critique. The agent (Claude) analyzes
+> images itself by opening them directly (e.g. the Read tool on PNG/JPG).**
+> Superseded 2026-10-18 directive, kept for reference: use LOCAL OLLAMA ONLY —
+> the plugin tool `analyze_image`, or
+> `py tools\ollama_vision.py <image> "<prompt>"` with `qwen2.5vl:7b` (recipe in
+> the VISION BRIDGE section above — vulkan env, `taskkill` first, ~90 s/shot,
+> retry once if the first request times out, kill the server afterwards). The
+> ~1280 px-wide downscale rule applies here too; keep uploads small. The rest of
+> this Gemini section is kept as reference for when the user lifts this directive.
+
 `gemini_vision.bat` (project root; wraps `tools/gemini_vision.py`, Playwright +
 the user's Chrome) drives **gemini.google.com** for image critique: upload
 screenshots + reference shots, get a structured Markdown verdict back in
@@ -280,6 +328,9 @@ Rules learned the hard way — do not re-derive these:
   failed once). The reply lands in `div/model-response` (extractor already
   wired); the wait loop detects streaming via `text=Cancel send` /
   `button[aria-label*='Stop' i]`, then idle.
+- **Downscale every upload to ~1280 px wide max** (captures AND reference
+  photos; keep aspect) before an `ask` — the model does not reliably handle
+  1920-px-wide images (user-reported 2026-10-18, observed not root-caused).
 - Gemini still fails transiently ~1 time in 3 ("I encountered an error…") —
   **just re-run the same `ask`**, it usually succeeds on retry. A reply under
   ~100 chars is an error blob, not a critique.
@@ -519,6 +570,20 @@ while it runs is safe (the suite runs off the same tree but writes only
   meshes with an X axle — they use the stock `CAR_ORIENT` and wheel-spin
   conventions untouched. Gate: `tests/suites/test_cc0_cars.gd`.
 
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships. Graphify is installed and available as the `graphify` skill.
+
+When the user types `/graphify`, use the graphify skill/instructions before doing anything else.
+
+Rules:
+- When graphify-out/graph.json exists, run `graphify query "<question>"` before your first grep, search or source-file read for a codebase question, and include this rule in every subagent prompt that explores code. Read raw files only for lines the graph or an earlier read already located. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts.
+- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip if the task is about stale/incorrect graph output, or the user explicitly says not to use it.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- A committed graphify-out/graph.json is rewritten whole on every build; a large diff is expected. Do not flag churn or suggest skipping rebuilds/hooks.
+
 ## TERRAIN (D4)
 - Mountain Pass ground is now a runtime-built `Terrain3D` (node named
   `GrassGround`): a 1024² height/color bake imported via `data.import_images()`
@@ -683,3 +748,17 @@ while it runs is safe (the suite runs off the same tree but writes only
   scope when they serve a goal), `docs/plans/*` (phase/feature gap-fill plans),
   `docs/research/*` (competitor + self-audit research). Read the roadmap section
   relevant to any new work before planning.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+When the user types `/graphify`, use the installed graphify skill or instructions before doing anything else.
+
+Rules:
+- When graphify-out/graph.json exists, run `graphify query "<question>"` before your first grep, search or source-file read for a codebase question, and put this rule in every subagent prompt that explores code. Read raw files only for lines the graph or an earlier read already located. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- A committed graphify-out/graph.json is rewritten whole on every build, so a large diff to it in a pull request is expected. Do not flag it as churn or suggest skipping the graph rebuild or its hooks.
