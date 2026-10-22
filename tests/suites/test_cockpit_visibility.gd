@@ -6,8 +6,10 @@ extends GdUnitTestSuite
 ## its Kenney GLB carries NO glass mesh — the 'body' shell, painted red through
 ## the CC0 colormap fallback, IS the windshield, and it is OPAQUE doubleSided,
 ## so from the cockpit the red backfaces fill the view. The generic case
-## (sports_coupe etc.) does carry a Glass mesh, but the paint pipeline ships it
-## OPAQUE too, so the pane blocks the driver exactly the same way.
+## (sports_coupe etc.) does carry a Glass mesh; the paint pipeline now ships it
+## tinted TRANSPARENT (TRANSPARENCY_ALPHA at DEFAULT_GLASS_COLOR.a), and the
+## cockpit pass still owns it from any baseline (transparency + alpha are
+## value-snapshotted per material), dropping it to COCKPIT_GLASS_ALPHA.
 ##
 ## Fix under test (mode-driven, headless-safe, mirroring the existing
 ## CockpitRig ownership probe): while the CockpitCamera owns the viewport,
@@ -18,6 +20,7 @@ extends GdUnitTestSuite
 
 const PlayerCarScene: PackedScene = preload("res://scenes/vehicle/player_car.tscn")
 const CometConfig: CarConfig = preload("res://resources/cars/cc0_sedan_sports.tres")
+const R35Config: CarConfig = preload("res://resources/cars/nissan_gt_r35_2017.tres")
 const ChaseCameraScript: GDScript = preload("res://scripts/camera/chase_camera.gd")
 const OrbitCameraScript: GDScript = preload("res://scripts/camera/orbit_camera.gd")
 const HoodCameraScript: GDScript = preload("res://scripts/camera/hood_camera.gd")
@@ -63,6 +66,22 @@ func _build_comet_car(root: Node) -> Node3D:
 	assert_that(controller).is_not_null()
 	car.set("config", CometConfig)
 	controller.set("_car_id", "cc0_sedan_sports")
+	controller.call("_apply_visual")
+	await get_tree().process_frame  # flush the queue_freed default GLB + probe
+	return car
+
+## Instantiates the real player scene, repoints it to the GT-R R35 config by name
+## (res://resources/cars/nissan_gt_r35_2017.tres), and rebuilds the visual so the
+## nissan_gt-r_r35_2017 GLB (Body + Headlight/Taillight/DarkTrim dressing + a real
+## Glass windscreen) is live under CarBody. Mirrors _build_comet_car.
+func _build_r35_car(root: Node) -> Node3D:
+	var car := PlayerCarScene.instantiate() as Node3D
+	_managed.append(car)
+	root.add_child(car)
+	var controller := car.get_node_or_null("PlayerCarController")
+	assert_that(controller).is_not_null()
+	car.set("config", R35Config)
+	controller.set("_car_id", "nissan_gt_r35_2017")
 	controller.call("_apply_visual")
 	await get_tree().process_frame  # flush the queue_freed default GLB + probe
 	return car
@@ -157,11 +176,12 @@ func test_comet_shell_unblocked_only_while_cockpit_camera_active() -> void:
 	for shell_node_variant: Variant in shell:
 		assert_that((shell_node_variant as MeshInstance3D).visible).is_true()
 
-## Generic glass case: the AI cars DO carry a Glass mesh, but the paint pipeline
-## ships it OPAQUE, which blocks the driver exactly like the Comet's shell.
-## While the cockpit camera is active the glass must flip to TRANSPARENCY_ALPHA
-## with an alpha below the cleanliness threshold; leaving cockpit restores the
-## original OPAQUE state exactly.
+## Generic glass case: the AI cars DO carry a Glass mesh. The paint pipeline
+## ships it tinted TRANSPARENT (TRANSPARENCY_ALPHA at the baseline alpha), and
+## the cockpit pass must own that baseline exactly like it owned the old
+## opaque one: while the cockpit camera is active the glass drops to
+## COCKPIT_GLASS_ALPHA; leaving cockpit restores the tinted baseline (the
+## transparency value no longer changes, only the alpha).
 func test_ai_car_glass_is_transparent_only_while_cockpit_active() -> void:
 	var root := _new_root()
 	var car := PlayerCarScene.instantiate() as Node3D
@@ -189,12 +209,15 @@ func test_ai_car_glass_is_transparent_only_while_cockpit_active() -> void:
 	assert_that(glass_mat).is_not_null()
 	if glass_mat == null:
 		return
-	assert_that(glass_mat.transparency).is_equal(BaseMaterial3D.TRANSPARENCY_DISABLED)
+	# Baseline: the pipeline ships tinted TRANSPARENT glass (alpha = the
+	# DEFAULT_GLASS_COLOR tint), not the old opaque mirror pane.
+	assert_that(glass_mat.transparency).is_equal(BaseMaterial3D.TRANSPARENCY_ALPHA)
 	var baseline_alpha := glass_mat.albedo_color.a
+	assert_that(baseline_alpha).is_equal_approx(CarVisuals.DEFAULT_GLASS_COLOR.a, 0.001)
 
 	var cam := _new_cockpit_camera(root)
 	rig.call("sync_shell_view")
-	assert_that(glass_mat.transparency).is_equal(BaseMaterial3D.TRANSPARENCY_DISABLED)
+	assert_that(glass_mat.transparency).is_equal(BaseMaterial3D.TRANSPARENCY_ALPHA)
 
 	cam.call("set_view_active", true)
 	assert_that(rig.call("sync_visibility")).is_true()
@@ -205,7 +228,7 @@ func test_ai_car_glass_is_transparent_only_while_cockpit_active() -> void:
 
 	cam.call("set_view_active", false)
 	rig.call("sync_shell_view")
-	assert_that(glass_mat.transparency).is_equal(BaseMaterial3D.TRANSPARENCY_DISABLED)
+	assert_that(glass_mat.transparency).is_equal(BaseMaterial3D.TRANSPARENCY_ALPHA)
 	assert_that(glass_mat.albedo_color.a).is_equal_approx(baseline_alpha, 0.001)
 
 ## The full 4-mode C-cycle drives the flags: cockpit = rig visible + shell
@@ -335,3 +358,131 @@ func test_headless_instantiation_restores_all_visibility_exactly() -> void:
 	for mesh_variant: Variant in visual.find_children("*", "MeshInstance3D", true, false):
 		var mesh_instance := mesh_variant as MeshInstance3D
 		assert_that(mesh_instance.visible).is_equal(baseline[mesh_instance.get_path()])
+
+## Step 3 of fix_gtr_windshield_glass.md: the R35 shell's NON-GLASS body dressing
+## (headlights, taillights, the DarkTrim grille/intake/vents/splitter) is now
+## SHELL, so it hides with the paint shell while the cockpit camera owns the
+## viewport — otherwise, once the binnacle is lowered, it floats in the driver's
+## forward view (sec 2.5). Every piece must come back EXACTLY when the camera
+## releases the viewport, and the real Glass windscreen must stay visible and
+## transparent.
+func test_r35_exterior_dressing_hidden_only_while_cockpit_active() -> void:
+	var root := _new_root()
+	var car := await _build_r35_car(root)
+	var rig := car.get_node_or_null("CockpitRig") as CockpitRig
+	assert_that(rig).is_not_null()
+	var cam := _new_cockpit_camera(root)
+	var visual := _visual_root(car)
+	assert_that(visual).is_not_null()
+	if visual == null:
+		return
+
+	var roles: Dictionary = CarVisuals.cockpit_roles(visual)
+	var shell: Array = roles["shell"]
+	var glass: Array = roles["glass"]
+	assert_that(shell.is_empty()).is_false()
+	assert_that(glass.is_empty()).is_false()
+
+	# The named dressing the R35 fronts over the horizon: two headlights, two
+	# taillights and the DarkTrim grille / intake / vents / splitter. Each must be
+	# SHELL (hidden in cockpit) and visible outside it.
+	var dressing_names: Array[String] = [
+		"Headlight_L", "Headlight_R", "Taillight_L", "Taillight_R",
+		"UpperGrille", "FrontIntake", "FrontSplitter",
+		"HoodVent_L", "HoodVent_R", "SideVent_L", "SideVent_R",
+	]
+	var dressing: Array[MeshInstance3D] = []
+	for dressing_name: String in dressing_names:
+		var dressing_mesh := visual.find_child(dressing_name, true, false) as MeshInstance3D
+		assert_that(dressing_mesh).is_not_null()
+		if dressing_mesh == null:
+			continue
+		assert_that(shell.has(dressing_mesh)).is_true()
+		assert_that(dressing_mesh.visible).is_true()  # untouched outside cockpit
+		dressing.append(dressing_mesh)
+	assert_that(dressing.size()).is_equal(dressing_names.size())
+
+	var windscreen := visual.find_child("Windscreen", true, false) as MeshInstance3D
+	assert_that(windscreen).is_not_null()
+	if windscreen == null:
+		return
+	assert_that(glass.has(windscreen)).is_true()
+	assert_that(windscreen.visible).is_true()
+
+	# Cockpit active: EVERY dressing mesh hides; the windscreen stays visible and
+	# drops to the clean COCKPIT_GLASS_ALPHA.
+	cam.call("set_view_active", true)
+	assert_that(rig.call("sync_visibility")).is_true()
+	rig.call("sync_shell_view")
+	for dressing_mesh: MeshInstance3D in dressing:
+		assert_that(dressing_mesh.visible).is_false()
+	assert_that(windscreen.visible).is_true()
+	var glass_mat: StandardMaterial3D = windscreen.get_surface_override_material(0) as StandardMaterial3D
+	assert_that(glass_mat).is_not_null()
+	if glass_mat != null:
+		assert_that(glass_mat.transparency).is_equal(BaseMaterial3D.TRANSPARENCY_ALPHA)
+		assert_that(glass_mat.albedo_color.a).is_equal_approx(CarVisuals.COCKPIT_GLASS_ALPHA, 0.001)
+
+	# Released: every dressing mesh is restored exactly.
+	cam.call("set_view_active", false)
+	assert_that(rig.call("sync_visibility")).is_false()
+	rig.call("sync_shell_view")
+	for dressing_mesh: MeshInstance3D in dressing:
+		assert_that(dressing_mesh.visible).is_true()
+
+## Step 3 must NOT touch the wheel branch: the Comet's CC0 'colormap'
+## wheel-front-left and the AI starter car's two-surface (Tire + Rim) Wheel_FL
+## both stay visible while the cockpit camera owns the viewport.
+func test_wheel_assembly_stays_visible_in_cockpit() -> void:
+	# CC0 Comet: single colormap wheel mesh, classified by node name.
+	var comet_root := _new_root()
+	var comet := await _build_comet_car(comet_root)
+	var comet_rig := comet.get_node_or_null("CockpitRig") as CockpitRig
+	var comet_cam := _new_cockpit_camera(comet_root)
+	var comet_visual := _visual_root(comet)
+	assert_that(comet_rig).is_not_null()
+	assert_that(comet_visual).is_not_null()
+	if comet_visual != null:
+		var comet_shell: Array = CarVisuals.cockpit_roles(comet_visual)["shell"]
+		var comet_wheel := comet_visual.get_node_or_null("wheel-front-left") as MeshInstance3D
+		assert_that(comet_wheel).is_not_null()
+		if comet_wheel != null:
+			assert_that(comet_shell.has(comet_wheel)).is_false()
+			comet_cam.call("set_view_active", true)
+			comet_rig.call("sync_shell_view")
+			assert_that(comet_wheel.visible).is_true()
+
+	# AI starter car (sports_coupe): Wheel_FL is ONE mesh with TWO surfaces
+	# (Tire + Rim) — the multi-surface wheel branch must resolve OTHER, not SHELL.
+	var starter_root := _new_root()
+	var starter := PlayerCarScene.instantiate() as Node3D
+	_managed.append(starter)
+	starter_root.add_child(starter)
+	var starter_controller := starter.get_node_or_null("PlayerCarController")
+	assert_that(starter_controller).is_not_null()
+	starter.set("config", load("res://resources/cars/starter_car.tres"))
+	starter_controller.set("_car_id", "starter_car")
+	starter_controller.call("_apply_visual")
+	await get_tree().process_frame
+	var starter_rig := starter.get_node_or_null("CockpitRig") as CockpitRig
+	var starter_cam := _new_cockpit_camera(starter_root)
+	var starter_visual := _visual_root(starter)
+	assert_that(starter_rig).is_not_null()
+	assert_that(starter_visual).is_not_null()
+	if starter_visual != null:
+		var starter_shell: Array = CarVisuals.cockpit_roles(starter_visual)["shell"]
+		# Resolve the corner through the PRODUCTION seam rather than a raw child
+		# lookup: Godot wraps a single-root glTF scene, so this car's Wheel_FL sits
+		# under the wrapper's `SportsCoupe` child (one level below the instance
+		# root). resolve_wheel_nodes() is depth-independent on purpose.
+		var starter_wheels: Dictionary = CarVisuals.resolve_wheel_nodes(starter_visual, "starter_car")
+		assert_that(starter_wheels.size()).is_equal(4)
+		var starter_fl: Array = starter_wheels.get("fl", [])
+		assert_that(starter_fl).is_not_empty()
+		if not starter_fl.is_empty():
+			var starter_wheel := starter_fl[0] as MeshInstance3D
+			assert_that(starter_wheel).is_not_null()
+			assert_that(starter_shell.has(starter_wheel)).is_false()
+			starter_cam.call("set_view_active", true)
+			starter_rig.call("sync_shell_view")
+			assert_that(starter_wheel.visible).is_true()

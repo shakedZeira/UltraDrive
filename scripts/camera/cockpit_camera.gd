@@ -246,12 +246,16 @@ func _update_camera(delta: float) -> void:
 	global_position = get_seat_anchor() + _last_pos_offset
 
 	# Compose order: body -> feel layers (lean/dive/yaw hint) -> player look.
-	# The feel keeps riding the body axes exactly as before; the player look is
-	# the OUTERMOST rotation so pitch stays perpendicular to the lean roll and
-	# the look-into-turn hint (++ body yaw) composes underneath it cleanly.
+	# EVERY step post-multiplies (X * R), i.e. rotates about the basis's OWN
+	# local axes (Basis * Basis == the local-frame rotated_local). Do NOT use
+	# Basis.rotated()/Transform3D.rotated() here: that is a LEFT multiply
+	# (R * X) in the global/parent frame, so it only coincided with the local
+	# frame at ~0 car yaw. On a track that spawns the car at yaw -90 deg
+	# (Northern Isle) the look pitch about the GLOBAL right axis was really a
+	# roll about the car's forward axis. Local composition is yaw-independent.
 	var view_basis := _compose_feel_basis(body_basis, roll, pitch, yaw)
-	view_basis = view_basis.rotated(Vector3.UP, _look_yaw)
-	view_basis = view_basis.rotated(Vector3.RIGHT, -_look_pitch)
+	view_basis = view_basis * Basis(Vector3.UP, _look_yaw)
+	view_basis = view_basis * Basis(Vector3.RIGHT, -_look_pitch)
 	global_basis = view_basis
 
 	_last_roll = roll
@@ -261,14 +265,16 @@ func _update_camera(delta: float) -> void:
 	var target_fov := lerpf(fov_min, fov_max, speed_frac * fov_strength)
 	_camera.fov = lerpf(_camera.fov, target_fov, 1.0 - exp(-fov_k * delta))
 
-# --- Yaw then roll then pitch, applied in the body's local frame. Each
-# --- .rotated() post-multiplies a pure rotation, so small-angle composition
-# --- stays clean and never touches the anchor position.
+# --- Yaw then roll then pitch, applied in the body's LOCAL frame. Each step
+# --- post-multiplies a pure rotation (X * R), so the feel rides the car's real
+# --- heading rather than the world axes (Basis.rotated() is a global
+# --- left-multiply and turned the lean/dive into the wrong axis off-axis),
+# --- small-angle composition stays clean, and the anchor position is untouched.
 func _compose_feel_basis(body_basis: Basis, roll: float, pitch: float, yaw: float) -> Basis:
 	var feel := body_basis
-	feel = feel.rotated(Vector3.UP, yaw)      # look-into-turn (toward apex)
-	feel = feel.rotated(Vector3.BACK, roll)   # lean into the corner
-	feel = feel.rotated(Vector3.RIGHT, -pitch)  # brake dive (nose down)
+	feel = feel * Basis(Vector3.UP, yaw)        # look-into-turn (toward apex)
+	feel = feel * Basis(Vector3.BACK, roll)     # lean into the corner
+	feel = feel * Basis(Vector3.RIGHT, -pitch)  # brake dive (nose down)
 	return feel
 
 func _read_speed_kmh() -> float:

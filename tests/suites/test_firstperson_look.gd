@@ -5,7 +5,9 @@ extends GdUnitTestSuite
 ## around with the joystick just like the regular outside of car view"): the
 ## HOOD and COCKPIT cameras now sweep the view around on the same camera_orbit_*
 ## right-stick actions as ORBIT. The look rotates the camera basis ON TOP of the
-## body (yaw about up, pitch about right), never moves the rigid anchor / seat
+## body about its LOCAL axes (yaw about the body's local up, pitch about the
+## body's local right — post-multiplied so it is yaw-independent), never moves
+## the rigid anchor / seat
 ## offset, clamps pitch, zeroes below the deadzone, resets to forward on
 ## activation, and the orbit camera only grabs ORBIT from CHASE (in first person
 ## the stick is look-around, not a mode eject). Look lives on an apply_look()
@@ -88,9 +90,10 @@ func test_hood_look_rotates_basis_and_leaves_anchor_position_fixed() -> void:
 	# Look must never move the rigid anchor: the camera still sits ON the hood.
 	assert_that(cam.global_position.distance_to(anchor_before)).is_less(0.001)
 
-	# Basis = body basis with yaw about UP and pitch about RIGHT (positive look
-	# pitch looks UP -> .rotated(RIGHT, -pitch), same sign coupling as ORBIT).
-	var expected := target.global_basis.rotated(Vector3.UP, yaw).rotated(Vector3.RIGHT, -pitch)
+	# Basis = body basis with LOCAL yaw about UP then LOCAL pitch about the
+	# resulting RIGHT (post-multiply X * R, yaw-independent). Positive look
+	# pitch looks UP -> * Basis(RIGHT, -pitch), same sign coupling as ORBIT.
+	var expected := target.global_basis * Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, -pitch)
 	assert_that(cam.global_basis.x.distance_to(expected.x)).is_less(0.0001)
 	assert_that(cam.global_basis.y.distance_to(expected.y)).is_less(0.0001)
 	assert_that(cam.global_basis.z.distance_to(expected.z)).is_less(0.0001)
@@ -126,11 +129,50 @@ func test_cockpit_look_rotates_basis_and_leaves_seat_offset_fixed() -> void:
 	# ...but it rotates the view well off the look-free feel basis.
 	assert_that(a.global_basis.z.distance_to(b.global_basis.z)).is_greater(0.01)
 
-	# Composition order pinned: a == b's feel basis then yaw about up, pitch
-	# about right (outer rotations on the post-feel frame).
-	var expected := b.global_basis.rotated(Vector3.UP, _look_yaw(a)).rotated(Vector3.RIGHT, -_look_pitch(a))
+	# Composition order pinned: a == b's feel basis then LOCAL yaw about up,
+	# LOCAL pitch about right (post-multiply on the post-feel frame, so the look
+	# axes ride the car heading and can never leak into roll).
+	var expected := b.global_basis * Basis(Vector3.UP, _look_yaw(a)) * Basis(Vector3.RIGHT, -_look_pitch(a))
 	assert_that(a.global_basis.x.distance_to(expected.x)).is_less(0.0001)
 	assert_that(a.global_basis.z.distance_to(expected.z)).is_less(0.0001)
+
+## Yaw-independence (the Northern Isle bug): the look must rotate about the
+## camera's LOCAL axes, so the same stick input gives the same view whatever
+## heading the car was spawned at. Northern Isle spawns the car at yaw -90 deg,
+## where a GLOBAL-frame pitch (the old `.rotated(RIGHT, ...)` left-multiply)
+## became a roll about the car's forward axis. Rotating pitch about the LOCAL
+## right leaves the right axis (basis.x) untouched => provably NO roll; yaw
+## about the LOCAL up leaves the up axis (basis.y) untouched.
+func test_look_is_yaw_independent_no_roll_at_nonzero_heading() -> void:
+	var root := _new_root()
+	var target := _new_target(root, Vector3.ZERO)
+	# The exact failure heading: global +X is now the car's forward (-basis.z).
+	target.global_rotation = Vector3(0.0, -PI * 0.5, 0.0)
+
+	# HOOD, pitch-only look (standstill): a local-right rotation cannot move the
+	# right axis, so it must still equal the car's own right axis.
+	var hood := _new_hood_camera(root, target)
+	hood.call("apply_look", 0.0, 1.0, 1.0 / 60.0)
+	hood.call("_update_camera", 1.0 / 60.0)
+	assert_that(_look_pitch(hood)).is_not_equal(0.0)
+	assert_that(hood.global_basis.x).is_equal_approx(target.global_basis.x, Vector3(0.001, 0.001, 0.001))
+	# ...while the pitch really did move the view (back-vector left the body's).
+	assert_that(hood.global_basis.z.distance_to(target.global_basis.z)).is_greater(0.001)
+
+	# COCKPIT, pitch-only look at standstill (every feel layer is zero).
+	var cockpit := _new_cockpit_camera(root, target)
+	cockpit.call("apply_look", 0.0, 1.0, 1.0 / 60.0)
+	cockpit.call("_update_camera", 1.0 / 60.0)
+	assert_that(_look_pitch(cockpit)).is_not_equal(0.0)
+	assert_that(cockpit.global_basis.x).is_equal_approx(target.global_basis.x, Vector3(0.001, 0.001, 0.001))
+	assert_that(cockpit.global_basis.z.distance_to(target.global_basis.z)).is_greater(0.001)
+
+	# Yaw-only look: a local-up rotation leaves the up axis untouched.
+	var yaw_cam := _new_cockpit_camera(root, target)
+	yaw_cam.call("apply_look", 1.0, 0.0, 1.0 / 60.0)
+	yaw_cam.call("_update_camera", 1.0 / 60.0)
+	assert_that(_look_yaw(yaw_cam)).is_not_equal(0.0)
+	assert_that(yaw_cam.global_basis.y).is_equal_approx(target.global_basis.y, Vector3(0.001, 0.001, 0.001))
 
 ## Pitch clamps at pitch_min/pitch_max and yaw runs free (full 360) — the same
 ## clamp contract on both first-person cameras.

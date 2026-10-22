@@ -127,12 +127,15 @@ func _update_camera(delta: float) -> void:
 	global_position = get_hood_anchor() + _bob_offset
 
 	# Rigid body mirror (heading/pitch/roll) then the player look on top: yaw
-	# about the body's UP (free 360), pitch about its RIGHT (clamped). Positive
-	# look pitch = look up, opposite sign to the .rotated() axis so stick-up
-	# reads the same as the orbit camera.
+	# about the body's LOCAL UP (free 360), pitch about its LOCAL RIGHT
+	# (clamped). Post-multiply (X * R) so the axes ride the body's real heading:
+	# Basis.rotated() is a global left-multiply and turned the pitch into roll
+	# when the car faced +/-X (the Northern Isle yaw = -90 deg spawn). Positive
+	# look pitch = look up, so pitch uses the negated axis to read the same as
+	# the orbit camera.
 	var look_basis := target.global_basis
-	look_basis = look_basis.rotated(Vector3.UP, _look_yaw)
-	look_basis = look_basis.rotated(Vector3.RIGHT, -_look_pitch)
+	look_basis = look_basis * Basis(Vector3.UP, _look_yaw)
+	look_basis = look_basis * Basis(Vector3.RIGHT, -_look_pitch)
 	global_basis = look_basis
 
 	var target_fov := lerpf(fov_min, fov_max, clampf(speed_kmh / full_speed_kmh, 0.0, 1.0) * fov_strength)

@@ -111,3 +111,50 @@ func test_paint_keeps_embedded_bayside_blue() -> void:
 	assert_that(paint.roughness).is_equal_approx(0.25, 0.001)
 	assert_that(paint.clearcoat_roughness).is_equal_approx(0.04, 0.001)
 	assert_that(paint.metallic_specular).is_equal_approx(0.75, 0.001)
+
+func test_r35_has_two_taillight_materials_and_all_brake_glow() -> void:
+	# The R35 rear cluster is TWO mesh nodes (Taillight_L + Taillight_R), each
+	# cloning the shared GLB material — the old single-match cache only ever
+	# ramped one half of the four lamps.
+	var instance := _instantiate(VISUAL_PATH)
+	CarVisuals.apply_paint(instance, CarVisuals.paint_profile_for(CAR_ID))
+	var all := CarVisuals.find_named_materials(instance, "taillight")
+	assert_that(all.size()).is_equal(2)
+	assert_that(all[0].get_instance_id()).is_not_equal(all[1].get_instance_id())
+	CarVisuals.apply_brake_glow_all(all, 1.0)
+	for material: Variant in all:
+		var tail := material as StandardMaterial3D
+		assert_that(tail.emission_enabled).is_true()
+		assert_that(tail.emission_energy_multiplier).is_equal_approx(CarVisuals.BRAKE_GLOW_MAX, 0.001)
+
+func test_r35_windshield_is_tinted_transparent_glass() -> void:
+	var instance := _instantiate(VISUAL_PATH)
+	CarVisuals.apply_paint(instance, CarVisuals.paint_profile_for(CAR_ID))
+	var glass := CarVisuals.find_named_material(instance, "glass")
+	assert_that(glass).is_not_null()
+	if glass == null:
+		return
+	assert_that(glass.transparency).is_equal(BaseMaterial3D.TRANSPARENCY_ALPHA)
+	assert_that(glass.albedo_color.a).is_less(1.0)
+	assert_that(glass.metallic).is_equal_approx(0.0, 0.001)
+	assert_that(glass.refraction_enabled).is_false()
+
+func test_r35_reverse_glow_whitens_existing_taillights() -> void:
+	# The reverse cue rides the two EXISTING taillight clones (no geometry is
+	# built): whitening then releasing restores each GLB-authored base colour,
+	# so the red brake ramp resumes.
+	var instance := _instantiate(VISUAL_PATH)
+	CarVisuals.apply_paint(instance, CarVisuals.paint_profile_for(CAR_ID))
+	var tails := CarVisuals.find_named_materials(instance, "taillight")
+	assert_that(tails.size()).is_equal(2)
+	if tails.size() < 2:
+		return
+	var bases: Array[Color] = []
+	for material: StandardMaterial3D in tails:
+		bases.append(material.emission)
+	CarVisuals.apply_reverse_glow(tails, true)
+	for material: StandardMaterial3D in tails:
+		assert_that(material.emission).is_equal(CarVisuals.REVERSE_LIGHT_COLOR)
+	CarVisuals.apply_reverse_glow(tails, false)
+	for index: int in range(tails.size()):
+		assert_that(tails[index].emission).is_equal(bases[index])

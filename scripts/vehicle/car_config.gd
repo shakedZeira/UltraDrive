@@ -148,7 +148,9 @@ const DRIVETRAIN_FWD := 2
 # --- Camera view anchors (per-car overrides) ---
 # <=0 = fall back to the chase/hood/cockpit camera defaults. Long-bodied cars
 # (e.g. Thunderhead muscle) raise the hood cam so the bonnet doesn't fill the
-# view; low-seat cars raise the cockpit eye.
+# view; low-seat cars raise the cockpit eye. Exception: cockpit_seat_forward and
+# cockpit_seat_lateral apply whenever != 0 (a negative forward puts the eye aft
+# of the car origin — see CockpitRig.seat_anchor_for).
 @export var hood_cam_height: float = 0.0
 @export var hood_cam_forward: float = 0.0
 @export var cockpit_seat_height: float = 0.0

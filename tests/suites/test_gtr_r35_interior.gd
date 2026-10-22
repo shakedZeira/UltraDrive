@@ -433,20 +433,21 @@ func test_r35_set_mfd_mode_changes_only_the_mfd_emission() -> void:
 	rig.set_mfd_mode(0)
 	assert_that(mfd.emission).is_equal(mfd_base)
 
-## P5: the R35 .tres carries the three cockpit seat overrides (Sec 8.2 assumed
-## values) and the shared helper reads them (height 0.62 / forward 0.55 /
-## lateral -0.36, driver right = car-local -X).
+## P5: the R35 .tres carries the three cockpit seat overrides — the real-car
+## driver eye relative to the exterior GLB (height 1.08 above the ground plane,
+## 0.18 m AFT of mid-wheelbase => forward -0.18, lateral -0.36 on car-local -X)
+## — and the shared helper reads them, negative forward included.
 func test_r35_config_carries_cockpit_seat_overrides() -> void:
 	var cfg := load(R35_CONFIG) as CarConfig
 	assert_that(cfg).is_not_null()
 	if cfg == null:
 		return
-	assert_float(cfg.cockpit_seat_height).is_equal_approx(0.62, 0.0001)
-	assert_float(cfg.cockpit_seat_forward).is_equal_approx(0.55, 0.0001)
+	assert_float(cfg.cockpit_seat_height).is_equal_approx(1.08, 0.0001)
+	assert_float(cfg.cockpit_seat_forward).is_equal_approx(-0.18, 0.0001)
 	assert_float(cfg.cockpit_seat_lateral).is_equal_approx(-0.36, 0.0001)
 
 	var seat := CockpitRig.seat_anchor_for(cfg, 0.55, 0.55)
-	assert_that(seat).is_equal(Vector3(0.62, 0.55, -0.36))
+	assert_that(seat).is_equal(Vector3(1.08, -0.18, -0.36))
 
 ## P5: cockpit_camera.get_seat_anchor() includes the RHD lateral term
 ##   UP*height - forward*carZ + lateral*carX
@@ -468,8 +469,8 @@ func test_cockpit_camera_and_rig_share_the_rhd_lateral_anchor() -> void:
 	root.add_child(cam)
 
 	var anchor: Vector3 = cam.call("get_seat_anchor")
-	var expected: Vector3 = car.global_position + Vector3.UP * 0.62 \
-		- car.global_basis.z * 0.55 + car.global_basis.x * -0.36
+	var expected: Vector3 = car.global_position + Vector3.UP * 1.08 \
+		- car.global_basis.z * -0.18 + car.global_basis.x * -0.36
 	assert_that(anchor).is_equal_approx(expected, Vector3(0.0001, 0.0001, 0.0001))
 	assert_float(anchor.x).is_equal_approx(car.global_position.x - 0.36, 0.0001)
 

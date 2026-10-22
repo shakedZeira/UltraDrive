@@ -68,6 +68,6 @@ default_setup = {
 "suspension_travel": 0.1
 }
 interior = ExtResource("2_interior")
-cockpit_seat_height = 0.62
-cockpit_seat_forward = 0.55
+cockpit_seat_height = 1.08
+cockpit_seat_forward = -0.18
 cockpit_seat_lateral = -0.36

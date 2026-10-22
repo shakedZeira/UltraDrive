@@ -52,18 +52,30 @@ func _initialize() -> void:
 		quit(1)
 		return
 
+	print("CAPTURE ready: car=", _car.name, " rig=", _rig != null, " orbit=", _orbit != null, " cockpit=", _cockpit != null)
+
+## Swaps the player car to the R35 AFTER PlayerCarController._ready() has run.
+## Doing it in _initialize() (before the tree's ready pass) made _apply_visual()
+## error on a null car, after which the controller's own _ready mounted the
+## garage save's active car GLB under the R35 interior — that car's
+## cockpit-transparent glass then showed as a translucent horizontal band
+## across the cockpit captures.
+func _swap_to_r35() -> void:
 	var cfg := load(R35) as CarConfig
 	_car.set("config", cfg)
 	var controller := _car.get_node_or_null("PlayerCarController")
 	if controller != null and controller.has_method("_apply_visual"):
+		controller.set("_car_id", "nissan_gt_r35_2017")
 		controller._apply_visual()
 	if _rig != null and _rig.has_method("rebuild_interior"):
 		_rig.rebuild_interior()
-
-	print("CAPTURE ready: car=", _car.name, " rig=", _rig != null, " orbit=", _orbit != null, " cockpit=", _cockpit != null)
+	print("CAPTURE swapped to R35")
 
 func _process(delta: float) -> bool:
 	_frames += 1
+
+	if _frames == 3:
+		_swap_to_r35()
 
 	if _frames == 10:
 		if _orbit != null and _orbit.has_method("cycle_mode_for_test"):
@@ -77,16 +89,22 @@ func _process(delta: float) -> bool:
 			(_car as RigidBody3D).freeze = true
 		_capture("r35_cockpit_forward.png")
 
-	# Hold the look sweep toward the driver-side stack (positive X) across
-	# several frames so the yaw actually accumulates past the return-to-center
-	# damp before the angled capture.
-	if _pending == "" and _frames >= 180 and _frames < 250:
+	# The R35 cabin is authored driver-on-the-left, so the MFD / climate stack sits
+	# to the driver's RIGHT (look-yaw is negative toward the right) and the door,
+	# mirror and B-pillar to the LEFT. Hold each sweep across several frames so the
+	# yaw accumulates past the return-to-center damp. Keep the sweeps short: yaw is
+	# unclamped, and 70 frames at -0.9 swung the view 130 deg round onto the
+	# driver's own seat back (a harness artefact, not a cabin bug).
+	if _pending == "" and _frames >= 180 and _frames < 200:
 		if _cockpit != null:
-			_cockpit.apply_look(-0.9, 0.18, delta)
-	if _pending == "" and _frames == 250:
+			_cockpit.apply_look(0.9, 0.0, delta)   # right: centre stack
+	if _pending == "" and _frames == 200:
 		_capture("r35_cockpit_binnacle_stack.png")
 
-	if _pending == "" and _frames == 280 and _saved >= 2:
+	if _pending == "" and _frames >= 205 and _frames < 245 and _saved >= 2:
+		if _cockpit != null:
+			_cockpit.apply_look(-0.9, -0.15, delta)  # left: door, mirror, B-pillar
+	if _pending == "" and _frames == 245 and _saved >= 2:
 		_capture("r35_cockpit_console.png")
 
 	if _saved >= 3:

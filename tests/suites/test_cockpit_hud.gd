@@ -311,8 +311,9 @@ func test_player_scene_cockpit_cycle_dims_cluster_and_shows_dash() -> void:
 ## Gate 9 (best-effort glass audit, plan §4 "no fake windshield tint"): the
 ## cockpit HUD ships no forced full-screen tint/glass filter — the dash panel
 ## is a translucent panel + text (no ColorRect overlays), and the disabled
-## mirror leaks no render layer. Combined with the opaque glass materials on
-## the car GLBs (audited separately), cockpit glass stays clean.
+## mirror leaks no render layer. Combined with the tinted transparent glass
+## materials on the car GLBs (audited separately in test_car_paint_materials /
+## test_cockpit_visibility), cockpit glass stays clean.
 func test_cockpit_hud_ships_no_forced_tint_or_glass_filter() -> void:
 	var root := _new_root()
 	var hud := _new_hud(root)

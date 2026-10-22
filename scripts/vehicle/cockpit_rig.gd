@@ -369,8 +369,10 @@ func get_shift_material() -> StandardMaterial3D:
 ## Single source of truth for the seat anchor (Sec 4.4): the cockpit CAMERA and
 ## this rig both read (height, forward, lateral) from here so an RHD car can
 ## never drift out of agreement between eye and interior. Defaults reproduce the
-## F2a 0.55/0.55 anchor; height/forward only apply when > 0.0 and lateral when
-## != 0.0 (it is legitimately negative for RHD), so a config carrying no
+## F2a 0.55/0.55 anchor; height only applies when > 0.0, forward and lateral
+## when != 0.0 (forward is legitimately negative when the eye sits behind the
+## car origin — the R35's real driver eye is 0.18 m aft of mid-wheelbase — and
+## lateral is negative for the R35's driver side), so a config carrying no
 ## overrides yields exactly today's math with lateral 0. Returned as
 ## Vector3(height, forward, lateral).
 static func seat_anchor_for(cfg: CarConfig, default_height: float, default_forward: float) -> Vector3:
@@ -380,7 +382,7 @@ static func seat_anchor_for(cfg: CarConfig, default_height: float, default_forwa
 	if cfg != null:
 		if cfg.cockpit_seat_height > 0.0:
 			height = cfg.cockpit_seat_height
-		if cfg.cockpit_seat_forward > 0.0:
+		if cfg.cockpit_seat_forward != 0.0:
 			forward = cfg.cockpit_seat_forward
 		if cfg.cockpit_seat_lateral != 0.0:
 			lateral = cfg.cockpit_seat_lateral

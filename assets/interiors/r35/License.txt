@@ -1,0 +1,47 @@
+GT-R R35 cockpit interior assets — provenance
+==============================================
+
+Assets in this directory
+------------------------
+- r35_dash_forward.png — forward dash billboard texture.
+  Derived (cropped, mirrored, colour-graded, resized) by the deterministic
+  script tools/r35_prepare_dash_texture.py from the user-supplied reference
+  photograph:
+    reference/File_The_interior_of_Nissan_GT-R_Premium_Edition_2017_year_model_at_Ni.jpg
+  (fallback sources in the same pipeline:
+    reference/File_Nissan_GT-R_Premium_edition_T-Spec__4BA-R35__interior.jpg.jpg,
+    reference/nc_12_Nissan-GT-R-2017-Interior.fdea9e67.jpg)
+
+- reference/*.jpg — real Nissan GT-R R35 interior photographs supplied by the
+  project owner (the "user") as the texture source for the cockpit rework.
+  They are kept here because .vision/ is transient/gitignored and the texture
+  pipeline must remain reproducible.
+
+Licensing status — read this carefully
+--------------------------------------
+These are REAL PHOTOGRAPHS of a Nissan GT-R R35 interior taken by third
+parties. They were supplied by the project owner together with an explicit
+instruction to use them as the in-project texture source (recorded in
+docs/HANDOFF_2026-10-17_task_batch.md section 1). The original photographer /
+source site is NOT asserted here and was not verified; the files were
+downloaded by the owner before they reached this repository. They are NOT own
+work and NOT CC0.
+
+They are used here as:
+- an in-project texture source (r35_dash_forward.png is a derived, heavily
+  cropped / mirrored / graded derivative used as an in-game asset), and
+- art-direction reference for the cockpit build.
+
+If this project is ever distributed outside the owner's private use, the
+project owner must either (a) replace r35_dash_forward.png with a properly
+licensed or self-made equivalent (the plan's original option iii — a Blender
+own-work render — remains the documented fallback), or (b) obtain the
+appropriate licence for the underlying photograph. No licence grant for these
+photographs is made or implied by their presence in this repository.
+
+This file deliberately does NOT carry a CC0 or own-work statement for the
+photographs; doing so would be false. It replaces the "own-work statement"
+step of docs/plans/gtr_r35_cockpit_improvement_plan.md phase 0 step 3, per the
+owner's explicit photo-source decision (handoff section 1) and the plan's own
+section 3.5 alternative ("a user-owned/licensed photo ... License.txt records
+the provenance").
