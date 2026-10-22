@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://scripts/vehicle/vehicle_physics.gd" id="1_vp"]
 [ext_resource type="Script" path="res://scripts/vehicle/wheel_physics.gd" id="2_wp"]
@@ -10,6 +10,7 @@
 [ext_resource type="Script" path="res://scripts/vehicle/tire_marks.gd" id="8_marks"]
 [ext_resource type="Script" path="res://scripts/car/headlights.gd" id="9_hl"]
 [ext_resource type="PackedScene" path="res://scenes/vehicle/cockpit_rig.tscn" id="10_rig"]
+[ext_resource type="Script" path="res://scripts/vehicle/exhaust_backfire.gd" id="11_bf"]
 
 [sub_resource type="BoxShape3D" id="box_shape"]
 size = Vector3(1.8, 0.5, 4.0)
@@ -57,6 +58,9 @@ max_distance = 80.0
 
 [node name="VehicleFX" type="Node3D" parent="."]
 script = ExtResource("6_fx")
+
+[node name="ExhaustBackfire" type="Node3D" parent="."]
+script = ExtResource("11_bf")
 
 [node name="TireMarks" type="Node" parent="."]
 script = ExtResource("8_marks")
