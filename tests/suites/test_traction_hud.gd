@@ -213,26 +213,58 @@ func test_traction_lamp_hides_itself_when_planted_and_lights_when_spinning() -> 
 	assert_that(lamp.get_severity()).is_equal(0.0)
 	assert_that(lamp.visible).is_false()
 
-func test_hud_wires_the_lamp_and_power_line_from_a_stub_car() -> void:
+func test_hud_wires_the_lamp_power_and_torque_lines_from_a_stub_car() -> void:
 	var runner := scene_runner("res://scenes/ui/hud.tscn")
 	await runner.simulate_frames(2)
 	var scene := runner.scene() as RaceUI
 	var lamp := scene.get_node("%TractionLamp") as TractionLamp
 	var power := scene.get_node("%PowerValue") as Label
+	var torque := scene.get_node("%TorqueValue") as Label
 	assert_that(lamp).is_not_null()
 	assert_that(power).is_not_null()
+	assert_that(torque).is_not_null()
 	assert_that(lamp.visible).is_false()
-	# No player car registered -> a config-less car yields the placeholder line
-	# and an off lamp, never a crash.
+	# No player car registered -> a config-less car yields both placeholder
+	# lines and an off lamp, never a crash.
 	assert_that(power.text).is_equal(PowerGauge.format_text(null, 0.0))
 	assert_that(power.text).is_equal("-- hp")
+	assert_that(torque.text).is_equal(PowerGauge.format_torque_text(null, 0.0))
+	assert_that(torque.text).is_equal("-- Nm")
 	# Drive the lamp directly the way _refresh_traction_lamp does.
 	lamp.set_severity(0.75)
 	assert_that(lamp.visible).is_true()
 	lamp.set_severity(WheelspinGauge.severity_for_car(null))
 	assert_that(lamp.visible).is_false()
 
-# --- HP delta readout -----------------------------------------------------
+## A registered stub car (never added to the tree, so its drivetrain stays null
+## and get_drive_info() reports rpm 0) must drive BOTH cluster readouts from
+## the live rpm — and neither may ever carry a minus sign.
+func test_hud_power_and_torque_lines_track_a_registered_stub_car() -> void:
+	var car := VehiclePhysics.new()
+	car.config = CarConfig.new()
+	car.config.max_torque = 500.0
+	_managed.append(car)
+	VehicleManager.register_player_car(car)
+	var runner := scene_runner("res://scenes/ui/hud.tscn")
+	await runner.simulate_frames(2)
+	var scene := runner.scene() as RaceUI
+	var power := scene.get_node("%PowerValue") as Label
+	var torque := scene.get_node("%TorqueValue") as Label
+	# Expectations come from the SAME info the HUD reads, not hard-coded hp.
+	var rpm := float(car.get_drive_info().get("rpm", 0.0))
+	assert_that(rpm).is_equal(0.0)
+	assert_that(power.text).is_equal(PowerGauge.format_text(car.config, rpm))
+	assert_that(torque.text).is_equal(PowerGauge.format_torque_text(car.config, rpm))
+	# rpm 0 is below idle, so the spec curve reads "0 hp" / "250 Nm" (half of
+	# the 500 Nm max_torque) — both positive, no sign token anywhere.
+	assert_that(power.text).is_equal("0 hp")
+	assert_that(torque.text).is_equal("250 Nm")
+	# THE user-facing contract: no leading minus on either readout.
+	assert_that(power.text.begins_with("-")).is_false()
+	assert_that(torque.text.contains("-")).is_false()
+	VehicleManager.remove_car(car)
+
+# --- HP + torque readout --------------------------------------------------
 
 func test_rated_peak_is_the_max_of_the_torque_curve_not_the_peak_rpm_sample() -> void:
 	var cfg := CarConfig.new()
@@ -291,21 +323,49 @@ func test_null_config_is_safe_everywhere() -> void:
 	assert_that(PowerGauge.peak_power_hp(null)).is_equal(0.0)
 	assert_that(PowerGauge.hp_delta_hp(null, 5000.0)).is_equal(0.0)
 	assert_that(PowerGauge.format_text(null, 5000.0)).is_equal("-- hp")
+	assert_that(PowerGauge.torque_nm(null, 5000.0)).is_equal(0.0)
+	assert_that(PowerGauge.format_torque_text(null, 5000.0)).is_equal("-- Nm")
 
-func test_format_text_renders_current_hp_and_the_signed_delta() -> void:
+func test_format_text_renders_current_hp_with_no_sign_token() -> void:
 	var cfg := CarConfig.new()
 	var at_peak := PowerGauge.max_power_rpm(cfg)
-	var text := PowerGauge.format_text(cfg, at_peak)
-	assert_that(text).contains("hp")
-	# On the power peak the delta rounds to a signed zero.
-	assert_that(text).ends_with("+0")
-	assert_that(text.begins_with("%d hp" % roundi(PowerGauge.peak_power_hp(cfg))))
-	# Off the peak the line carries the rounded gap.
-	assert_that(PowerGauge.format_text(cfg, cfg.idle_rpm).ends_with("-%d" % roundi(
-		PowerGauge.peak_power_hp(cfg) - PowerGauge.power_hp(cfg, cfg.idle_rpm))))
-	# Above the redline the engine makes nothing, so the line reads all gap.
-	assert_that(PowerGauge.format_text(cfg, cfg.redline_rpm + 500.0)).is_equal(
-		"0 hp  -%d" % roundi(PowerGauge.peak_power_hp(cfg)))
+	# Exactly "<n> hp": current crank power, no delta, no sign.
+	assert_that(PowerGauge.format_text(cfg, at_peak)).is_equal(
+		"%d hp" % roundi(PowerGauge.peak_power_hp(cfg)))
+	assert_that(PowerGauge.format_text(cfg, cfg.idle_rpm)).is_equal(
+		"%d hp" % roundi(PowerGauge.power_hp(cfg, cfg.idle_rpm)))
+	# Above the redline the curve is zero, and it must read "0 hp" not "-<n>".
+	assert_that(PowerGauge.format_text(cfg, cfg.redline_rpm + 500.0)).is_equal("0 hp")
+	# The placeholder contract is unchanged (also asserted by the wiring test).
+	assert_that(PowerGauge.format_text(null, 5000.0)).is_equal("-- hp")
+	# No sign character can appear anywhere in a rendered line.
+	assert_that(PowerGauge.format_text(cfg, cfg.idle_rpm).contains("-")).is_false()
+	assert_that(PowerGauge.format_text(cfg, at_peak).contains("+")).is_false()
 	assert_that(PowerGauge.signed_hp(12.4)).is_equal("+12")
 	assert_that(PowerGauge.signed_hp(-12.6)).is_equal("-13")
 	assert_that(PowerGauge.signed_hp(0.0)).is_equal("+0")
+
+func test_torque_nm_reads_the_spec_sheet_curve_in_newton_metres() -> void:
+	var cfg := CarConfig.new()
+	cfg.max_torque = 300.0
+	cfg.peak_rpm = 6500.0
+	cfg.idle_rpm = 800.0
+	cfg.redline_rpm = 7500.0
+	# At peak_rpm the curve is exactly max_torque (the .tres spec figure).
+	assert_that(PowerGauge.torque_nm(cfg, cfg.peak_rpm)).is_equal_approx(300.0, 0.01)
+	# The displayed hp and Nm are the same curve sample: P = tau * omega.
+	var rpm := cfg.idle_rpm
+	while rpm <= cfg.redline_rpm:
+		var expected_hp := PowerGauge.torque_nm(cfg, rpm) * rpm * TAU / 60.0 / PowerGauge.WATTS_PER_HP
+		assert_that(PowerGauge.power_hp(cfg, rpm)).is_equal_approx(expected_hp, 0.001)
+		assert_that(PowerGauge.format_torque_text(cfg, rpm)).is_equal(
+			"%d Nm" % roundi(PowerGauge.torque_nm(cfg, rpm)))
+		rpm += 500.0
+	# Past the redline the curve is zero -> "0 Nm", never a negative number.
+	assert_that(PowerGauge.torque_nm(cfg, cfg.redline_rpm + 500.0)).is_equal(0.0)
+	assert_that(PowerGauge.format_torque_text(cfg, cfg.redline_rpm + 500.0)).is_equal("0 Nm")
+	# A bigger engine shows more torque (spec-sheet monotonicity).
+	var fast := CarConfig.new()
+	fast.max_torque = 600.0
+	assert_that(PowerGauge.torque_nm(fast, fast.peak_rpm)).is_greater(
+		PowerGauge.torque_nm(cfg, cfg.peak_rpm))

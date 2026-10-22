@@ -1,7 +1,18 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/main_menu.gd" id="1_menu"]
 [ext_resource type="Script" path="res://scripts/ui/ui_blip.gd" id="2_blip"]
+[ext_resource type="Script" path="res://scripts/ui/menu_video_background.gd" id="3_bg"]
+
+[sub_resource type="Gradient" id="Gradient_menu_bg"]
+colors = PackedColorArray(0.055, 0.095, 0.17, 1, 0.012, 0.014, 0.026, 1)
+offsets = PackedFloat32Array(0, 1)
+
+[sub_resource type="GradientTexture2D" id="GradientTexture2D_menu_bg"]
+gradient = SubResource("Gradient_menu_bg")
+width = 1280
+height = 720
+fill_to = Vector2(0, 1)
 
 [node name="MainMenu" type="Control"]
 anchors_preset = 15
@@ -10,6 +21,41 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_menu")
+
+[node name="Backdrop" type="TextureRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = SubResource("GradientTexture2D_menu_bg")
+expand_mode = 1
+
+[node name="MenuVideoBackground" type="Control" parent="."]
+process_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+clip_contents = true
+script = ExtResource("3_bg")
+
+[node name="VideoStreamPlayer" type="VideoStreamPlayer" parent="MenuVideoBackground"]
+visible = false
+expand = true
+volume_db = -80.0
+
+[node name="Scrim" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0, 0, 0, 0.45)
 
 [node name="UiBlip" type="AudioStreamPlayer" parent="."]
 script = ExtResource("2_blip")

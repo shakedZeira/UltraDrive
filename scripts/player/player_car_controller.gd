@@ -10,7 +10,7 @@ const DEFAULT_VISUAL := "res://assets/cars/sports_coupe.glb"
 var _car_id: String = ""
 var _spin_angle: float = 0.0
 var _visual_wheels: Dictionary = {}
-var _taillight_material: StandardMaterial3D = null
+var _taillight_materials: Array[StandardMaterial3D] = []
 var _visual_ready: bool = false
 var _probe: ReflectionProbe = null
 var _probe_synced_enabled: bool = true
@@ -76,7 +76,8 @@ func _process(delta: float) -> void:
 	else:
 		_spin_angle = _spin_angle + CarVisuals.wheel_spin_rate(speed_kmh, CarVisuals.WHEEL_RADIUS) * delta
 	CarVisuals.apply_wheel_visuals(_visual_wheels, steer, _spin_angle)
-	CarVisuals.apply_brake_glow(_taillight_material, brake)
+	CarVisuals.apply_brake_glow_all(_taillight_materials, brake)
+	CarVisuals.apply_reverse_glow(_taillight_materials, int(info["gear"]) < 0)
 	_sync_probe()
 	_poll_headlight_toggle()
 	_sync_night_lamps()
@@ -230,6 +231,11 @@ func night_lamps_active() -> bool:
 func get_night_lamps() -> Node3D:
 	return _night_lamps
 
+## Cached taillight material clones (plural: the R35 rear cluster is TWO mesh
+## nodes, each with its own clone). Test-facing accessor for the brake-glow seam.
+func taillight_materials() -> Array[StandardMaterial3D]:
+	return _taillight_materials
+
 func _apply_visual() -> void:
 	var config := car.config as CarConfig
 	var visual_path := resolve_visual_path(config)
@@ -265,6 +271,6 @@ func _refresh_interior() -> void:
 
 func _cache_visuals(instance: Node3D) -> void:
 	_visual_wheels = CarVisuals.resolve_wheel_nodes(instance, _car_id)
-	_taillight_material = CarVisuals.find_named_material(instance, "taillight")
+	_taillight_materials = CarVisuals.find_named_materials(instance, "taillight")
 	_spin_angle = 0.0
 	_visual_ready = true

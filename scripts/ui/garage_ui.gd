@@ -7,15 +7,22 @@ const BAR_BG := Color(0.075, 0.095, 0.16)
 const BAR_FILL := Color(0.902, 0.698, 0.235)
 const CARD_DARK := Color(0.075, 0.095, 0.16)
 const CARD_ACTIVE := Color(0.105, 0.13, 0.21)
+## Neutral, untinted backing plate for dark real-logo PNGs (artwork untouched).
+const PLATE_COLOR := Color(0.94, 0.94, 0.95)
+## Artwork darker than this mean luminance gets the plate; light logos don't.
+const PLATE_LUMINANCE_MAX := 0.55
+## Box width cap (as a multiple of box height) so wide wordmarks stay readable.
+const MAX_EMBLEM_ASPECT := 4.0
 
 @onready var car_name_label: Label = %CarNameLabel
 @onready var class_badge_label: Label = %ClassBadgeLabel
 @onready var class_circle_label: Label = %ClassCircleLabel
+@onready var brand_logo: TextureRect = %BrandLogo
 @onready var stats_box: VBoxContainer = %StatsBox
 @onready var specs_label: Label = %SpecsLabel
 @onready var select_button: Button = %SelectButton
 @onready var back_button: Button = %BackButton
-@onready var car_rail: HBoxContainer = %CarRail
+@onready var car_rail: VBoxContainer = %CarRail
 @onready var turntable: Node3D = %Turntable
 @onready var car_visual: Node3D = %CarVisual
 @onready var tune_panel: VBoxContainer = %TuningTabs.get_node("Tune") as VBoxContainer
@@ -43,6 +50,9 @@ var _garage: Garage
 var _selected_car: String = ""
 var _selected_index: int = 0
 var _cards: Array[Button] = []
+var _chip_row: HBoxContainer = null
+## Emblem textures keyed by path, so the plate/aspect work happens once per file.
+var _emblem_cache: Dictionary = {}
 var _profile: TuningProfile = null
 var _gear_sliders: Array[HSlider] = []
 var _gear_labels: Array[Label] = []
@@ -62,6 +72,7 @@ func _ready() -> void:
 	_bind_menu_blip(select_button)
 	_bind_menu_blip(back_button)
 	_build_rail()
+	_build_brand_chips()
 	_build_tune_panel()
 	_build_paint_panel()
 	if _garage.get_owned_cars().size() > 0:
@@ -73,41 +84,202 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	turntable.rotation.y += 0.4 * delta
 
+## Rebuilds the rail as one section per brand: a header (emblem + brand name)
+## followed by an HBox row of that brand's car cards. Cards keep their
+## mouse-only FOCUS_NONE behaviour and record their owned index in the
+## "owned_index" meta so _update_cards() can highlight the right card once
+## grouping has reordered them.
 func _build_rail() -> void:
 	for child in car_rail.get_children():
+		car_rail.remove_child(child)
 		child.queue_free()
 	_cards.clear()
-	var owned := _garage.get_owned_cars()
+	var owned: Array[String] = _garage.get_owned_cars()
+	var configs: Array[CarConfig] = []
+	var owned_index_by_config: Dictionary = {}
 	for i in owned.size():
 		var config := load("res://resources/cars/%s.tres" % owned[i]) as CarConfig
 		if config == null:
 			continue
-		var card := Button.new()
-		card.toggle_mode = true
-		card.focus_mode = Control.FOCUS_NONE
-		card.custom_minimum_size = Vector2(150, 62)
-		card.connect("pressed", _on_card_pressed.bind(i))
-		_bind_menu_blip(card)
-		var box := VBoxContainer.new()
-		box.add_theme_constant_override("separation", 2)
-		box.alignment = BoxContainer.ALIGNMENT_CENTER
-		var letter := Label.new()
-		letter.text = config.car_class
-		letter.add_theme_font_size_override("font_size", 20)
-		letter.add_theme_color_override("font_color", ACCENT)
-		box.add_child(letter)
-		var name_lbl := Label.new()
-		name_lbl.text = config.car_name
-		name_lbl.add_theme_font_size_override("font_size", 13)
-		name_lbl.add_theme_color_override("font_color", Color(0.80, 0.83, 0.90))
-		box.add_child(name_lbl)
-		card.add_child(box)
-		card.add_theme_stylebox_override("normal", _card_style(false))
-		card.add_theme_stylebox_override("hover", _card_style(false))
-		card.add_theme_stylebox_override("pressed", _card_style(true))
-		card.add_theme_stylebox_override("focus", _card_style(false))
-		car_rail.add_child(card)
-		_cards.append(card)
+		configs.append(config)
+		owned_index_by_config[config] = i
+	for group: Dictionary in CarBrands.group_owned(configs):
+		var section := VBoxContainer.new()
+		section.add_theme_constant_override("separation", 6)
+		section.add_child(_create_brand_header(group))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 16)
+		var group_cars: Array = group["cars"]
+		for car: CarConfig in group_cars:
+			var owned_index := int(owned_index_by_config[car])
+			var card := _create_card(car, owned_index)
+			row.add_child(card)
+			_cards.append(card)
+		section.add_child(row)
+		car_rail.add_child(section)
+
+## Brand section header: emblem + display name. Never focusable, so headers do
+## not enter the garage tab order (only %SelectButton / %BackButton do).
+func _create_brand_header(group: Dictionary) -> HBoxContainer:
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 10)
+	header.add_child(_create_emblem(String(group["emblem_path"]), 40.0))
+	var label := Label.new()
+	label.text = String(group["display_name"])
+	label.add_theme_font_size_override("font_size", 34)
+	label.add_theme_color_override("font_color", ACCENT)
+	var bold_font := car_name_label.get_theme_font("font")
+	if bold_font != null:
+		label.add_theme_font_override("font", bold_font)
+	header.add_child(label)
+	return header
+
+## Emblem TextureRect for a brand path. The minimum box is `side` tall and up
+## to MAX_EMBLEM_ASPECT times as wide (wide wordmarks get a wide box instead of
+## a sliver); EXPAND_IGNORE_SIZE + KEEP_ASPECT_CENTERED keep a differently-sized
+## import from stretching the layout; a missing/unimported emblem shows nothing.
+func _create_emblem(emblem_path: String, side: float) -> TextureRect:
+	var emblem := TextureRect.new()
+	emblem.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	emblem.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_apply_emblem(emblem, emblem_path, side)
+	return emblem
+
+## Points an emblem TextureRect (built here or declared in the scene) at a
+## brand's emblem path.
+func _apply_emblem(rect: TextureRect, emblem_path: String, side: float) -> void:
+	var texture := _emblem_texture(emblem_path)
+	if texture != null:
+		rect.texture = texture
+		rect.custom_minimum_size = _emblem_min_size(texture, side)
+	else:
+		rect.custom_minimum_size = Vector2(side, side)
+
+## Cached emblem load. Real-logo PNGs are composited onto a neutral backing
+## plate at runtime (the source files stay pristine) when their artwork is dark
+## enough to vanish on the dark garage panel; artwork pixels are never altered
+## or tinted - only size and position are constrained. The house SVG is already
+## designed for this panel and is returned exactly as authored.
+func _emblem_texture(emblem_path: String) -> Texture2D:
+	if _emblem_cache.has(emblem_path):
+		return _emblem_cache[emblem_path] as Texture2D
+	var texture := load(emblem_path) as Texture2D
+	if texture != null and emblem_path.ends_with(".png"):
+		var plated := _with_neutral_plate(texture)
+		if plated != null:
+			texture = plated
+	_emblem_cache[emblem_path] = texture
+	return texture
+
+## Trims the texture's ink bounding box onto a neutral near-white plate when
+## the artwork is dark; returns null when plating is unnecessary or impossible.
+## Nothing inside the artwork itself is modified.
+func _with_neutral_plate(texture: Texture2D) -> Texture2D:
+	var img := texture.get_image()
+	if img == null:
+		return null
+	if img.is_compressed() and img.decompress() != OK:
+		return null
+	img.convert(Image.FORMAT_RGBA8)
+	var used := img.get_used_rect()
+	if used.size.x <= 0 or used.size.y <= 0:
+		return null
+	img = img.get_region(used)
+	if _mean_luminance(img) >= PLATE_LUMINANCE_MAX:
+		return null
+	var pad: int = clampi(int(0.05 * float(maxi(img.get_width(), img.get_height()))), 4, 40)
+	var plate := Image.create(img.get_width() + pad * 2, img.get_height() + pad * 2, false, Image.FORMAT_RGBA8)
+	plate.fill(PLATE_COLOR)
+	plate.blend_rect(img, Rect2i(0, 0, img.get_width(), img.get_height()), Vector2i(pad, pad))
+	return ImageTexture.create_from_image(plate)
+
+## Mean luminance of the artwork's opaque pixels, sampled on a stride grid so a
+## 960 px source costs ~20k reads instead of ~1M.
+func _mean_luminance(img: Image) -> float:
+	var w := img.get_width()
+	var h := img.get_height()
+	var stride := maxi(1, int(float(w * h) / 20000.0))
+	var total := 0.0
+	var count := 0
+	var y := 0
+	while y < h:
+		var x := 0
+		while x < w:
+			var px := img.get_pixel(x, y)
+			if px.a > 0.5:
+				total += 0.299 * px.r + 0.587 * px.g + 0.114 * px.b
+				count += 1
+			x += stride
+		y += stride
+	if count == 0:
+		return 1.0
+	return total / float(count)
+
+## Minimum size box for an emblem: `side` tall, at most MAX_EMBLEM_ASPECT wide.
+func _emblem_min_size(texture: Texture2D, side: float) -> Vector2:
+	var tw := float(texture.get_width())
+	var th := float(texture.get_height())
+	if tw <= 0.0 or th <= 0.0:
+		return Vector2(side, side)
+	return Vector2(side * minf(tw / th, MAX_EMBLEM_ASPECT), side)
+
+## One car card, identical to the pre-grouping visuals. `owned_index` is the
+## card's index in Garage.get_owned_cars(), which the selection highlight reads
+## back through the "owned_index" meta.
+func _create_card(config: CarConfig, owned_index: int) -> Button:
+	var card := Button.new()
+	card.toggle_mode = true
+	card.focus_mode = Control.FOCUS_NONE
+	card.custom_minimum_size = Vector2(150, 62)
+	card.set_meta("owned_index", owned_index)
+	card.connect("pressed", _on_card_pressed.bind(owned_index))
+	_bind_menu_blip(card)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 2)
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	var letter := Label.new()
+	letter.text = config.car_class
+	letter.add_theme_font_size_override("font_size", 20)
+	letter.add_theme_color_override("font_color", ACCENT)
+	box.add_child(letter)
+	var name_lbl := Label.new()
+	name_lbl.text = config.car_name
+	name_lbl.add_theme_font_size_override("font_size", 13)
+	name_lbl.add_theme_color_override("font_color", Color(0.80, 0.83, 0.90))
+	box.add_child(name_lbl)
+	card.add_child(box)
+	card.add_theme_stylebox_override("normal", _card_style(false))
+	card.add_theme_stylebox_override("hover", _card_style(false))
+	card.add_theme_stylebox_override("pressed", _card_style(true))
+	card.add_theme_stylebox_override("focus", _card_style(false))
+	return card
+
+## Small emblem strip under %CarNameLabel, one 20px emblem per brand present in
+## the owned roster. Decorative only - no new focusable nodes.
+func _build_brand_chips() -> void:
+	if _chip_row != null:
+		if _chip_row.get_parent() != null:
+			_chip_row.get_parent().remove_child(_chip_row)
+		_chip_row.queue_free()
+		_chip_row = null
+	var row := HBoxContainer.new()
+	row.name = "BrandChipRow"
+	row.add_theme_constant_override("separation", 8)
+	var seen: Dictionary = {}
+	var owned: Array[String] = _garage.get_owned_cars()
+	for car_id: String in owned:
+		var config := load("res://resources/cars/%s.tres" % car_id) as CarConfig
+		if config == null:
+			continue
+		var brand_id := CarBrands.resolve_brand_id(config)
+		if seen.has(brand_id):
+			continue
+		seen[brand_id] = true
+		row.add_child(_create_emblem(CarBrands.emblem_path(brand_id), 20.0))
+	var label_parent := car_name_label.get_parent()
+	label_parent.add_child(row)
+	label_parent.move_child(row, car_name_label.get_index() + 1)
+	_chip_row = row
 
 func _card_style(active: bool) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
@@ -120,7 +292,8 @@ func _card_style(active: bool) -> StyleBoxFlat:
 
 func _update_cards() -> void:
 	for i in _cards.size():
-		var active := (i == _selected_index)
+		var owned_index := int(_cards[i].get_meta("owned_index", i))
+		var active := owned_index == _selected_index
 		_cards[i].button_pressed = active
 		_cards[i].add_theme_stylebox_override("normal", _card_style(active))
 		_cards[i].add_theme_stylebox_override("pressed", _card_style(active))
@@ -142,6 +315,7 @@ func _show_car(index: int) -> void:
 	car_name_label.text = config.car_name.to_upper()
 	class_badge_label.text = "CLASS %s" % config.car_class
 	class_circle_label.text = config.car_class
+	_apply_emblem(brand_logo, CarBrands.emblem_for_car(config), 34.0)
 	_refresh_tuning_state()
 	_update_garage_info(config)
 	_swap_preview(config)

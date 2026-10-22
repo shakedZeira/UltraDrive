@@ -1,0 +1,11 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/capture/menu_clip_capture.tscn" id="1_base"]
+
+[node name="CaptureRoot" instance=ExtResource("1_base")]
+shot = "hub"
+duration_sec = 18.0
+road_name = "hub-ring"
+mode = "chase"
+hour = 10.0
+cruise_kmh = 90.0

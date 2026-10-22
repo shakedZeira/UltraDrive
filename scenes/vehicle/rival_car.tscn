@@ -1,8 +1,9 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/vehicle/vehicle_physics.gd" id="1_vp"]
 [ext_resource type="Script" path="res://scripts/vehicle/wheel_physics.gd" id="2_wp"]
 [ext_resource type="Script" path="res://scripts/vehicle/rival_car_visual.gd" id="3_rv"]
+[ext_resource type="Script" path="res://scripts/audio/engine_audio.gd" id="4_audio"]
 
 [sub_resource type="BoxShape3D" id="rival_box_shape"]
 size = Vector3(1.8, 0.5, 4.0)
@@ -34,3 +35,10 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 0.2, 1.25)
 [node name="WheelRR" type="Node3D" parent="."]
 script = ExtResource("2_wp")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 0.2, 1.25)
+
+[node name="EngineAudio" type="AudioStreamPlayer3D" parent="."]
+script = ExtResource("4_audio")
+spatial_max_distance = 60.0
+spatial_unit_size = 2.5
+extra_trim_db = -4.0
+auto_cull_range = 150.0

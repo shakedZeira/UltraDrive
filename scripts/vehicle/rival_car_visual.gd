@@ -41,6 +41,7 @@ var _visual_root: Node3D = null
 var _wheels: Dictionary = {}
 var _spin_angle: float = 0.0
 var _paint_profile: Dictionary = {}
+var _taillight_materials: Array[StandardMaterial3D] = []
 
 func _ready() -> void:
 	# RaceManager assigns visual_path/car_id/tier BEFORE add_child, so the
@@ -76,6 +77,11 @@ func visual_root() -> Node3D:
 func paint_profile() -> Dictionary:
 	return _paint_profile
 
+## Cached taillight material clones (plural: the R35 rear cluster is two
+## nodes). Test-facing accessor.
+func taillight_materials() -> Array[StandardMaterial3D]:
+	return _taillight_materials
+
 ## Total resolved GLB wheel nodes across all four corners (0 = no visual).
 func wheel_count() -> int:
 	var count := 0
@@ -100,22 +106,27 @@ func build() -> void:
 	_paint_profile = profile
 	_visual_root = instance
 	_wheels = CarVisuals.resolve_wheel_nodes(instance, car_id)
+	_taillight_materials = CarVisuals.find_named_materials(instance, "taillight")
 	_spin_angle = 0.0
 
-## Drives the GLB wheel spin/steer from the parent VehiclePhysics readout —
-## the same CarVisuals.apply_wheel_visuals path the player uses. Cheap: one
-## get_drive_info() dict read per frame, skipped entirely for a visual-less body.
+## Drives the GLB wheel spin/steer AND the rear lights from the parent
+## VehiclePhysics readout — the same CarVisuals seam the player uses (brake
+## ramp on every taillight clone, reverse white on gear < 0). Lights run even
+## when no wheel nodes resolved, so a wheel-less visual still signals.
+## Cheap: one get_drive_info() dict read per frame, skipped entirely for a
+## visual-less body.
 func _process(delta: float) -> void:
-	if _wheels.is_empty():
-		return
 	var car := _find_car()
-	if car == null:
+	if car == null or _visual_root == null:
 		return
 	var info := car.get_drive_info()
 	var speed_kmh := float(info.get("speed_kmh", 0.0))
 	var steer := float(info.get("steer", 0.0))
-	_spin_angle = _spin_angle + CarVisuals.wheel_spin_rate(speed_kmh, CarVisuals.WHEEL_RADIUS) * delta
-	CarVisuals.apply_wheel_visuals(_wheels, steer, _spin_angle)
+	if not _wheels.is_empty():
+		_spin_angle = _spin_angle + CarVisuals.wheel_spin_rate(speed_kmh, CarVisuals.WHEEL_RADIUS) * delta
+		CarVisuals.apply_wheel_visuals(_wheels, steer, _spin_angle)
+	CarVisuals.apply_brake_glow_all(_taillight_materials, float(info.get("brake", 0.0)))
+	CarVisuals.apply_reverse_glow(_taillight_materials, int(info.get("gear", 0)) < 0)
 
 func _find_car() -> VehiclePhysics:
 	var node := get_parent()
@@ -128,6 +139,7 @@ func _find_car() -> VehiclePhysics:
 func _clear() -> void:
 	_visual_root = null
 	_wheels = {}
+	_taillight_materials = []
 	for child in get_children():
 		remove_child(child)
 		child.queue_free()

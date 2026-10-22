@@ -4,9 +4,9 @@ extends GdUnitTestSuite
 ## Graphics-gap plan item 5 gate: GT7/FH6-style clearcoat paint response. Pins the
 ## retuned CarVisuals paint band (metallic 0.40-0.60, roughness 0.20-0.30 primary
 ## panel band, clearcoat, raised metallic_specular fresnel, albedo-tinted rim
-## highlight), the glossy mirrored-glass element response
-## (metallic 0.9 / roughness 0.05, transmission-free, environment reflection on),
-## taillight resolution preservation, and that rivals inherit the same tuned paint
+## highlight), the tinted transparent glass response
+## (DEFAULT_GLASS_COLOR tint, metallic 0.0 / roughness 0.05, TRANSPARENCY_ALPHA,
+## refraction-free), taillight resolution preservation, and that rivals inherit the same tuned paint
 ## through both the rival_car.tscn RivalCarVisual GLB body and the GridSpawner
 ## tier-color builder. Pure material inspection, fully manual node construction —
 ## headless-safe, no frames.
@@ -91,7 +91,7 @@ func test_paint_rim_highlight_is_enabled_and_tinted_with_the_swatch() -> void:
 	assert_that(override.rim).is_equal_approx(0.22, 0.001)
 	assert_that(override.rim_tint).is_equal_approx(0.6, 0.001)
 
-func test_window_and_windshield_names_get_the_glossy_glass_response() -> void:
+func test_window_and_windshield_names_get_the_tinted_transparent_glass_response() -> void:
 	var root := _new_root()
 	var windshield_mi := _new_mesh_instance(StandardMaterial3D.new(), "Windshield")
 	root.add_child(windshield_mi)
@@ -102,14 +102,17 @@ func test_window_and_windshield_names_get_the_glossy_glass_response() -> void:
 
 	var windshield_override: StandardMaterial3D = windshield_mi.get_surface_override_material(0) as StandardMaterial3D
 	assert_that(windshield_override).is_not_null()
-	assert_that(windshield_override.metallic).is_equal_approx(0.9, 0.001)
+	assert_that(windshield_override.metallic).is_equal_approx(0.0, 0.001)
 	assert_that(windshield_override.roughness).is_equal_approx(0.05, 0.001)
 	assert_that(windshield_override.refraction_enabled).is_false()
-	assert_that(windshield_override.transparency).is_equal(BaseMaterial3D.TRANSPARENCY_DISABLED)
+	assert_that(windshield_override.transparency).is_equal(BaseMaterial3D.TRANSPARENCY_ALPHA)
+	# TRANSPARENCY_ALPHA only transmits while albedo alpha < 1 — a pane at
+	# alpha 1.0 would silently render opaque again.
+	assert_that(windshield_override.albedo_color.a).is_less(1.0)
 
 	var window_override: StandardMaterial3D = window_mi.get_surface_override_material(0) as StandardMaterial3D
 	assert_that(window_override).is_not_null()
-	assert_that(window_override.metallic).is_equal_approx(0.9, 0.001)
+	assert_that(window_override.metallic).is_equal_approx(0.0, 0.001)
 	assert_that(window_override.roughness).is_equal_approx(0.05, 0.001)
 
 func test_taillight_material_still_resolves_and_emits_after_paint() -> void:
@@ -127,6 +130,21 @@ func test_taillight_material_still_resolves_and_emits_after_paint() -> void:
 	CarVisuals.apply_brake_glow(found, 1.0)
 	assert_that(found.emission_enabled).is_true()
 	assert_that(found.emission_energy_multiplier).is_equal_approx(CarVisuals.BRAKE_GLOW_MAX, 0.001)
+
+	# Two-node rear cluster (the R35 shape): the plural collector ramps BOTH
+	# clones through the same seam.
+	var tail_l := _new_mesh_instance(StandardMaterial3D.new(), "Taillight")
+	tail_l.name = "Taillight_L"
+	root.add_child(tail_l)
+	var tail_r := _new_mesh_instance(StandardMaterial3D.new(), "Taillight")
+	tail_r.name = "Taillight_R"
+	root.add_child(tail_r)
+	CarVisuals.apply_paint(root, CarVisuals.DEFAULT_PAINT)
+	var all := CarVisuals.find_named_materials(root, "taillight")
+	assert_that(all.size()).is_equal(3)
+	CarVisuals.apply_brake_glow_all(all, 1.0)
+	for material: Variant in all:
+		assert_that((material as StandardMaterial3D).emission_energy_multiplier).is_equal_approx(CarVisuals.BRAKE_GLOW_MAX, 0.001)
 
 func test_cc0_wheel_already_painted_keeps_its_glossy_wheel_response() -> void:
 	var root := _new_root()
@@ -161,6 +179,19 @@ func test_rival_car_scene_hosts_a_real_glb_visual_not_a_box() -> void:
 	assert_that(float(profile["roughness"])).is_equal_approx(0.25, 0.001)
 	assert_that(float(profile["clearcoat"])).is_equal_approx(1.0, 0.001)
 	assert_that(float(profile["clearcoat_roughness"])).is_equal_approx(0.04, 0.001)
+	# Rear-light seam is wired on the rival too (the change makes rivals share the
+	# player's brake-glow + reverse path): the default sports_coupe visual has one
+	# taillight node, so one brake-ramp material that also carries the white reverse
+	# cue. No reverse geometry is built any more.
+	var tails := body.taillight_materials()
+	assert_that(tails.size()).is_equal(1)
+	if tails.is_empty():
+		return
+	var base: Color = tails[0].emission
+	CarVisuals.apply_reverse_glow(tails, true)
+	assert_that(tails[0].emission).is_equal(CarVisuals.REVERSE_LIGHT_COLOR)
+	CarVisuals.apply_reverse_glow(tails, false)
+	assert_that(tails[0].emission).is_equal(base)
 
 func test_grid_spawner_paints_rivals_with_the_tuned_paint_response() -> void:
 	var spawner := GridSpawner.new()

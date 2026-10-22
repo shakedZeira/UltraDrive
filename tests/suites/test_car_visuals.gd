@@ -60,11 +60,13 @@ func test_apply_paint_on_two_level_tree_applies_clearcoat_paint_and_glass() -> v
 
 	var glass_override: StandardMaterial3D = glass_mi.get_surface_override_material(0) as StandardMaterial3D
 	assert_that(glass_override).is_not_null()
-	assert_that(glass_override.metallic).is_equal_approx(0.9, 0.001)
+	assert_that(glass_override.metallic).is_equal_approx(0.0, 0.001)
 	assert_that(glass_override.roughness).is_equal_approx(0.05, 0.001)
 	assert_that(glass_override.refraction_enabled).is_false()
-	assert_that(glass_override.transparency).is_equal(BaseMaterial3D.TRANSPARENCY_DISABLED)
-	assert_that(glass_override.albedo_color).is_equal(Color(0.8, 0.9, 1.0, 0.5))
+	assert_that(glass_override.transparency).is_equal(BaseMaterial3D.TRANSPARENCY_ALPHA)
+	# No profile glass_color => the DEFAULT_GLASS_COLOR tint wins over the
+	# source albedo (glass must transmit, not mirror).
+	assert_that(glass_override.albedo_color).is_equal(CarVisuals.DEFAULT_GLASS_COLOR)
 
 func test_apply_paint_matches_rim_tire_trim_and_graphite() -> void:
 	var root := _new_root()
@@ -186,7 +188,7 @@ func test_default_paint_profile_values_are_sane() -> void:
 	assert_that(profile["metallic_specular"]).is_equal_approx(0.75, 0.001)
 	assert_that(profile["rim"]).is_between(0.1, 0.3)
 	assert_that(profile["rim_tint"]).is_between(0.0, 1.0)
-	assert_that(profile["glass_metallic"]).is_equal_approx(0.9, 0.001)
+	assert_that(profile["glass_metallic"]).is_equal_approx(0.0, 0.001)
 	assert_that(profile["glass_roughness"]).is_less_equal(0.1)
 	assert_that(profile["tail_emission_strength"]).is_greater_equal(5.0)
 

@@ -1,4 +1,4 @@
-[gd_scene load_steps=25 format=3]
+[gd_scene load_steps=27 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/world_driver.gd" id="1_driver"]
 [ext_resource type="Script" path="res://scripts/world/chunk_streamer.gd" id="2_cs"]
@@ -21,6 +21,8 @@
 [ext_resource type="Script" path="res://scripts/camera/cockpit_camera.gd" id="19_cockpit"]
 [ext_resource type="Script" path="res://scripts/world/collectible_field.gd" id="20_collect"]
 [ext_resource type="Script" path="res://scripts/world/speed_trap_visuals.gd" id="21_trapvis"]
+[ext_resource type="Script" path="res://scripts/world/speed_trap_crossing.gd" id="22_crossing"]
+[ext_resource type="PackedScene" path="res://scenes/ui/speed_trap_hud.tscn" id="23_traphud"]
 
 [sub_resource type="PhysicalSkyMaterial" id="sky_mat"]
 turbidity = 4.0
@@ -156,6 +158,8 @@ environment = SubResource("env")
 
 [node name="HUD" parent="." instance=ExtResource("6_hud")]
 
+[node name="SpeedTrapHUD" parent="." instance=ExtResource("23_traphud")]
+
 [node name="Foliage" type="Node3D" parent="."]
 script = ExtResource("13_foliage")
 road_network = NodePath("../RoadNetwork")
@@ -211,3 +215,6 @@ script = ExtResource("20_collect")
 
 [node name="SpeedTrapVisuals" type="Node3D" parent="."]
 script = ExtResource("21_trapvis")
+
+[node name="SpeedTrapCrossing" type="Node" parent="."]
+script = ExtResource("22_crossing")

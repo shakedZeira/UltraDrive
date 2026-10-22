@@ -101,6 +101,7 @@ const QUALITY_PRESETS: Dictionary = {
 		"shadow_resolution": 1024,
 		"shadow_fade_start": 0.25,
 		"shadow_opacity": 0.75,
+		"decals_enabled": false,
 	},
 	1: {
 		"ssao_enabled": true,
@@ -125,6 +126,7 @@ const QUALITY_PRESETS: Dictionary = {
 		"shadow_resolution": 2048,
 		"shadow_fade_start": 0.6,
 		"shadow_opacity": 0.9,
+		"decals_enabled": true,
 	},
 	2: {
 		"ssao_enabled": true,
@@ -178,6 +180,7 @@ const QUALITY_PRESETS: Dictionary = {
 		# gets hard, fully-solid shadows everywhere it claims to cover.
 		"shadow_fade_start": 1.0,
 		"shadow_opacity": 1.0,
+		"decals_enabled": true,
 	},
 }
 
@@ -192,6 +195,11 @@ static func preset_for(index: int) -> Dictionary:
 static func probe_enabled_for(index: int) -> bool:
 	var preset: Dictionary = preset_for(index)
 	return bool(preset["probe_enabled"])
+
+## WS-F wear decals gate (Forward+ only). Low off, Medium/High on.
+static func decals_enabled_for(index: int) -> bool:
+	var preset: Dictionary = preset_for(index)
+	return bool(preset.get("decals_enabled", index >= 1))
 
 ## First-boot preset for the current GPU: integral/weak adapters (Vega-less
 ## AMD iGPU, Intel UHD/HD, VGA/llvmpipe fallbacks) start on Low so the game is
@@ -271,13 +279,21 @@ static func find_scene_directional_light(root: Node) -> DirectionalLight3D:
 static func apply_to_scene_tree(preset_index: int, scene_root: Node, viewport: Viewport) -> void:
 	var env := find_scene_environment(scene_root)
 	var light := find_scene_directional_light(scene_root)
-	apply_quality_preset(env, viewport, preset_for(preset_index), light)
+	var p := preset_for(preset_index)
+	apply_quality_preset(env, viewport, p, light, scene_root)
 
 ## The single entry point for one preset. `light` is optional and defaults to
 ## null so the pre-shadow-ladder 3-arg call sites (and their tests) keep working;
 ## pass the scene's DirectionalLight3D (find_scene_directional_light) to get the
 ## cascade ladder too.
-static func apply_quality_preset(env: Environment, viewport: Viewport, preset: Dictionary, light: DirectionalLight3D = null) -> void:
+##
+## `scene_root` is optional and is the node the WS-F wear-decal gate searches
+## for Decal nodes. It is a PARAMETER rather than `get_tree()` because this
+## function is static (it is called from autoloads, tools and unit tests that
+## have no SceneTree of their own); call sites that do have a tree — boot /
+## scene change via apply_to_scene_tree, live preset change via
+## _on_quality_selected — pass it, and callers without one skip the gate.
+static func apply_quality_preset(env: Environment, viewport: Viewport, preset: Dictionary, light: DirectionalLight3D = null, scene_root: Node = null) -> void:
 	if env:
 		env.ssao_enabled = preset["ssao_enabled"]
 		env.glow_enabled = preset["glow_enabled"]
@@ -332,6 +348,10 @@ static func apply_quality_preset(env: Environment, viewport: Viewport, preset: D
 		viewport.use_taa = bool(preset["use_taa"])
 		viewport.screen_space_aa = int(preset["screen_space_aa"])
 	apply_shadow_preset(light, preset)
+	# WS-F decal gate (Forward+ only). The search root comes in as a parameter
+	# because this function is static — see the doc comment above.
+	if scene_root != null:
+		_apply_decals_preset(scene_root, preset)
 
 ## fh5_optimization_plan.md item 3 — the DirectionalLight3D shadow-cascade
 ## ladder. This is the ONLY writer of these four knobs in the project, which is
@@ -391,6 +411,19 @@ static func _set_shadow_resolution_if_supported(light: DirectionalLight3D, resol
 		if String(property["name"]) == "shadow_resolution":
 			light.set("shadow_resolution", resolution)
 			return
+
+
+## WS-F: gate Decal nodes per quality preset (Forward+ only).
+## Decal is a VisualInstance3D, so `visible` is the render switch. The search
+## is by class ("Decal"), which also catches subclasses; owned=false so decals
+## parented under a non-owned container are found too.
+static func _apply_decals_preset(root: Node, preset: Dictionary) -> void:
+	if root == null:
+		return
+	var enabled := bool(preset.get("decals_enabled", true))
+	for decal in root.find_children("*", "Decal", true, false):
+		if decal is Decal:
+			(decal as Decal).visible = enabled
 
 ## Maps the project-settings msaa_3d units (0=off/1=2x/2=4x/3=8x) to the
 ## Viewport.MSAA enum. The old dead "msaa" caps at 4x; anything out of range
@@ -592,7 +625,7 @@ func _on_quality_selected(index: int) -> void:
 	# re-pins the sun's cascades too instead of waiting for the next
 	# scene change (fh5_optimization_plan.md item 3).
 	var scene_root: Node = get_tree().current_scene
-	apply_quality_preset(env, viewport, preset, find_scene_directional_light(scene_root))
+	apply_quality_preset(env, viewport, preset, find_scene_directional_light(scene_root), scene_root)
 	GameState.set_quality_preset(index)
 	GameState.set_probe_enabled(probe_enabled_for(index))
 

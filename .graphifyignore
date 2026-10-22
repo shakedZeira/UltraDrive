@@ -1,0 +1,13 @@
+# graphify ignore rules (gitignore syntax)
+# Generated / cache directories
+.godot/
+graphify-out/
+.uv-cache/
+.appdata_cap/
+.appdata_probe/
+.freebuff/
+.vision/
+.superpowers/
+
+# Scratch / probe / test-log artifacts kept in the repo root
+/_*

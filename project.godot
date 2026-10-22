@@ -170,6 +170,20 @@ anti_aliasing/quality/msaa_3d=0
 lights_and_shadows/directional_shadow/size=2048
 environment/defaults/default_clear_color=Color(0.3, 0.3, 0.35, 1)
 
+[editor]
+
+; Movie Maker (--write-movie) settings for the menu background clip harness
+; (tools/record_menu_clips.py). Editor-only keys: they have no gameplay or
+; export effect, and the runtime never reads them. video_quality 0.6 +
+; encoding_speed 2 (slower/better) keep an ~18 s 720p clip near the ~6 MB
+; budget; fps 30 matches the harness' --fixed-fps so the recorded wall clock
+; equals clip time.
+movie_writer/disable_vsync=true
+movie_writer/fps=30
+movie_writer/ogv/encoding_speed=2
+movie_writer/ogv/keyframe_interval=64
+movie_writer/video_quality=0.6
+
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/jolt_physics/jolt_physics.gdextension", "res://addons/gdUnit4/plugin.cfg", "res://addons/terrain_3d/plugin.cfg")

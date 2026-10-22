@@ -1,0 +1,44 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/capture/menu_clip_capture.tscn" id="1_base"]
+
+[sub_resource type="Animation" id="pan_anim"]
+resource_name = "pan"
+length = 21.0
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("PanPivot:rotation")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 16, 21),
+"transitions": PackedFloat32Array(1, 1, 1),
+"update": 0,
+"values": [Vector3(0, -0.42, 0), Vector3(0, 0.42, 0), Vector3(0, 0.42, 0)]
+}
+
+[sub_resource type="AnimationLibrary" id="pan_lib"]
+_data = {
+"pan": SubResource("pan_anim")
+}
+
+[node name="CaptureRoot" instance=ExtResource("1_base")]
+shot = "pan"
+duration_sec = 16.0
+road_name = "pass-loop"
+mode = "pan"
+hour = 17.0
+cruise_kmh = 0.0
+
+[node name="PanPivot" type="Node3D" parent="."]
+
+[node name="PanCamera" type="Camera3D" parent="PanPivot"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.2, -18)
+current = false
+fov = 60.0
+
+[node name="PanAnimation" type="AnimationPlayer" parent="."]
+libraries = {
+"": SubResource("pan_lib")
+}

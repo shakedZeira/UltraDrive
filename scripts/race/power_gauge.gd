@@ -13,6 +13,11 @@ extends RefCounted
 ## peak_rpm. Rating the car at the peak_rpm sample would understate it and
 ## leave a permanently negative delta at the real power peak.
 ##
+## The HUD renders two curve-only readouts from this class: the CURRENT crank
+## hp (positive, no sign token) and the live crank torque in Nm.
+## hp_delta_hp remains the rated-peak gap, kept for tests/diagnostics, but it
+## is no longer rendered anywhere.
+##
 ## Pure + headless-safe: no frames, no scene access.
 
 ## Mechanical horsepower (W per hp), the conventional 550 ft*lb/s definition.
@@ -95,9 +100,9 @@ static func signed_hp(value: float) -> String:
 	var rounded := roundi(value)
 	return ("+%d" % rounded) if rounded >= 0 else str(rounded)
 
-## HUD line: "<current> hp  <signed delta>". The trailing signed token is the
-## delta, so the number reads at a glance like a data logger.
+## HUD line: "<current> hp" — the engine's crank power at `rpm`, positive, with
+## no sign or delta token; "-- hp" when there is no config to read.
 static func format_text(config: CarConfig, rpm: float) -> String:
 	if config == null:
 		return "-- hp"
-	return "%d hp  %s" % [roundi(power_hp(config, rpm)), signed_hp(hp_delta_hp(config, rpm))]
+	return "%d hp" % roundi(power_hp(config, rpm))

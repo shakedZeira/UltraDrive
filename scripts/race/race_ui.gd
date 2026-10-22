@@ -9,6 +9,10 @@ extends CanvasLayer
 
 const FREE_ROAM_SCENE := "res://scenes/world/open_world_root.tscn"
 
+## Post-race EXIT destination: the race menu / track picker, distinct from
+## NEXT RACE (re-arm the ceremony) and RETURN TO FREE ROAM (the open world).
+const TRACK_SELECT_SCENE := "res://scenes/ui/track_select.tscn"
+
 ## Virtual-checkpoint spacing (m) for the live standings gap. Small enough that a
 ## gap reads as continuous, large enough that the split table stays cheap.
 const GAP_VCP_SPACING := 5.0
@@ -48,6 +52,7 @@ const BEST_LAP_DELTA_EPSILON := 0.005
 @onready var results_stats_rows: VBoxContainer = %ResultsStatsRows
 @onready var next_race_button: Button = %NextRaceButton
 @onready var return_free_roam_button: Button = %ReturnFreeRoamButton
+@onready var exit_button: Button = %ExitButton
 @onready var confetti: ResultsConfetti = %ResultsConfetti
 @onready var nav_widget: Control = %NavWidget
 @onready var nav_arrow: Label = %NavArrow
@@ -102,6 +107,13 @@ var _standings_rows: Array[Label] = []
 var _standings_base_text: Array[String] = []
 var _gap_tracker: RaceGapTracker = null
 var _gap_path_key: String = ""
+## Post-race cinematic shell (docs/plans/post_race_cinematic_exit_plan.md). Built
+## on race finish, owned by this HUD, torn down on Next Race / Free Roam / EXIT.
+## Null while a race is live. All its decisions come from CinematicDirector.
+var _cinematic: PostRaceCinematic = null
+## HUD-side mirror of CinematicDirector.State, so a re-armed ceremony can assert
+## the post-race flow was left behind (RACING) before the next grid forms.
+var _post_race_state: int = CinematicDirector.State.RACING
 
 func _ready() -> void:
 	_pending_laps = RaceManager.consume_pending_race()
@@ -114,6 +126,7 @@ func _ready() -> void:
 	add_child(_ui_blip)
 	next_race_button.pressed.connect(_on_next_race)
 	return_free_roam_button.pressed.connect(_on_return_free_roam)
+	exit_button.pressed.connect(_on_exit)
 	_resolve_nav_source()
 	_load_persisted_best_lap()
 
@@ -298,6 +311,7 @@ func _on_race_finished(standings: Array) -> void:
 	if not _rewards_banked:
 		_rewards_banked = true
 		_bank_race_rewards(position)
+	_start_cinematic()
 
 ## Item 11 economy: banks the persistent wallet deposit + career XP for a race
 ## finish. Runs at most once per race lifecycle.
@@ -367,6 +381,7 @@ func _rebuild_stats_rows(rows: Array[Dictionary]) -> void:
 func _on_next_race() -> void:
 	_race_over = false
 	_rewards_banked = false
+	_set_post_race_state(CinematicDirector.State.RACING)
 	results_overlay.visible = false
 	confetti.reset()
 	RaceManager.request_race(RaceManager.total_laps if RaceManager.total_laps > 0 else 3)
@@ -374,9 +389,100 @@ func _on_next_race() -> void:
 func _on_return_free_roam() -> void:
 	_race_over = false
 	_rewards_banked = false
+	_set_post_race_state(CinematicDirector.State.RACING)
 	results_overlay.visible = false
 	confetti.reset()
 	launch_callback.call(FREE_ROAM_SCENE)
+
+# --- Post-race cinematic + EXIT (docs/plans/post_race_cinematic_exit_plan.md) -
+
+## Arm the post-race cinematic. The shell dwells FINISHED_DWELL_SEC on the
+## results card, then hands the player car to an AIController, retires the
+## gameplay rigs and takes the viewport; the camera cuts the field while the pack
+## loops. Degrades to "the card just stays up" when the track published no line
+## to cruise (solo races: mountain_pass, flat test tracks — plan §3.2/§6).
+func _start_cinematic() -> void:
+	_stop_cinematic()
+	_post_race_state = CinematicDirector.State.FINISHED
+	_cinematic = PostRaceCinematic.new()
+	_cinematic.name = "PostRaceCinematic"
+	var root := _resolve_cinematic_root()
+	if root != null:
+		# Sibling of the rigs so its _process runs with the track, not after it.
+		root.add_child(_cinematic)
+	else:
+		# HUD-only / headless: no Node3D root. The shell still runs the machine
+		# and simply performs no camera work (null-safe, plan §3.3/§5 T9).
+		add_child(_cinematic)
+	_cinematic.cinematic_started.connect(_on_cinematic_started)
+	_cinematic.cinematic_ended.connect(_on_cinematic_ended)
+	_cinematic.exit_requested.connect(_on_exit)
+	_cinematic.begin(RaceManager.get_standings(), _resolve_gap_path())
+
+## First Node3D ancestor of this HUD (the track root the camera rigs live under),
+## else a Node3D current scene, else null — the same walk _resolve_track_id uses
+## for scene_file_path. Null is fine: the shell runs camera-less (plan §3.4).
+func _resolve_cinematic_root() -> Node3D:
+	var node: Node = get_parent()
+	while node != null:
+		if node is Node3D:
+			return node as Node3D
+		node = node.get_parent()
+	if is_inside_tree():
+		var scene: Node = get_tree().current_scene
+		if scene is Node3D:
+			return scene as Node3D
+	return null
+
+## The cinematic is live: the results card gives way to the beauty pass.
+func _on_cinematic_started() -> void:
+	_post_race_state = CinematicDirector.State.CINEMATIC
+	if _race_over:
+		results_overlay.visible = false
+
+## The cinematic ended (Esc/cancel, or a teardown that reached CINEMATIC). Put
+## the results card back only while the race is still over and we are not already
+## on the way out (EXIT / NEXT RACE hide it themselves).
+func _on_cinematic_ended() -> void:
+	# A teardown initiated by an exit (EXIT / RACING) owns the final state: the
+	# end signal fires from inside _stop_cinematic(), so without this guard it
+	# would overwrite the terminal state we just set back to FINISHED.
+	if _post_race_state == CinematicDirector.State.EXIT or _post_race_state == CinematicDirector.State.RACING:
+		return
+	if _race_over:
+		results_overlay.visible = true
+	_post_race_state = CinematicDirector.State.FINISHED
+
+## Single writer for the HUD-side post-race state. The two terminal edges (EXIT,
+## RACING) tear the shell down; FINISHED / CINEMATIC are set by the shell's own
+## signals. Deliberately does NOT call PostRaceCinematic.request_exit() — that
+## emits exit_requested, which is wired back into _on_exit, and would recurse.
+## request_exit() stays the public seam for an external harness.
+func _set_post_race_state(state: int) -> void:
+	_post_race_state = state
+	if state == CinematicDirector.State.RACING or state == CinematicDirector.State.EXIT:
+		_stop_cinematic()
+
+## EXIT button handler, and the target of the shell's exit_requested signal.
+## Tears the cinematic down (restoring the player + rigs), then lands on the race
+## menu through the same launch_callback seam the other exits use (plan §3.5).
+func _on_exit() -> void:
+	_race_over = false
+	_set_post_race_state(CinematicDirector.State.EXIT)
+	_rewards_banked = false
+	results_overlay.visible = false
+	confetti.reset()
+	launch_callback.call(TRACK_SELECT_SCENE)
+
+## Stops + frees the cinematic if one exists. Idempotent; stop() is the
+## no-exit-signal teardown, so the caller owns what the machine becomes next.
+func _stop_cinematic() -> void:
+	if _cinematic == null or not is_instance_valid(_cinematic):
+		_cinematic = null
+		return
+	_cinematic.stop()
+	_cinematic.queue_free()
+	_cinematic = null
 
 func _default_launch(scene_path: String) -> void:
 	SceneTransition.flash_to_scene(scene_path)

@@ -234,14 +234,21 @@ func test_garage_card_press_triggers_menu_blip_once() -> void:
 	var spy := UiBlipSpy.new()
 	_managed.append(spy)
 	scene.ui_blip = spy
-	var rail := scene.get_node("%CarRail") as HBoxContainer
-	assert_that(rail.get_child_count() > 0).is_true()
-	if rail.get_child_count() > 0:
-		var card := rail.get_child(0) as Button
-		assert_that(card).is_not_null()
-		assert_that(card.pressed.is_connected(scene._menu_blip)).is_true()
-		card.pressed.emit()
-		assert_that(spy.menu_count).is_equal(1)
+	var rail := scene.get_node("%CarRail") as VBoxContainer
+	assert_that(rail).is_not_null()
+	if rail == null:
+		return
+	var cards := rail.find_children("*", "Button", true, false)
+	assert_that(cards.size() > 0).is_true()
+	if cards.is_empty():
+		return
+	var card := cards[0] as Button
+	assert_that(card).is_not_null()
+	if card == null:
+		return
+	assert_that(card.pressed.is_connected(scene._menu_blip)).is_true()
+	card.pressed.emit()
+	assert_that(spy.menu_count).is_equal(1)
 
 func test_hud_lap_completion_triggers_hud_blip_once() -> void:
 	var car := VehiclePhysics.new()

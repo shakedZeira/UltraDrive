@@ -36,7 +36,7 @@ const DEFAULT_PAINT := {
 	"metallic_specular": 0.75,
 	"rim": 0.22,
 	"rim_tint": 0.6,
-	"glass_metallic": 0.9,
+	"glass_metallic": 0.0,
 	"glass_roughness": 0.05,
 	"tail_emission_strength": 5.0,
 }
@@ -141,6 +141,12 @@ static func assign_rival_visual(car: Node, index: int, tier: String) -> void:
 ## future kit cars may).
 const CC0_GLASS_COLOR := Color(0.70, 0.82, 0.92, 0.55)
 
+## Default cool-tinted, semi-transparent glass for cars whose paint profile
+## carries no glass_color (builder/AI cars). alpha < 1 is the whole point: the
+## pane must transmit, not mirror. TRANSPARENCY_ALPHA only transmits while
+## albedo_color.a < 1, so a profile-supplied glass_color MUST keep alpha < 1.
+const DEFAULT_GLASS_COLOR := Color(0.42, 0.50, 0.58, 0.45)
+
 ## Dark rubber tint for CC0 tire-surfaces reached via the 'colormap' fallback.
 const CC0_TIRE_COLOR := Color(0.04, 0.04, 0.05, 1.0)
 
@@ -154,10 +160,34 @@ const WHEEL_RADIUS := 0.33
 ## normalized -1..1 steer exposed by get_drive_info().
 const STEER_VISUAL_MAX_RAD := 0.35
 
+## Local-position epsilon (m) below which a resolved wheel node is considered to
+## sit at its parent's origin — i.e. the corner is NOT carried by the node
+## transform (see _normalize_wheel_origin).
+const WHEEL_ORIGIN_EPS := 0.001
+
+## Mesh-AABB center offset (m) beyond which such an origin-less wheel node is
+## treated as corner-BAKED (vertices authored in car space around the corner, as
+## in muscle_car.glb's MCW_* and rally_hatch.glb's Rim_*/Tire_* wheels). A real
+## hub-centred wheel mesh hugs its own origin far below this.
+const BAKED_WHEEL_CORNER_MIN := 0.25
+
 ## Taillight emission_energy_multiplier range: idle running lights at
 ## BRAKE_GLOW_MIN, full brake at BRAKE_GLOW_MAX.
 const BRAKE_GLOW_MIN := 1.8
 const BRAKE_GLOW_MAX := 5.0
+
+# --- Reverse glow (existing rear lamps, brightened white) ---
+#
+# The reverse cue rides the car's EXISTING taillight materials: while reverse is
+# engaged they glow this bright white; on release the GLB-authored base emissive
+# colour is restored so the red brake ramp resumes. No geometry is built — an
+# earlier pass added a white lamp mesh and a playtest read it as an extra light
+# (see the REVISION note in docs/plans/gtr_r35_lights_glass_plan.md).
+const REVERSE_LIGHT_COLOR := Color(1.0, 0.98, 0.92, 1.0)
+const REVERSE_LIGHT_ENERGY := 6.0
+## Meta key holding a material's GLB-authored base emission while the reverse
+## white is applied; its absence means "not currently whitened".
+const REVERSE_GLOW_META := "ud_reverse_base_emission"
 
 # --- Per-car gameplay ReflectionProbe (Task 6) ---
 
@@ -241,6 +271,16 @@ const WHEEL_GROUPS := {
 ## Resolves the wheel Node3D groups for a car under a visual root. Returns a
 ## Dictionary of corner -> Array[Node3D] with only the corners whose nodes
 ## actually exist; never errors on missing nodes or unknown car ids.
+##
+## Depth-independent ON PURPOSE: Godot wraps a single-root glTF scene in an
+## extra root node, so a wheel authored as that scene's root node sits one level
+## BELOW the instance root (`sports_coupe.glb` -> `sports_coupe` -> `SportsCoupe`
+## -> `Wheel_FL`; likewise `muscle_car.glb` and `rally_hatch.glb`). Cars whose
+## glTF scene has several root nodes (R35, the CC0 Kimmi kits) put their wheels
+## directly under the instance root. A plain `get_node_or_null()` therefore
+## found NO wheel for the player's starter car / muscle / rally cars, which
+## silently killed their wheel spin and steering. Exact name first (cheap), then
+## a recursive search so authoring depth cannot break the lookup.
 static func resolve_wheel_nodes(visual_root: Node3D, car_id: String) -> Dictionary:
 	var wheels := {}
 	if visual_root == null:
@@ -252,11 +292,67 @@ static func resolve_wheel_nodes(visual_root: Node3D, car_id: String) -> Dictiona
 		for raw_name: Variant in names:
 			var node_name := String(raw_name)
 			var node := visual_root.get_node_or_null(node_name) as Node3D
+			if node == null:
+				node = visual_root.find_child(node_name, true, false) as Node3D
 			if node != null:
+				_normalize_wheel_origin(node)
 				nodes.append(node)
 		if not nodes.is_empty():
 			wheels[corner] = nodes
 	return wheels
+
+## Recentres a wheel whose corner is baked into its MESH vertices instead of the
+## node transform (node origin therefore sits at the car centre — the GLB node
+## carries no translation, as authored in muscle_car.glb's MCW_* and
+## rally_hatch.glb's Rim_*/Tire_* wheels). apply_wheel_visuals rotates the
+## resolved node about ITS OWN origin, so an un-normalized baked wheel orbits
+## the whole car body instead of spinning on its axle. Normalisation moves the
+## node onto the corner and translates a runtime mesh COPY by -aabb_center,
+## making the node origin the wheel centre exactly like the coupe/CC0 hubs.
+## No-op for already-centred hubs (sports_coupe, the cc0 kits, the R35) and for
+## mesh-less stub nodes; the embedded GLB mesh is duplicated first, matching the
+## paint pipeline's clone-only "never mutate the source" rule.
+static func _normalize_wheel_origin(wheel: Node3D) -> void:
+	if wheel == null or wheel.position.length() > WHEEL_ORIGIN_EPS:
+		return
+	var mesh_instance := wheel as MeshInstance3D
+	if mesh_instance == null:
+		return
+	var mesh := mesh_instance.mesh
+	if mesh == null:
+		return
+	var center := mesh.get_aabb().get_center()
+	if center.length() < BAKED_WHEEL_CORNER_MIN:
+		return
+	var recentered := _mesh_translated(mesh, -center)
+	if recentered == null or recentered.get_surface_count() == 0:
+		return
+	mesh_instance.mesh = recentered
+	wheel.position = center
+
+## ArrayMesh copy of `mesh` with every vertex offset by `offset` (per-surface
+## array rewrite; a translation leaves normals unchanged, and embedded surface
+## materials are carried over so the paint pipeline's fallback lookup still
+## finds them). Returns null for non-ArrayMesh primitives, which
+## _normalize_wheel_origin then leaves untouched.
+static func _mesh_translated(mesh: Mesh, offset: Vector3) -> ArrayMesh:
+	var array_mesh := mesh as ArrayMesh
+	if array_mesh == null:
+		return null
+	var out := ArrayMesh.new()
+	for surface_index in range(array_mesh.get_surface_count()):
+		var arrays := array_mesh.surface_get_arrays(surface_index)
+		if arrays.is_empty() or arrays[Mesh.ARRAY_VERTEX] == null:
+			continue
+		var positions: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		for i in range(positions.size()):
+			positions[i] = positions[i] + offset
+		arrays[Mesh.ARRAY_VERTEX] = positions
+		out.add_surface_from_arrays(array_mesh.surface_get_primitive_type(surface_index), arrays)
+		var embedded := array_mesh.surface_get_material(surface_index)
+		if embedded != null:
+			out.surface_set_material(out.get_surface_count() - 1, embedded)
+	return out
 
 ## Spins every wheel around its local axle (X) by spin_angle and steers the
 ## front pair (fl/fr) around the vertical axis (Y) by steer (-1..1). Wheels
@@ -281,29 +377,46 @@ static func wheel_spin_rate(speed_kmh: float, wheel_radius: float) -> float:
 		return 0.0
 	return speed_kmh / 3.6 / wheel_radius
 
-## Depth-first search for the first StandardMaterial3D whose resource_name
-## contains name_filter (case-insensitive). Checks surface override materials
-## first so the live clone produced by apply_paint() is found.
-static func find_named_material(root: Node3D, name_filter: String) -> StandardMaterial3D:
+## DFS for EVERY StandardMaterial3D whose resource_name contains name_filter
+## (case-insensitive), deduped by instance. Surface overrides are checked first
+## so the live clones produced by apply_paint() are found. Sibling of
+## find_named_material(), which is kept as the "first match" convenience. The
+## plural form exists because a rear cluster can span TWO mesh nodes (the R35
+## has Taillight_L + Taillight_R, each cloning the shared GLB material) — a
+## single-match cache would only ever ramp one half of the four lamps.
+static func find_named_materials(root: Node3D, name_filter: String) -> Array[StandardMaterial3D]:
+	var out: Array[StandardMaterial3D] = []
 	if root == null:
-		return null
-	var needle := name_filter.to_lower()
-	if root is MeshInstance3D:
-		var mesh_instance := root as MeshInstance3D
+		return out
+	_collect_named_materials(root, name_filter.to_lower(), out, {})
+	return out
+
+static func _collect_named_materials(node: Node3D, needle: String,
+		out: Array[StandardMaterial3D], seen: Dictionary) -> void:
+	if node is MeshInstance3D:
+		var mesh_instance := node as MeshInstance3D
 		var mesh: Mesh = mesh_instance.mesh
 		if mesh != null:
 			for surface_index in range(mesh.get_surface_count()):
 				var material: Material = mesh_instance.get_surface_override_material(surface_index)
 				if material == null:
 					material = mesh.surface_get_material(surface_index)
-				if material is StandardMaterial3D and material.resource_name.to_lower().contains(needle):
-					return material as StandardMaterial3D
-	for child: Variant in root.get_children():
+				if material is StandardMaterial3D \
+						and material.resource_name.to_lower().contains(needle):
+					var id := material.get_instance_id()
+					if not seen.has(id):
+						seen[id] = true
+						out.append(material as StandardMaterial3D)
+	for child: Node in node.get_children():
 		if child is Node3D:
-			var found: StandardMaterial3D = find_named_material(child as Node3D, name_filter)
-			if found != null:
-				return found
-	return null
+			_collect_named_materials(child as Node3D, needle, out, seen)
+
+## First-match convenience over find_named_materials() — kept as the singular
+## seam because existing call sites and tests resolve exactly one material
+## (e.g. the CC0 glass or a single-node taillight).
+static func find_named_material(root: Node3D, name_filter: String) -> StandardMaterial3D:
+	var all := find_named_materials(root, name_filter)
+	return all[0] if not all.is_empty() else null
 
 ## Ramps the taillight emission energy with brake (0..1): BRAKE_GLOW_MIN when
 ## coasting, BRAKE_GLOW_MAX at full brake. Enables emission if the material
@@ -313,6 +426,33 @@ static func apply_brake_glow(material: StandardMaterial3D, brake: float) -> void
 		return
 	material.emission_enabled = true
 	material.emission_energy_multiplier = lerpf(BRAKE_GLOW_MIN, BRAKE_GLOW_MAX, clampf(brake, 0.0, 1.0))
+
+## Applies apply_brake_glow to every cached taillight material (the R35 rear
+## cluster is TWO nodes / two clones). Never allocates.
+static func apply_brake_glow_all(materials: Array[StandardMaterial3D], brake: float) -> void:
+	for material in materials:
+		apply_brake_glow(material, brake)
+
+# --- Reverse glow switch (see REVERSE_* constants above) ---
+
+## Idempotent reverse cue: while `active`, every EXISTING taillight material
+## glows bright white (saving the GLB-authored base emissive colour first);
+## when inactive the base colour is restored so the red brake ramp resumes.
+## Never allocates per call; safe on null elements.
+static func apply_reverse_glow(materials: Array[StandardMaterial3D], active: bool) -> void:
+	for material in materials:
+		if material == null:
+			continue
+		material.emission_enabled = true
+		if active:
+			if not material.has_meta(REVERSE_GLOW_META):
+				material.set_meta(REVERSE_GLOW_META, material.emission)
+			material.emission = REVERSE_LIGHT_COLOR
+			material.emission_energy_multiplier = REVERSE_LIGHT_ENERGY
+		elif material.has_meta(REVERSE_GLOW_META):
+			var base: Color = material.get_meta(REVERSE_GLOW_META)
+			material.emission = base
+			material.remove_meta(REVERSE_GLOW_META)
 
 # --- Night headlight/taillight layer (roadmap #5) ---
 #
@@ -665,10 +805,10 @@ static func _paint_clone(source: StandardMaterial3D, profile: Dictionary, part_k
 
 static func _glass_clone(source: StandardMaterial3D, profile: Dictionary) -> StandardMaterial3D:
 	var cloned: StandardMaterial3D = source.duplicate() as StandardMaterial3D
-	if profile.has("glass_color"):
-		cloned.albedo_color = profile["glass_color"]
+	cloned.albedo_color = profile.get("glass_color", DEFAULT_GLASS_COLOR)
 	cloned.metallic = profile["glass_metallic"]
 	cloned.roughness = profile["glass_roughness"]
+	cloned.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	cloned.refraction_enabled = false
 	return cloned
 
@@ -712,14 +852,20 @@ static func _trim_clone(source: StandardMaterial3D) -> StandardMaterial3D:
 	return cloned
 
 # --- Cockpit see-through (D6): a mode-driven transparency pass so first-person
-# --- driving can actually SEE OUT. The paint pipeline ships glass OPAQUE on
-# --- purpose (mirror-clean from the chase cam), and the CC0/Kenney cars are
+# --- driving can actually SEE OUT. The paint pipeline ships glass tinted and
+# --- TRANSPARENT (DEFAULT_GLASS_COLOR, alpha 0.45) and the CC0/Kenney cars are
 # --- doubleSided-bodied shells whose backfaces fill the windshield cavity from
 # --- inside — the Comet (cc0_sedan_sports) has NO glass mesh at all, so its
 # --- red 'body' shell IS the windshield. While the cockpit camera owns the
-# --- viewport, Shell meshes are hidden and Glass surfaces flip to
-# --- TRANSPARENCY_ALPHA at COCKPIT_GLASS_ALPHA; leaving cockpit restores every
-# --- original flag, so chase / hood / orbit render exactly as authored.
+# --- viewport, Shell meshes are hidden and Glass surfaces drop to
+# --- COCKPIT_GLASS_ALPHA; leaving cockpit restores every original flag
+# --- (transparency + alpha are value-snapshotted per material), so the pass
+# --- is baseline-agnostic and chase / hood / orbit render as authored.
+# --- Shell = the paint body AND its non-glass dressing (grille / intake /
+# --- splitter / vents / lights / trim / graphite): once the paint is hidden the
+# --- dressing would otherwise float in the driver's forward view (the R35 GT-R
+# --- fronts a near-black grille/headlight cluster over the horizon). Only the
+# --- wheel assembly stays visible.
 
 ## Windshield alpha while the cockpit camera owns the viewport. Low and clean
 ## (no fake tint): the world reads straight through the glass.
@@ -734,8 +880,11 @@ const META_SHELL_VISIBLE_ORIG := "cockpit_shell_visible_orig"
 ## Classifies a visual root's surfaces for the cockpit pass. Returns
 ## {"glass": Array[MeshInstance3D], "shell": Array[MeshInstance3D]} where glass
 ## = surfaces that read as a windshield/window (transparency targets) and shell
-## = the paint/body surfaces that block a driver's forward view (hiding
-## targets). Wheels / rims / tires / lights / trim are neither and stay visible.
+## = the surfaces that block a driver's forward view (hiding targets): the paint
+## body AND its non-glass dressing (grille / intake / splitter / vents /
+## headlights / taillights / trim / graphite), which would otherwise float in
+## the forward view once the paint body is hidden. Only the wheel assembly
+## (tires / rims / wheels / brakes / calipers) is neither and stays visible.
 static func cockpit_roles(root: Node3D) -> Dictionary:
 	var roles := {"glass": [], "shell": []}
 	if root == null:
@@ -786,7 +935,8 @@ static func _mesh_cockpit_role(mesh_instance: MeshInstance3D) -> int:
 	return CockpitRole.SHELL if shell else CockpitRole.OTHER
 
 ## Mirrors the _make_override / _cc0_override classification: glass names win,
-## CC0 'colormap' wheels stay OTHER, and everything else paint-like is SHELL.
+## CC0 'colormap' wheels stay OTHER, the non-glass body dressing (lights / trim /
+## graphite) hides with the shell, and the wheel assembly stays OTHER.
 static func _material_cockpit_role(mesh_instance: MeshInstance3D, material: StandardMaterial3D) -> int:
 	var material_name := material.resource_name.to_lower() if not material.resource_name.is_empty() else ""
 	var node_name := String(mesh_instance.name).to_lower()
@@ -796,9 +946,15 @@ static func _material_cockpit_role(mesh_instance: MeshInstance3D, material: Stan
 		if node_name.contains("tire") or node_name.contains("rim") or node_name.contains("wheel"):
 			return CockpitRole.OTHER
 		return CockpitRole.SHELL
+	# Body dressing hides with the paint shell so it cannot float in the forward
+	# view once the paint is hidden. 'trim' MUST be tested before 'rim' — the
+	# R35's 'DarkTrim' material contains both substrings.
 	if material_name.contains("headlight") or material_name.contains("taillight") \
-		or material_name.contains("tire") or material_name.contains("rim") \
 		or material_name.contains("trim") or material_name.contains("graphite") \
+		or material_name.contains("reverse"):
+		return CockpitRole.SHELL
+	# The wheel assembly (tires / rims / brakes / calipers) stays visible.
+	if material_name.contains("tire") or material_name.contains("rim") \
 		or material_name.contains("brake") or material_name.contains("caliper"):
 		return CockpitRole.OTHER
 	return CockpitRole.SHELL

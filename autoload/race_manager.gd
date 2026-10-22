@@ -226,6 +226,10 @@ func _spawn_rival_car(spec: Dictionary, player: VehiclePhysics) -> VehiclePhysic
 	# builds exactly once (its _ready skips a rebuild when a visual exists).
 	_assign_rival_visual(car, _spawned_rivals.size(), tier)
 	add_child(car)
+	# Audible rival engines (idempotent): the production rival scene ships an
+	# EngineAudio node, so this is a no-op today; it guarantees audio for a
+	# swapped-in rival scene that lacks one.
+	EngineAudio.ensure_for(car)
 	# Position AFTER entering the tree: global_transform is a no-op on a node
 	# without a parent (the transform setter is dropped), so the grid placement
 	# would otherwise collapse to the origin. Track-frame transform: the car

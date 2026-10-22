@@ -237,9 +237,9 @@ func _physics_process(delta: float) -> void:
     _steer_input = clampf(steer_input, -1.0, 1.0)
     _handbrake_input = handbrake
 
-    # --- Reset car ---
-    if not controls_locked and InputManager.is_reset():
-        respawn_at(_spawn_point)
+    # --- Reset car (MANUAL respawn is PLAYER-only; the fall-through-world
+    # safety above stays universal) ---
+    if try_manual_respawn(InputManager.is_reset(), controls_locked):
         return
 
     # --- Steering ---
@@ -275,6 +275,14 @@ func _physics_process(delta: float) -> void:
         elif InputManager.is_shift_down_just_pressed():
             _drivetrain.shift_down(config)
     var drive_info := _drivetrain.update(delta, throttle, config)
+
+    # --- Reverse grade assist: cancel `fraction` of gravity along the chassis
+    # while reversing under throttle, grounded and below the speed fade, so
+    # slope starts the idle-revved engine cannot hold become climbable. Zero
+    # on flat ground; rivals never enter gear -1 (player-selected only).
+    var grade_assist := compute_reverse_grade_assist(_throttle_input, forward_speed)
+    if grade_assist != Vector3.ZERO:
+        apply_central_force(grade_assist)
 
     # --- Surface & grip context (resolved BEFORE the high-speed blocks that
     # need the same grip envelope the tires use later in the frame) ---
@@ -565,6 +573,47 @@ static func apply_analog_response(value: float, power: float = ANALOG_RESPONSE_P
         return x
     return pow(x, power)
 
+## Cancels `fraction` of gravity projected on `forward` (the chassis nose
+## direction), so a reversing car can hold/creep up grades whose gravity
+## component beats its idle-revved engine. Pure and orientation-independent:
+## exactly ZERO on flat ground (forward.y == 0), below the 0.05 throttle gate
+## (mirrors Drivetrain's engine-braking gate), at/above max_speed_kmh (linear
+## fade), or when fraction <= 0; `fraction` is clamped to [0, 1] so the assist
+## can never inject energy beyond cancelling gravity.
+static func reverse_grade_assist_force(
+        forward: Vector3, mass: float, fraction: float,
+        throttle: float, speed_kmh: float, max_speed_kmh: float) -> Vector3:
+    var f := clampf(fraction, 0.0, 1.0)
+    if f <= 0.0 or throttle < 0.05 or max_speed_kmh <= 0.0:
+        return Vector3.ZERO
+    var speed_scale := 1.0 - clampf(absf(speed_kmh) / max_speed_kmh, 0.0, 1.0)
+    if speed_scale <= 0.0:
+        return Vector3.ZERO
+    var fwd := forward.normalized()
+    var gravity_along_fwd := Vector3.DOWN.dot(fwd) * 9.8  # signed m/s^2
+    return -fwd * (mass * gravity_along_fwd * f * speed_scale)
+
+func _any_wheel_grounded() -> bool:
+    if _wheels == null:
+        return false
+    for wheel in _wheels:
+        if wheel.is_in_contact:
+            return true
+    return false
+
+## Instance seam for the reverse grade assist: gear + ground gates, then the
+## pure core fed from config/body state. forward_speed is the signed chassis
+## speed (m/s) - abs() inside the core fades the assist out either direction.
+func compute_reverse_grade_assist(throttle: float, forward_speed: float) -> Vector3:
+    if _drivetrain.current_gear >= 0:
+        return Vector3.ZERO
+    if not _any_wheel_grounded():
+        return Vector3.ZERO
+    return reverse_grade_assist_force(
+        -global_basis.z, mass, config.reverse_grade_assist,
+        throttle, forward_speed * 3.6,
+        config.reverse_grade_assist_max_speed_kmh)
+
 ## Speed-sensitive steer lock (degrees) for the player steering path. The
 ## legacy 200 km/h falloff curve (full lock at standstill -> 30% of max at
 ## 140+ km/h) is preserved EXACTLY above `low_speed_steer_taper_kmh`; below it,
@@ -751,6 +800,32 @@ func reset_car() -> void:
     _prev_linear_velocity = Vector3.ZERO
     _drivetrain.reset()
     global_position.y += 1.0  # lift slightly above ground
+
+## Whether THIS car may respond to the manual reset key. Only the registered
+## player car respawns on demand (the key used to teleport EVERY VehiclePhysics
+## on the map); a scripted car (input_override != ZERO) never does, even if it
+## currently holds the player identity. If NO player is registered (bare test
+## scene, registration gap) fall back to the input check so a human-driven car
+## can still be rescued by the key - scripted cars always carry a non-zero
+## override, so they can never match that fallback either.
+func can_manual_respawn() -> bool:
+    if input_override != Vector2.ZERO:
+        return false
+    var player := VehicleManager.get_player_car()
+    if player == null:
+        return true
+    return player == self
+
+## Seam for the reset key: key/lock state are parameters so tests drive it
+## without mocking the Input singleton. Returns true when it actually
+## respawned (the caller then stops the frame).
+func try_manual_respawn(reset_pressed: bool, controls_locked: bool) -> bool:
+    if not reset_pressed or controls_locked:
+        return false
+    if not can_manual_respawn():
+        return false
+    respawn_at(_spawn_point)
+    return true
 
 func respawn_at(pos: Vector3) -> void:
     linear_velocity = Vector3.ZERO

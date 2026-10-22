@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- UltraDrive Motors (house): hexagon + stylised U with a speed chevron. -->
+  <polygon points="32,5 55,18 55,46 32,59 9,46 9,18" fill="#131C2E" stroke="#E6B23C" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M 23 20 L 23 37 Q 23 44 31 44 Q 39 44 39 37 L 39 26 L 45 32 L 51 26" fill="none" stroke="#E6B23C" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
