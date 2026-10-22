@@ -212,15 +212,28 @@ remaining gap** (19 corridors vs FH6's ~960 is the honest delta).
   `world_discovery.gd` monotonic visited-segment bitset, `MapRoads.route_polyline` +
   `screen_to_world`, `world_map.gd` grey→white reveal, click-to-fast-travel gated on
   reveal. Tests: `test_discovery`, `test_map_route`, `test_world_map_features`.
-- **W.6 Living-world density `[SHIPPED]`.** `prop_scatterer.gd`, `foliage.gd`,
-  `traffic_spawner.gd` and `living_world.gd` are wired into
-  `open_world_root.tscn` as region-streamed dressing; events place by car culture
-  off the W.0 network. Tests: `test_event_placement`, `test_traffic_driving`,
-  `test_prop_roadside_placement`.
+- **W.6 Living-world density `[SHIPPED 2026-10-22, was mis-marked]`.** Until
+  2026-10-22 this entry claimed region-streamed dressing was wired; it was not
+  (only one static hub `Foliage` + 5 static `Props*` kits were in the scene and a
+  test pinned `RegionDresser` as absent). Now `RegionDresser` is in
+  `open_world_root.tscn`: per-256 m-region natural kits (rocks, power poles,
+  grass, 3 tree variants) chosen by biome (`region_zone`: lowlands / highlands /
+  coast / alpine), square per-cell placement, treeline/beach/hub-clearing
+  filter, spawned only once the region's terrain bake is cached. The 5 Props kits
+  and the hub Foliage stay as static landmark kits. `traffic_spawner.gd` +
+  `living_world.gd` are wired; events place by car culture off the W.0 network.
+  Tests: `test_streaming_dressing`, `test_open_world_hud`
+  (`test_open_world_dressing_budget`), `test_event_placement`,
+  `test_traffic_driving`, `test_prop_roadside_placement`.
 - **W.7 Streaming/LOD evolution `[SHIPPED]`.** Hybrid async terrain streaming
-  (player region sync-baked, neighbours on a worker Thread drained ≤2/frame),
-  `region_dresser.gd` ring budgets. Tests: `test_streaming_dressing`,
-  `test_terrain_seeder_streaming`, `test_dressing_road_clearance`.
+  (player region sync-baked, neighbours on a worker Thread drained ≤2/frame).
+  `region_dresser.gd` ring budgets (live ±1 / prefetch ±2 regions, 1 dress +
+  2 frees per frame in the scene, prefetch at 0.5 density, per-batch draw
+  distances: grass 140 m, props 420 m, trees 900 m) are live since 2026-10-22.
+  Ground textures (8 CC0 layers + per-region control map baked on the same
+  worker) also since 2026-10-22, see `docs/plans/open_world_status.md`.
+  Tests: `test_streaming_dressing`, `test_terrain_seeder_streaming`,
+  `test_terrain_texturing`, `test_dressing_road_clearance`.
 
 **Benchmark "define done" status:** 60 km network **met** · 5 tiers **met** ·
 multi-biome **met** · relief **met** · map reveal + fast travel **met** ·

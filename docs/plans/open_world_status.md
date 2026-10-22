@@ -1,5 +1,9 @@
 # UltraDrive open world - current status (verified against code, 2026-10-22)
 
+> **Update 2026-10-22 (later, open-world stage 1):** ground textures and region-streamed
+> dressing are now live. See section 6 for what changed, measurements and what is still
+> unverified; sections 0-5 are corrected inline where they described the old state.
+
 Scope: what the free-roam world actually is today, measured or known sizes, what is
 done / partial / missing, perf budget and known bugs. Companion docs:
 `open_world_fh6_plan.md` (gap analysis + roadmap) and `open_world_traffic_plan.md`
@@ -19,7 +23,7 @@ constants, not measured in-game.
 |---|---|---|
 | `docs/research/world_compare.md` (2026-09-16) | 3 roads / 6.4 km, traffic/props not wired | Stale: 19 corridors, >= 60 km (test-pinned); one static Foliage + 5 PropScatterers + TrafficSpawner ARE in the scene |
 | `docs/plan_open_world_seeding.md` | Terrain3D regions 1024 m, 6x6 map | `TerrainSeeder.REGION_SIZE := 256`, live ring 3x3 = 768 m (`terrain_seeder.gd:21-22`); 1024 appears only in a stale const in `regional_climate.gd:75` |
-| `docs/ROADMAP.md` W.6 / W.7 "region-streamed dressing wired into open_world_root.tscn" | Shipped | NOT wired. `RegionDresser` is built and unit-tested but is not in the scene; `test_open_world_dressing_static_budget` (`tests/suites/test_open_world_hud.gd:144-164`) pins "1 static Foliage + 5 static Props nodes and no RegionDresser" |
+| `docs/ROADMAP.md` W.6 / W.7 "region-streamed dressing wired into open_world_root.tscn" | Shipped | Was NOT wired until 2026-10-22 (only a test pinning it absent). FIXED: `RegionDresser` is now in the scene and ROADMAP W.6/W.7 say so with the real date; the pinned test became `test_open_world_dressing_budget` |
 | `docs/plans/terrain_vista_plan.md` | Static far-terrain vista | Only `terrain_vista_baker.gd` exists. No `terrain_vista.gd` controller, no wiring in `world_driver.gd`, cameras still at default far 4000 |
 | `docs/plans/open_world_optimization_plan.md` | Traffic = 15 cars | Scene now has `max_traffic = 8` (`open_world_root.tscn:196`); the spawner script default is also 8 |
 | `docs/HANDOFF_2026-10-22_session.md` | Open-world capture hung in endless `TrafficSpawner._spawn_vehicle` null loop | Log shows 2,841 errors that all start with `Compile Error: Identifier not found: RaceManager` in the capture tool; the later `log_openworld_after.txt` run is clean (0 errors). Likely a harness compile problem, not a traffic regression (not proven) |
@@ -29,7 +33,8 @@ constants, not measured in-game.
 ### 1.1 Scene composition (`scenes/world/open_world_root.tscn`)
 
 Root `OpenWorldRoot` (`world_driver.gd`) with: `Terrain3D` (collision FULL_GAME, no
-shadows, **no texture assets assigned**), `TerrainSeeder`, `ChunkStreamer`
+shadows; since 2026-10-22 the seeder gives it 8 CC0 texture layers, `apply_ground_textures`),
+`TerrainSeeder`, `RegionDresser` (since 2026-10-22), `ChunkStreamer`
 (`terrain` set => flat chunks are empty anchors; effectively a placeholder),
 `RoadNetwork`, `MountainPassZone` (instanced at 3800, 14, 3200), `PlayerCar` at spawn
 (128, 2.2, 128), chase/orbit/hood/cockpit cameras, Sun (1 split, 60 m shadow
@@ -71,10 +76,10 @@ inside the ring and almost none of it has content. The "6 km x 6 km" footprint i
   worker `Thread`, <= 2 applies/frame, <= 1 live-ring blank add/frame, corridor pre-bake budget
   (up to 190 region-locs, tier-prioritised), baked-image cache, `region_entered/left` signals.
   Player's own region is sync-baked (~3.3 s cold start). Streaming/hitch tests exist.
-- **What it looks like** (captures `openworld_after_0_eye / 1_high / 2_high`, 2026-10-22):
-  the ground is the Terrain3D default **checkerboard** with faint colour-map tint and sparse green
-  flecks. No ground textures, no autoshader, no dirt/rock/snow materials. This is the single largest
-  realism gap: `grep` finds no `Terrain3DAssets` / texture assets anywhere outside `addons/`.
+- **What it looked like before 2026-10-22 stage 1** (captures `openworld_after_0_eye / 1_high / 2_high`):
+  the Terrain3D **checkerboard**. Cause confirmed: with no `Terrain3DAssets` the addon shader falls back
+  to its checker (the node's `show_checkered = false` alone does not remove it).
+- **Now** (section 6): textured, biome-driven ground from a per-region control map.
 - Horizon: terrain ends ~384 m out (ring) and falls to haze; the far-field vista is unimplemented.
 
 ### 1.4 Roads
@@ -103,7 +108,8 @@ inside the ring and almost none of it has content. The "6 km x 6 km" footprint i
 - `PropScatterer`: 5 static nodes with 14-28 props each (tents, grandstands, pit buildings, barriers,
   power poles, rocks, guardrails) around fixed anchors. Buildings: 2 pit-style GLBs only.
 - `RegionDresser` (per-region Props + Foliage, ring/prefetch bands, deterministic hash seeds, bounded
-  per-frame work, LOD by density) exists and is tested (`test_streaming_dressing`) but is not instantiated.
+  per-frame work, LOD by density) is instantiated in the scene since 2026-10-22 (section 6): trees,
+  boulders and power poles now fill every 256 m region around the player.
 - No towns, no houses, no billboards, no signs, no street lights except 5 omni lights (one per Props node).
 - Collectibles/events are real systems (claim radius, rewards, save), but few (28 collectibles).
 
@@ -161,8 +167,21 @@ Medium (3.5 GB card, ~1.26 GB measured at Medium today).
    time (`_positions`), like `PropScatterer._placed`. Rule: never read transforms back from a MultiMesh; keep a side array.
    Doc says the full suite re-run was pending at that time; the 2026-10-22 gate (1410 tests, 1 pre-existing failure) covers it.
 2. `tests/suites/test_streaming_dressing.gd` only asserts size and run-to-run equality, so it cannot catch read-back
-   regressions; strengthen when RegionDresser is wired in.
-3. Checkerboard terrain (section 1.3), no vista, camera far 4000.
+   regressions; strengthen when RegionDresser is wired in. (2026-10-22: dresser is wired; the suite now also pins
+   square per-cell placement, bake-gated spawns, biome zones, filters and draw distances, but still reads the
+   side arrays, not the MultiMesh.)
+3. ~~Checkerboard terrain~~ FIXED 2026-10-22 (section 6). Still: no vista, camera far 4000, the live ring ends at
+   ~384 m in a visible cliff down to the flat y=0 background.
+3a. FIXED 2026-10-22: live-ring regions were queued at PRIORITY_PREFETCH by `_prefetch_ring` and never promoted,
+   so after spawn they sat blank and flat behind ~150 corridor pre-bake jobs for tens of seconds
+   (`terrain_seeder.gd::_prefetch_ring` / `_promote_live`, test `test_live_ring_beats_the_corridor_prebake`).
+3b. Pre-existing, NOT fixed: typed Node exports set as bare `NodePath(...)` in `open_world_root.tscn` without a
+   `node_paths=` header entry are silently null at runtime (e.g. `TerrainSeeder.terrain`, which survives only via
+   its `get_node_or_null("../Terrain3D")` fallback; `ChunkStreamer.terrain` likely too). The new RegionDresser node
+   uses `node_paths=` and its test asserts the resolved nodes.
+3c. Pre-existing: irregular white flat patches beyond the highway north-east of the hub (~(700-900, 600-700)),
+   visible in the untextured baseline too; source object not identified. The hub's static `Foliage` grass tufts are
+   flat `PlaneMesh` quads that read as bright green squares (region grass is disabled for that reason).
 4. Roads/collision are all live (section 1.4); extending the network multiplies load-time and per-frame cost.
 5. Traffic: unpooled spawn/free, single car model, no lane model, spawn ring is a square around the player including
    in front of the camera, stuck-rescue can teleport a car into view.
@@ -180,10 +199,10 @@ Medium (3.5 GB card, ~1.26 GB measured at Medium today).
 | 19-corridor network, 60 km, 5 tiers | DONE (scale-limited) | corridor_planner, test_corridor_seeding |
 | Surface grip, regional climate, day/night, weather FX | DONE | tests listed in ROADMAP |
 | Events + collectibles + speed traps | DONE v1 | event_registry, collectibles |
-| Ground textures / biome look | MISSING | no Terrain3DAssets; checkerboard in captures |
+| Ground textures / biome look | DONE v1 (2026-10-22) | 8 CC0 layers, control-map bake, LITE shader; captures in section 6 |
 | Far-field vista | PARTIAL | baker only, no controller, camera far 4000 |
-| Region-streamed dressing | PARTIAL (built, unwired, test-pinned off) | region_dresser.gd |
-| Trees/props outside the hub | MISSING | one Foliage node |
+| Region-streamed dressing | DONE v1 (2026-10-22) | RegionDresser in scene, biome kits, bake-gated, live-ring only |
+| Trees/props outside the hub | DONE v1 (one conifer set, one rock, power poles) | ZONE_FOLIAGE / region_preset |
 | Towns, buildings, signage, street furniture | MISSING | 2 pit buildings |
 | Road mesh/collision streaming | MISSING | add_road_def builds all |
 | Intersections, rural tier, town grids | MISSING | |
@@ -194,7 +213,76 @@ Medium (3.5 GB card, ~1.26 GB measured at Medium today).
 ## 5. Open questions
 
 1. What is the exact total road km and per-tier km today? Needs one headless `CorridorPlanner.plan` run (cheap; needs the Godot slot).
-2. Is the checkerboard really "no texture assets" or is a material override failing to load? (Cause inferred from code and captures, not from a Godot inspector.)
+2. ~~Is the checkerboard really "no texture assets"?~~ Answered 2026-10-22: yes (addon fallback without Terrain3DAssets).
 3. Should the open world move its origin to the map centre now (float precision) or only when the map is extended?
-4. Is `RegionDresser` intentionally unwired (perf) or just never finished? The test comment suggests intent to stay static; git history does not show it ever in the scene.
+4. ~~Is `RegionDresser` intentionally unwired?~~ Answered by measurement 2026-10-22: wired, it costs ~0 ms of frame
+   time at the hub (section 6); spawn work is bounded per frame.
 5. Which car does the player expect traffic to be (Japan-flavoured JDM civilians vs generic Kenney CC0 vehicles)? Licence/asset policy matters (CC0-first).
+
+## 6. Stage 1 (2026-10-22): ground textures + RegionDresser wired
+
+### 6.1 What changed
+
+- **Textures**: 8 CC0 ambientCG layers (`assets/terrain/SOURCES.md`): grass Grass004, meadow Ground037, dirt
+  Ground048, rock Rock030, sand Ground054, snow Snow006, gravel Gravel043, forest floor Grass001. Packed by
+  `tools/pack_terrain_textures.py` into Terrain3D's 2-array layout (albedo+height, OpenGL normal+roughness),
+  1024 px, VRAM compressed + mipmaps (~45 MB PNG source in `assets/terrain/textures/`).
+- **`scripts/world/terrain_texturing.gd`** (new): layer table, control-bit encode/decode (pinned against
+  `Terrain3DUtil`), `build_assets()`, `apply(terrain, quality)`. Two shader tiers: `QUALITY_LITE` (default; the
+  addon's `extras/shaders/lightweight.gdshader` as override) and `QUALITY_FULL` (generated shader: detiling,
+  projected UVs on steep faces; dual scaling off). Autoshader (background past the ring + not-yet-baked
+  regions) is plain grass. Roughness pushed up per layer (natural ground; the scans' own roughness mirrored
+  the sky as white blotches at grazing angles).
+- **Control map**: `TerrainBaker.bake_region_control()` + pure `classify_ground()` (height bands, slope -> rock,
+  snowline ~850 m with noise, beaches only by the coast/sea biomes, world-space patch/detail noise for
+  meadow / forest-floor / dirt, gravel shoulder + dirt fringe from each road's real width). Baked on the
+  seeder worker next to height + colour, cached, written as `TYPE_CONTROL`. Nature is classified per 2x2
+  texels, road-affected blocks per texel. Colour map is now a near-white tint with world-space brightness
+  (it multiplies the textures; the per-region-seeded wobble showed as tinted squares).
+- **Seeder**: `apply_ground_textures`, `ground_texture_quality`, `bake_ground_control`, `has_baked_region`,
+  `baked_region_control`; live-ring priority fix (3a above).
+- **RegionDresser in `open_world_root.tscn`** (`node_paths=` header so its exports resolve): biome zone per
+  region (`region_zone`: lowlands / highlands / coast / alpine from natural height + coast weight), natural kits
+  only (`region_preset`: rocks + power poles; no racing kit in the countryside), square per-cell placement (no
+  overlap), foliage filter (treeline, beach sand, `clear_zones` hub clearing), spawns wait for the region's bake,
+  nearest-first queue, grass deferred and time-sliced (`grass_tufts_per_frame`), per-batch draw distances
+  (grass 140 m, props 420 m, trees 900 m), only live-ring dressing drawn (`band_shown`), 1 dress + 2 frees per
+  frame, `region_grass_scale = 0` in the scene (flat-quad grass looks like green squares). The 5 `Props*` kits and
+  the hub `Foliage` stay as static landmark kits. Shared static mesh/material caches in Foliage/PropScatterer.
+- **`PropScatterer.is_clear_of_road`** now uses `RoadNetwork.nearest_road_lookup(pos, max_dist)` (grid, bounded
+  search) instead of scanning every road point: same answers (485/485 on 500 random points of the real network),
+  0.033 vs 2.4 ms per call.
+
+### 6.2 Measurements (GTX 970, 1080p, Medium preset, vsync off, fixed camera poses around the hub)
+
+| Pose | A: untextured, no dresser | B: full shader, no dresser | final: LITE + dresser |
+|---|---|---|---|
+| a eye, field | 12.59 ms | 19.05 | 12.86 (+0.27) |
+| b high, hub | 17.59 | 28.69 | 18.54 (+0.95) |
+| c eye, road | 10.61 | 13.32 | 11.28 (+0.67) |
+| d high, outward | 13.65 | 20.50 | 13.90 (+0.25) |
+
+- Full (generated) shader with dual scaling: +2.7..+11 ms; dual scaling alone 1.5..4 ms; projection + macro
+  variation ~0.3 ms. LITE: +0.5..+1.2 ms. The dresser itself measured ~0 ms (+30..50 draws, +100..250k prims).
+- Bake costs per 256 m region (worker thread): height ~50 ms, colour ~90 ms, control ~76 ms (hub region with
+  many roads 169 ms). Cold start pays one extra control bake for the player region (~0.1-0.2 s).
+- Dresser main-thread work (headless probe, real corridor network): worst drain ~5 ms with grass on, ~2-3 ms
+  typical (props ~0.6 ms + trees ~1.5-2 ms per region; grass slices ~1-1.5 ms each); first region pays the
+  one-time GLB/tree-mesh load (~100 ms, inside the loading screen at spawn).
+- Not measured: hitch_probe drive-through, physics tick, VRAM delta (texture arrays ~16 x 1024^2 BC3 ~ 22 MB
+  estimated), RAM of the bake cache (+256 KB per cached region for the control map).
+
+### 6.3 Captures reviewed (Claude, Read tool)
+
+Scratchpad `.../0b37d5da-.../scratchpad/fixed/` (A_*, B*_*, C2_*, C4_*) and `cap/openworld_after1_*`.
+Before: checkerboard everywhere. After: grass / meadow / forest-floor patches, gravel shoulders with a dirt
+verge, rock on road cuttings, trees and boulders across every live region, grass to the horizon.
+Open visual issues: meadow patches still read a bit bright and blocky-edged (2 m classification + LITE shader
+blending), conifer set only (no broadleaf / bushes), live-ring edge is a cliff to the flat background (vista
+work), the hub's own flat grass quads, the pre-existing white patches (3c), Rock030 cuttings read as dark-ish.
+
+### 6.4 Unverified
+
+Not played by hand or driven (no drive-through hitch probe); alpine / coast / highlands regions not captured
+(only the hub area: the car spawns there and the dresser/seeder follow the car); High/Low presets not
+measured; `QUALITY_FULL` not offered in the settings ladder (could map High -> FULL later).
