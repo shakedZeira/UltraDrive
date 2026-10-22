@@ -1,4 +1,4 @@
-[gd_scene load_steps=29 format=3]
+[gd_scene load_steps=30 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/world_driver.gd" id="1_driver"]
 [ext_resource type="Script" path="res://scripts/world/chunk_streamer.gd" id="2_cs"]
@@ -25,6 +25,7 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/speed_trap_hud.tscn" id="23_traphud"]
 [ext_resource type="PackedScene" path="res://scenes/ui/music_toast.tscn" id="24_musictoast"]
 [ext_resource type="Script" path="res://scripts/music/music_context_host.gd" id="25_musicctx"]
+[ext_resource type="Script" path="res://scripts/world/region_dresser.gd" id="26_dresser"]
 
 [sub_resource type="PhysicalSkyMaterial" id="sky_mat"]
 turbidity = 4.0
@@ -108,6 +109,7 @@ shape = SubResource("fallback_shape")
 [node name="TerrainSeeder" type="Node" parent="."]
 script = ExtResource("8_seeder")
 terrain = NodePath("../Terrain3D")
+apply_ground_textures = true
 
 [node name="RoadNetwork" type="Node" parent="."]
 script = ExtResource("9_net")
@@ -197,6 +199,16 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3840, 0, 2304)
 script = ExtResource("12_prop")
 road_network = NodePath("../RoadNetwork")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5632, 0, 5632)
+
+[node name="RegionDresser" type="Node3D" parent="." node_paths=PackedStringArray("terrain_seeder", "terrain", "road_network", "player")]
+script = ExtResource("26_dresser")
+terrain_seeder = NodePath("../TerrainSeeder")
+terrain = NodePath("../Terrain3D")
+road_network = NodePath("../RoadNetwork")
+player = NodePath("../PlayerCar")
+max_dresses_per_frame = 1
+region_grass_scale = 0.0
+clear_zones = Array[Vector3]([Vector3(128, 128, 150)])
 
 [node name="TrafficSpawner" type="Node" parent="."]
 script = ExtResource("14_traffic")

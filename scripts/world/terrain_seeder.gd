@@ -49,6 +49,15 @@ const SPAWN_REGION := Vector2i(0, 0)  # region under the (128, 128) spawn
 
 @export var terrain: Terrain3D
 @export var bake_scale: float = 1.0
+## Bake a Terrain3D control map (ground texture ids, TerrainBaker
+## .bake_region_control) next to height + colour for every region.
+@export var bake_ground_control: bool = true
+## Give the Terrain3D node the ground texture set + material in _ready
+## (TerrainTexturing.apply). Off by default so unit tests that build a bare
+## seeder do not load 16 textures; the open-world scene turns it on.
+@export var apply_ground_textures: bool = false
+## TerrainTexturing.QUALITY_LITE (default, ~+1 ms GPU) or QUALITY_FULL.
+@export var ground_texture_quality: int = TerrainTexturing.QUALITY_LITE
 
 ## Region-lifetime callbacks (P7). Emitted exactly once per transition: when a
 ## region's bake enters the live ring (fresh async apply on the main thread, or
@@ -61,13 +70,19 @@ signal region_entered(loc: Vector2i)
 signal region_left(loc: Vector2i)
 
 ## Key Vector2i (region location) -> {"image": Image (FORMAT_RF),
-## "color": Image (FORMAT_RGBA8), "height_min": float, "height_max": float},
-## cached forever. The color image is optional: missing/null color records are
-## tolerated and write height-only, exactly as before the color bake.
+## "color": Image (FORMAT_RGBA8), "control": Image (FORMAT_RF control bits),
+## "height_min": float, "height_max": float}, cached forever. The color and
+## control images are optional: missing/null records are tolerated and write
+## height-only, exactly as before the color bake.
 var _baked: Dictionary = {}
 var _baker := TerrainBaker.new()
 var _roads: Array = []
 var _road_defs: Array = []
+## Carriageway width per entry of _roads (from the RoadDefs, ROAD_WIDTH-default
+## when absent), so the control bake puts the gravel shoulder at each road edge.
+var _road_widths := PackedFloat32Array()
+## loc -> [control Image, its raw bytes] for baked_region_control().
+var _control_bytes: Dictionary = {}
 
 ## Region locations whose finished bake was written into the terrain this
 ## session. Cleared when the region is removed so a re-entry rewrites it.
@@ -123,7 +138,11 @@ func set_roads(roads: Array, road_defs: Array = []) -> void:
 	_lock.unlock()
 	_roads = roads
 	_road_defs = road_defs
+	_road_widths = PackedFloat32Array()
+	for def in road_defs:
+		_road_widths.append(float(def.width) if def != null else TerrainBaker.ROAD_WIDTH)
 	_baked.clear()
+	_control_bytes.clear()
 	_ring_sig = Vector2i(1 << 30, 1 << 30)
 	_prebake_corridor(roads)
 
@@ -134,6 +153,8 @@ func _ready() -> void:
 		return
 	terrain.collision_mode = 3
 	terrain.region_size = Terrain3D.SIZE_256
+	if apply_ground_textures:
+		TerrainTexturing.apply(terrain, ground_texture_quality)
 
 ## Queues cached-only bakes (PRIORITY_CORRIDOR) for every region the known road
 ## network touches plus a CORRIDOR_MARGIN border, capped at a *budget* derived
@@ -240,6 +261,42 @@ func _network_km(roads: Array) -> float:
 ## Terrain3D from a worker. Region-anchored: the cache write is a grid-aligned
 ## per-region set_map, so sampling the frame-local pixel is inherently scaled
 ## and anchored (no import_images snap to reason about on this path).
+## Whether `loc` has a cached bake (main thread; the RegionDresser waits for it
+## before dressing a region so props sit on the real carved ground).
+func has_baked_region(loc: Vector2i) -> bool:
+	return _baked.has(loc)
+
+## Raw control bits (TerrainTexturing.encode_control layout) of the cached
+## control bake of `loc` at a world XZ, or -1 when the region has no cached
+## control map or the XZ lies outside it. Main thread only, like
+## baked_region_height: the dresser asks it which ground texture a grass tuft
+## would stand on.
+func baked_region_control(loc: Vector2i, world_pos: Vector3) -> int:
+	if not _baked.has(loc):
+		return -1
+	var cached: Variant = (_baked[loc] as Dictionary).get("control", null)
+	if not cached is Image:
+		return -1
+	var img: Image = cached
+	var fx := (world_pos.x - loc.x * REGION_SIZE) / REGION_SIZE
+	var fz := (world_pos.z - loc.y * REGION_SIZE) / REGION_SIZE
+	if fx < 0.0 or fx >= 1.0 or fz < 0.0 or fz >= 1.0:
+		return -1
+	var w := img.get_width()
+	var ix := clampi(int(floorf(fx * float(w))), 0, w - 1)
+	var iz := clampi(int(floorf(fz * float(w))), 0, w - 1)
+	# Image.get_data() copies the whole map, so the raw bytes are kept per
+	# cached image (keyed by loc, validated by image identity so a re-bake
+	# that replaced the record is never read stale).
+	var entry: Array = _control_bytes.get(loc, [])
+	if entry.is_empty() or entry[0] != img:
+		if _control_bytes.size() >= 36:
+			_control_bytes.clear()  # bounded: ~ the dresser band, 256 KB each
+		entry = [img, img.get_data()]
+		_control_bytes[loc] = entry
+	var bytes: PackedByteArray = entry[1]
+	return bytes.decode_u32((iz * w + ix) * 4)
+
 func baked_region_height(loc: Vector2i, world_pos: Vector3) -> float:
 	if not _baked.has(loc):
 		return 0.0
@@ -431,7 +488,7 @@ func _ensure_region(data: Terrain3DData, loc: Vector2i, with_update: bool = true
 		var image: Image = rec["image"]
 		if image != null:
 			var _t_wr := _ht()
-			_write_region(data, region, loc, image, rec["height_min"], rec["height_max"], with_update, rec.get("color"))
+			_write_region(data, region, loc, image, rec["height_min"], rec["height_max"], with_update, rec.get("color"), rec.get("control"))
 			_hm("ensure_write", _t_wr)
 			_applied[loc] = true
 			region_entered.emit(loc)
@@ -457,10 +514,13 @@ func _bake_player_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vect
 		var rec: Variant = _baked[loc]
 		var image: Image = rec["image"]
 		var color: Image = rec.get("color")
+		var control: Image = rec.get("control")
 		if image != null:
 			if color == null:
 				color = _baker.bake_region_color(loc, bake_scale, image.get_width(), _roads)
-			_write_region(data, region, loc, image, rec["height_min"], rec["height_max"], true, color)
+			if control == null:
+				control = _bake_control(_baker, loc, image)
+			_write_region(data, region, loc, image, rec["height_min"], rec["height_max"], true, color, control)
 			_applied[loc] = true
 			_hm("bake_player", _t_start)
 			return
@@ -476,7 +536,7 @@ func _bake_player_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vect
 		if near_image != null:
 			if near_color == null:
 				near_color = _baker.bake_region_color(loc, bake_scale, near_image.get_width(), _roads)
-			_write_region(data, region, loc, near_image, near_rec["height_min"], near_rec["height_max"], true, near_color)
+			_write_region(data, region, loc, near_image, near_rec["height_min"], near_rec["height_max"], true, near_color, near_rec.get("control"))
 	_applied[loc] = true
 	_hm("bake_player", _t_start)
 
@@ -504,8 +564,16 @@ func _prefetch_ring(player_region: Vector2i) -> void:
 		var loc := player_region + off
 		if _baked.has(loc) or _applied.has(loc):
 			continue
+		# The live ring itself is PRIORITY_LIVE, and a ring region already queued
+		# at corridor/prefetch priority is promoted. Before 2026-10-22 the whole
+		# band went in at PRIORITY_PREFETCH and _ensure_region never re-queued an
+		# already-queued loc, so live-ring regions sat blank and flat behind the
+		# ~150-loc corridor pre-bake for tens of seconds after spawn.
+		var in_ring := maxi(absi(off.x), absi(off.y)) <= RING_RADIUS
 		if _queued_get(loc) == -1:
-			_queue_bake(loc, int(REGION_SIZE), PRIORITY_PREFETCH)
+			_queue_bake(loc, int(REGION_SIZE), PRIORITY_LIVE if in_ring else PRIORITY_PREFETCH)
+		elif in_ring:
+			_promote_live(loc)
 
 ## Synchronous bake + apply, reserved for the region under the player. Any
 ## async job already in flight for the same region is superseded: its record is
@@ -517,10 +585,11 @@ func _bake_sync(data: Terrain3DData, region: Terrain3DRegion, loc: Vector2i) -> 
 		return
 	var image := _baker.bake_region(loc, bake_scale, map.get_width(), _roads)
 	var color := _baker.bake_region_color(loc, bake_scale, map.get_width(), _roads)
+	var control := _bake_control(_baker, loc, image)
 	var range := _scan_height_range(image)
-	_baked[loc] = {"image": image, "color": color, "height_min": range.x, "height_max": range.y}
+	_baked[loc] = {"image": image, "color": color, "control": control, "height_min": range.x, "height_max": range.y}
 	sync_bake_count += 1
-	_write_region(data, region, loc, image, range.x, range.y, true, color)
+	_write_region(data, region, loc, image, range.x, range.y, true, color, control)
 	_applied[loc] = true
 	_hm("bake_sync", _t_start)
 
@@ -532,7 +601,7 @@ func _bake_sync(data: Terrain3DData, region: Terrain3DRegion, loc: Vector2i) -> 
 ## is false the GPU regeneration is deferred to the batched ring pass, which
 ## updates every changed region in a single update_maps() call. A null color is
 ## tolerated and keeps the region height-only, exactly as before the color bake.
-func _write_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vector2i, image: Image, height_min: float = INF, height_max: float = -INF, with_update: bool = true, color: Image = null) -> void:
+func _write_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vector2i, image: Image, height_min: float = INF, height_max: float = -INF, with_update: bool = true, color: Image = null, control: Image = null) -> void:
 	var _t_start := _ht()
 	var _t_sub := _ht()
 	region.set_map(Terrain3DRegion.TYPE_HEIGHT, image)
@@ -541,6 +610,8 @@ func _write_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vector2i, 
 		var _t_col := _ht()
 		region.set_map(Terrain3DRegion.TYPE_COLOR, color)
 		_hm("wr_set_color", _t_col)
+	if control != null:
+		region.set_map(Terrain3DRegion.TYPE_CONTROL, control)
 	if height_min == INF:
 		var range := _scan_height_range(image)
 		height_min = range.x
@@ -553,9 +624,18 @@ func _write_region(data: Terrain3DData, region: Terrain3DRegion, loc: Vector2i, 
 		data.update_maps(Terrain3DRegion.TYPE_HEIGHT, false)
 		if color != null:
 			data.update_maps(Terrain3DRegion.TYPE_COLOR, false)
+		if control != null:
+			data.update_maps(Terrain3DRegion.TYPE_CONTROL, false)
 		_hm("wr_update_maps", _t_um)
 	region.set_edited(false)
 	_hm("umap_inline", _t_start)
+
+## Main-thread control bake for the sync paths (player region, cold start,
+## colour re-bake); null when bake_ground_control is off.
+func _bake_control(baker: TerrainBaker, loc: Vector2i, height_image: Image) -> Image:
+	if not bake_ground_control:
+		return null
+	return baker.bake_region_control(loc, bake_scale, height_image.get_width(), _roads, height_image, _road_widths)
 
 func _scan_height_range(image: Image) -> Vector2:
 	var height_min := INF
@@ -594,6 +674,8 @@ func _make_job(loc: Vector2i, width: int, gen: int, priority: int = 0) -> Dictio
 		"gen": gen,
 		"scale": bake_scale,
 		"roads": _roads.duplicate(),
+		"widths": _road_widths.duplicate(),
+		"control": bake_ground_control,
 		"priority": priority,
 	}
 
@@ -644,12 +726,16 @@ func _worker_bake(worker_baker: TerrainBaker, job: Dictionary) -> Dictionary:
 	var roads: Array = job["roads"]
 	var image: Image = worker_baker.bake_region(loc, scale, width, roads)
 	var color: Image = worker_baker.bake_region_color(loc, scale, width, roads)
+	var control: Image = null
+	if bool(job.get("control", false)):
+		control = worker_baker.bake_region_control(loc, scale, width, roads, image, job.get("widths", PackedFloat32Array()))
 	var range := _scan_height_range(image)
 	return {
 		"loc": loc,
 		"gen": gen,
 		"image": image,
 		"color": color,
+		"control": control,
 		"height_min": range.x,
 		"height_max": range.y,
 	}
@@ -689,18 +775,20 @@ func _apply_record(record: Dictionary, data: Terrain3DData) -> void:
 		return
 	var image: Image = record["image"]
 	var color: Image = record.get("color")
+	var control: Image = record.get("control")
 	var center := _region_center(loc)
 	var already_cached := _baked.has(loc)
 	_baked[loc] = {
 		"image": image,
 		"color": color,
+		"control": control,
 		"height_min": record["height_min"],
 		"height_max": record["height_max"],
 	}
 	if not already_cached and data != null and _ring_contains(loc):
 		var region: Terrain3DRegion = data.get_regionp(center) if data.has_regionp(center) else null
 		if region != null:
-			_write_region(data, region, loc, image, record["height_min"], record["height_max"], false, color)
+			_write_region(data, region, loc, image, record["height_min"], record["height_max"], false, color, control)
 			_applied[loc] = true
 			async_apply_count += 1
 			_ring_update_due = true
@@ -747,6 +835,30 @@ func _requeue_front(loc: Vector2i) -> void:
 			break
 	_lock.unlock()
 
+## Raises a still-queued job for `loc` to PRIORITY_LIVE in place (the worker
+## always pops the lowest priority value first). No-op when not queued or
+## already live; unlike _requeue_front it keeps FIFO order among live jobs.
+func _promote_live(loc: Vector2i) -> void:
+	_lock.lock()
+	for job: Dictionary in _work_queue:
+		if job["loc"] == loc:
+			if int(job.get("priority", PRIORITY_LIVE)) > PRIORITY_LIVE:
+				job["priority"] = PRIORITY_LIVE
+			break
+	_lock.unlock()
+
+## Priority of the queued job for `loc`, -1 when it is not waiting in the
+## worker queue (test/diagnostic helper).
+func _queued_priority(loc: Vector2i) -> int:
+	var p := -1
+	_lock.lock()
+	for job: Dictionary in _work_queue:
+		if job["loc"] == loc:
+			p = int(job.get("priority", PRIORITY_LIVE))
+			break
+	_lock.unlock()
+	return p
+
 func _ring_contains(loc: Vector2i) -> bool:
 	return abs(loc.x - _player_region.x) <= RING_RADIUS and abs(loc.y - _player_region.y) <= RING_RADIUS
 
@@ -787,9 +899,10 @@ func force_player_region_color_bake() -> void:
 		return
 	var image: Image = _baker.bake_region(_player_region, bake_scale, map.get_width(), _roads)
 	var color: Image = _baker.bake_region_color(_player_region, bake_scale, map.get_width(), _roads)
+	var control := _bake_control(_baker, _player_region, image)
 	var range := _scan_height_range(image)
-	_baked[_player_region] = {"image": image, "color": color, "height_min": range.x, "height_max": range.y}
-	_write_region(data, region, _player_region, image, range.x, range.y, true, color)
+	_baked[_player_region] = {"image": image, "color": color, "control": control, "height_min": range.x, "height_max": range.y}
+	_write_region(data, region, _player_region, image, range.x, range.y, true, color, control)
 	_applied[_player_region] = true
 
 ## Internal pipeline state, exposed for the streaming tests.

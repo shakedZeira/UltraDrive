@@ -99,24 +99,50 @@ const FIELD_MARGIN := 16.0
 const SAMPLE_SPACING := 2.0
 
 # -- Elevation-band colour palette (RGBA8) -----------------------------------
-const COLOR_GRASS := Color(0.2, 0.5, 0.15)
-const COLOR_ROAD := Color(0.30, 0.30, 0.32)
+## Terrain3D MULTIPLIES the colour map into the textured albedo (and reads its
+## alpha as a roughness offset, 0.5 = neutral), so since the ground is textured
+## (TerrainTexturing) the colour map is a near-white per-band tint with a
+## brightness wobble, not a paint colour. A saturated green here would turn
+## every texture layer dark green.
+const COLOR_GROUND_TINT := Color(0.97, 0.97, 0.95, 0.5)
+const COLOR_ROAD := Color(0.78, 0.78, 0.78, 0.5)
 
 ## Band index -> RGBA8 colour, indexed by BAND_* so the colour loop never pays
 ## a per-texel _band_color() match call. Order must match BAND_SEA..BAND_ALPINE.
-## All non-road regions are grass green.
 const BAND_COLORS := [
-	COLOR_GRASS,
-	COLOR_GRASS,
-	COLOR_GRASS,
-	COLOR_GRASS,
-	COLOR_GRASS,
-	COLOR_GRASS,
+	Color(0.98, 0.96, 0.92, 0.5),
+	COLOR_GROUND_TINT,
+	COLOR_GROUND_TINT,
+	Color(0.95, 0.97, 0.94, 0.5),
+	Color(0.93, 0.95, 0.94, 0.5),
+	Color(0.95, 0.96, 1.0, 0.5),
 ]
+
+# -- Ground texture control map (Terrain3D TYPE_CONTROL) ----------------------
+## Layer weights per texel come from classify_ground(); the two strongest
+## layers become the texel's base/overlay pair. Noise is evaluated in WORLD
+## space with fixed seeds (unlike the per-region-seeded height detail), so
+## texture patches run continuously across region borders.
+const CTRL_PATCH_SEED := 4242
+const CTRL_PATCH_FREQUENCY := 0.006  # ~170 m meadow / forest-floor patches
+const CTRL_DETAIL_SEED := 777
+const CTRL_DETAIL_FREQUENCY := 0.035  # ~30 m dirt spots, snowline wobble
+const CTRL_SHOULDER_WIDTH := 2.5  # gravel band beyond the road edge (m)
+const CTRL_FRINGE_WIDTH := 4.0  # dirt fringe beyond the gravel (m)
+const CTRL_ROCK_SLOPE_START := 0.6  # tan(31 deg): rock starts showing
+const CTRL_ROCK_SLOPE_FULL := 1.0  # tan(45 deg): bare rock
+const CTRL_SNOWLINE := 850.0
+const CTRL_LOW_TOP := 180.0  # lowland grass gives way to highland forest
+const CTRL_HIGH_TOP := 320.0
+const CTRL_ALPINE_START := 620.0
+const CTRL_ALPINE_FULL := 820.0
+const CTRL_FOREST_LOW := 60.0  # forest floor begins to mix into lowland grass
 
 var _bake_scale := 1.0
 var _bake_region := Vector2i.ZERO
 var _noise := FastNoiseLite.new()
+var _ctrl_patch := FastNoiseLite.new()
+var _ctrl_detail := FastNoiseLite.new()
 
 ## Returns an Image.FORMAT_RF heightmap covering the whole region. The caller
 ## passes image_width = the region's TYPE_HEIGHT map width (read via
@@ -410,13 +436,14 @@ func _band_color(band: int) -> Color:
 
 ## Returns an Image.FORMAT_RGBA8 colour map for the given region, deterministic
 ## per (region, scale, roads).  Each texel is coloured by its elevation band
-## with a small deterministic brightness wobble from the same region-seeded noise
-## used for height.  Road corridors are tinted asphalt grey along the conformed
+## (a near-white tint, see COLOR_GROUND_TINT) with a small deterministic
+## brightness wobble from world-space noise, continuous across regions.  Road corridors are tinted asphalt grey along the conformed
 ## centreline within ROAD_WIDTH / 2 + 0.3, blending over ~3 m.
 func bake_region_color(region: Vector2i, bake_scale: float = 1.0, image_width: int = 1024, roads: Array = []) -> Image:
 	_bake_scale = bake_scale
 	_bake_region = region
 	_configure_noise(_bake_region)
+	_configure_control_noise()
 	var step := REGION_SIZE / float(image_width)
 	var origin := Vector2(region.x * REGION_SIZE, region.y * REGION_SIZE)
 	var stride := image_width
@@ -523,7 +550,10 @@ func bake_region_color(region: Vector2i, bake_scale: float = 1.0, image_width: i
 				var dd := sqrt(ddx * ddx + ddz * ddz)
 				dome += dome_a * (1.0 - smoothstep(dome_r * dome_e, dome_r, dd))
 			coarse_h[row + cj] = clampf((base + detail + dome) * bake_scale, HEIGHT_MIN, HEIGHT_MAX)
-			coarse_br[row + cj] = _noise.get_noise_2d(wx + 500.0, wz + 500.0)
+			# World-space (fixed-seed) brightness: the per-region-seeded height
+			# noise stepped at every 256 m border, which showed as tinted squares
+			# once the colour map started multiplying real textures.
+			coarse_br[row + cj] = _ctrl_patch.get_noise_2d(wx * 2.3 + 911.0, wz * 2.3 - 377.0)
 	var h_buf := PackedFloat32Array()
 	h_buf.resize(stride * stride)
 	_bilinear_upsample(coarse_h, h_buf, K, cs, stride)
@@ -589,11 +619,300 @@ func bake_region_color(region: Vector2i, bake_scale: float = 1.0, image_width: i
 						var alpha := 1.0 - smoothstep(core, blend_dist, road_dist)
 						col = col.lerp(COLOR_ROAD, alpha)
 			var o := row_b + ix * 4
-			bytes[o] = int(col.r * 255.0)
-			bytes[o + 1] = int(col.g * 255.0)
-			bytes[o + 2] = int(col.b * 255.0)
-			bytes[o + 3] = int(col.a * 255.0)
+			# Clamped: the near-white tint times a >1 brightness wobble would
+			# otherwise wrap past 255 into dark speckles.
+			bytes[o] = clampi(int(col.r * 255.0), 0, 255)
+			bytes[o + 1] = clampi(int(col.g * 255.0), 0, 255)
+			bytes[o + 2] = clampi(int(col.b * 255.0), 0, 255)
+			bytes[o + 3] = clampi(int(col.a * 255.0), 0, 255)
 	return Image.create_from_data(image_width, image_width, false, Image.FORMAT_RGBA8, bytes)
+
+## Returns the Terrain3D TYPE_CONTROL map (FORMAT_RF holding raw uint32 control
+## bits, see TerrainTexturing.encode_control) for a region: per texel the two
+## strongest ground layers from classify_ground() and their blend. Inputs are
+## the region's final baked heights (pass the bake_region() image to skip a
+## second height bake), the slope derived from them, world-space patch/detail
+## noise, the coast/sea biome weight and the distance past the nearest road
+## edge (road_widths[i] is road i's carriageway width; ROAD_WIDTH when absent).
+## Pure and deterministic, safe on the seeder's worker thread.
+func bake_region_control(region: Vector2i, bake_scale: float = 1.0, image_width: int = 1024, roads: Array = [], height_image: Image = null, road_widths: PackedFloat32Array = PackedFloat32Array()) -> Image:
+	var stride := image_width
+	var step := REGION_SIZE / float(stride)
+	var origin := Vector2(region.x * REGION_SIZE, region.y * REGION_SIZE)
+	var h_img := height_image
+	if h_img == null or h_img.get_width() != stride or h_img.get_format() != Image.FORMAT_RF:
+		h_img = bake_region(region, bake_scale, image_width, roads)
+	var heights := h_img.get_data().to_float32_array()
+	_configure_control_noise()
+	var K := clampi(int(floorf(float(stride) / 32.0)), 1, 4)
+	var cs := ceili(float(stride) / float(K))
+	var cell := step * float(K)
+	var coarse_patch := PackedFloat32Array()
+	coarse_patch.resize(cs * cs)
+	var coarse_detail := PackedFloat32Array()
+	coarse_detail.resize(cs * cs)
+	var coarse_coast := PackedFloat32Array()
+	coarse_coast.resize(cs * cs)
+	var any_coast := false
+	for ci in cs:
+		var wz := origin.y + (float(ci) + 0.5) * cell
+		for cj in cs:
+			var wx := origin.x + (float(cj) + 0.5) * cell
+			coarse_patch[ci * cs + cj] = _ctrl_patch.get_noise_2d(wx, wz)
+			coarse_detail[ci * cs + cj] = _ctrl_detail.get_noise_2d(wx, wz)
+			var cw := coast_weight(wx, wz)
+			coarse_coast[ci * cs + cj] = cw
+			any_coast = any_coast or cw > 0.0
+	var patch := PackedFloat32Array()
+	patch.resize(stride * stride)
+	_bilinear_upsample(coarse_patch, patch, K, cs, stride)
+	var detail := PackedFloat32Array()
+	detail.resize(stride * stride)
+	_bilinear_upsample(coarse_detail, detail, K, cs, stride)
+	# Most regions are nowhere near the coast: skip that upsample entirely.
+	var coast := PackedFloat32Array()
+	if any_coast:
+		coast.resize(stride * stride)
+		_bilinear_upsample(coarse_coast, coast, K, cs, stride)
+	var edge := _road_edge_field(roads, road_widths, origin, step, stride, CTRL_SHOULDER_WIDTH + CTRL_FRINGE_WIDTH)
+	var has_edge := not edge.is_empty()
+	var bytes := PackedByteArray()
+	bytes.resize(stride * stride * 4)
+	var band := CTRL_SHOULDER_WIDTH + CTRL_FRINGE_WIDTH
+	# Nature (patch ~170 m, detail ~30 m, slope) does not need 1 m precision and
+	# Terrain3D blends neighbouring texels anyway, so away from roads one
+	# classification covers a 2x2 block; blocks touching the road shoulder band
+	# are classified per texel so the gravel edge stays 1 m sharp. ~3x cheaper.
+	for bz in range(0, stride, 2):
+		var bz1 := mini(bz + 1, stride - 1)
+		for bx in range(0, stride, 2):
+			var bx1 := mini(bx + 1, stride - 1)
+			var i00 := bz * stride + bx
+			var i01 := bz * stride + bx1
+			var i10 := bz1 * stride + bx
+			var i11 := bz1 * stride + bx1
+			if has_edge and minf(minf(edge[i00], edge[i01]), minf(edge[i10], edge[i11])) < band:
+				bytes.encode_u32(i00 * 4, _control_texel(heights, stride, step, bx, bz, patch, detail, coast, edge))
+				if i01 != i00:
+					bytes.encode_u32(i01 * 4, _control_texel(heights, stride, step, bx1, bz, patch, detail, coast, edge))
+				if i10 != i00:
+					bytes.encode_u32(i10 * 4, _control_texel(heights, stride, step, bx, bz1, patch, detail, coast, edge))
+				if i11 != i01 and i11 != i10:
+					bytes.encode_u32(i11 * 4, _control_texel(heights, stride, step, bx1, bz1, patch, detail, coast, edge))
+				continue
+			var bits := _control_texel(heights, stride, step, bx, bz, patch, detail, coast, edge)
+			bytes.encode_u32(i00 * 4, bits)
+			bytes.encode_u32(i01 * 4, bits)
+			bytes.encode_u32(i10 * 4, bits)
+			bytes.encode_u32(i11 * 4, bits)
+	return Image.create_from_data(stride, stride, false, Image.FORMAT_RF, bytes)
+
+## Control bits of texel (ix, iz): slope from central differences of the baked
+## heights, then classify_ground. coast / edge may be empty (no coast nearby,
+## no road in reach).
+func _control_texel(heights: PackedFloat32Array, stride: int, step: float, ix: int, iz: int, patch: PackedFloat32Array, detail: PackedFloat32Array, coast: PackedFloat32Array, edge: PackedFloat32Array) -> int:
+	var last := stride - 1
+	var xm := maxi(ix - 1, 0)
+	var xp := mini(ix + 1, last)
+	var zm := maxi(iz - 1, 0)
+	var zp := mini(iz + 1, last)
+	var row := iz * stride
+	var gx := (heights[row + xp] - heights[row + xm]) / (float(maxi(xp - xm, 1)) * step)
+	var gz := (heights[zp * stride + ix] - heights[zm * stride + ix]) / (float(maxi(zp - zm, 1)) * step)
+	var i := row + ix
+	var road_edge := edge[i] if not edge.is_empty() else INF
+	var coast_w := coast[i] if not coast.is_empty() else 0.0
+	return classify_ground(heights[i], sqrt(gx * gx + gz * gz), patch[i], detail[i], coast_w, road_edge)
+
+## Ground layer choice for one texel, returned as packed control bits. height
+## in metres, slope as rise/run (tan), patch/detail world noise in [-1, 1],
+## coast in [0, 1] (coast_weight), road_edge = metres past the nearest road's
+## edge (negative under the road, INF with no road nearby). Every layer gets a
+## weight; the strongest is the base, the runner-up the overlay, and the blend
+## is the runner-up's share, so two neighbouring texels that swap ranks meet
+## at 0.5 and the transition stays continuous.
+static func classify_ground(height: float, slope: float, patch: float, detail: float, coast: float, road_edge: float) -> int:
+	# Scalar weights, and every smoothstep is skipped when its input is outside
+	# the ramp (this runs 65k times per region on the bake worker; GDScript call
+	# overhead dominates, so a typical lowland texel costs ~2 ramps, not ~12).
+	var alpine := 0.0
+	if height > CTRL_ALPINE_START:
+		alpine = 1.0 if height >= CTRL_ALPINE_FULL else smoothstep(CTRL_ALPINE_START, CTRL_ALPINE_FULL, height)
+	var high := 0.0
+	if height > CTRL_LOW_TOP:
+		high = 1.0 if height >= CTRL_HIGH_TOP else smoothstep(CTRL_LOW_TOP, CTRL_HIGH_TOP, height)
+	var low := 1.0 - high
+	high *= 1.0 - alpine
+	var w_grass := 0.0
+	var w_meadow := 0.0
+	var w_forest := 0.0
+	var w_dirt := 0.0
+	if low > 0.0:
+		var meadow_share := smoothstep(-0.15, 0.45, patch)
+		var forest_low := 0.0
+		if height > CTRL_FOREST_LOW and patch < 0.1:
+			forest_low = smoothstep(CTRL_FOREST_LOW, CTRL_LOW_TOP, height) * smoothstep(0.1, -0.5, patch)
+		w_grass = low * (1.0 - meadow_share) * (1.0 - forest_low)
+		w_meadow = low * meadow_share
+		w_forest = low * (1.0 - meadow_share) * forest_low
+		if detail > 0.6:
+			w_dirt = low * smoothstep(0.6, 0.95, detail) * 0.75
+	if high > 0.0:
+		var high_meadow := smoothstep(0.0, 0.6, patch)
+		w_meadow += high * high_meadow
+		w_forest += high * (1.0 - high_meadow)
+	var w_rock := 0.0
+	var w_snow := 0.0
+	if alpine > 0.0:
+		var snowline := CTRL_SNOWLINE + detail * 90.0
+		var snow := smoothstep(snowline - 70.0, snowline + 70.0, height)
+		w_rock = alpine * (1.0 - snow)
+		w_snow = alpine * snow
+	# Beaches: only near the coast/sea biomes and near sea level, so a low
+	# inland dip (the spawn plains sit at ~2 m) never turns to sand.
+	var sand := 0.0
+	if coast > 0.0 and height < 8.0:
+		sand = coast * smoothstep(8.0, 3.0, height)
+	# Steep faces are bare rock whatever the biome; snow and sand slide off.
+	var steep := 0.0
+	if slope > CTRL_ROCK_SLOPE_START:
+		steep = 1.0 if slope >= CTRL_ROCK_SLOPE_FULL else smoothstep(CTRL_ROCK_SLOPE_START, CTRL_ROCK_SLOPE_FULL, slope)
+	var w_sand := 0.0
+	if sand > 0.0 or steep > 0.0:
+		var keep := 1.0 - maxf(sand, steep)
+		w_grass *= keep
+		w_meadow *= keep
+		w_forest *= keep
+		w_dirt *= keep
+		w_rock = w_rock * keep + steep
+		w_snow *= keep
+		w_sand = sand * (1.0 - steep)
+	var w_gravel := 0.0
+	# Road shoulders: a gravel band past the edge, then a dirt fringe.
+	if road_edge < CTRL_SHOULDER_WIDTH + CTRL_FRINGE_WIDTH:
+		var gravel := 1.0 - smoothstep(CTRL_SHOULDER_WIDTH * 0.6, CTRL_SHOULDER_WIDTH, road_edge)
+		var fringe := (1.0 - gravel) * (1.0 - smoothstep(CTRL_SHOULDER_WIDTH, CTRL_SHOULDER_WIDTH + CTRL_FRINGE_WIDTH, road_edge))
+		var nature := 1.0 - maxf(gravel, fringe * 0.45)
+		w_grass *= nature
+		w_meadow *= nature
+		w_forest *= nature
+		w_rock *= nature
+		w_snow *= nature
+		w_sand *= nature
+		w_dirt = w_dirt * nature + fringe * 0.45
+		w_gravel = gravel
+	# Inline top-2 in fixed id order with strict comparisons, so ties keep the
+	# lower id (deterministic). b = best, s = runner-up.
+	var b_id := TerrainTexturing.ID_GRASS
+	var b_w := w_grass
+	var s_id := TerrainTexturing.ID_GRASS
+	var s_w := -1.0
+	if w_meadow > s_w:
+		if w_meadow > b_w:
+			s_id = b_id; s_w = b_w; b_id = TerrainTexturing.ID_MEADOW; b_w = w_meadow
+		else:
+			s_id = TerrainTexturing.ID_MEADOW; s_w = w_meadow
+	if w_dirt > s_w:
+		if w_dirt > b_w:
+			s_id = b_id; s_w = b_w; b_id = TerrainTexturing.ID_DIRT; b_w = w_dirt
+		else:
+			s_id = TerrainTexturing.ID_DIRT; s_w = w_dirt
+	if w_rock > s_w:
+		if w_rock > b_w:
+			s_id = b_id; s_w = b_w; b_id = TerrainTexturing.ID_ROCK; b_w = w_rock
+		else:
+			s_id = TerrainTexturing.ID_ROCK; s_w = w_rock
+	if w_sand > s_w:
+		if w_sand > b_w:
+			s_id = b_id; s_w = b_w; b_id = TerrainTexturing.ID_SAND; b_w = w_sand
+		else:
+			s_id = TerrainTexturing.ID_SAND; s_w = w_sand
+	if w_snow > s_w:
+		if w_snow > b_w:
+			s_id = b_id; s_w = b_w; b_id = TerrainTexturing.ID_SNOW; b_w = w_snow
+		else:
+			s_id = TerrainTexturing.ID_SNOW; s_w = w_snow
+	if w_gravel > s_w:
+		if w_gravel > b_w:
+			s_id = b_id; s_w = b_w; b_id = TerrainTexturing.ID_GRAVEL; b_w = w_gravel
+		else:
+			s_id = TerrainTexturing.ID_GRAVEL; s_w = w_gravel
+	if w_forest > s_w:
+		if w_forest > b_w:
+			s_id = b_id; s_w = b_w; b_id = TerrainTexturing.ID_FOREST; b_w = w_forest
+		else:
+			s_id = TerrainTexturing.ID_FOREST; s_w = w_forest
+	var total := b_w + maxf(s_w, 0.0)
+	if total <= 0.000001:
+		return TerrainTexturing.encode_control(TerrainTexturing.ID_GRASS, TerrainTexturing.ID_GRASS, 0.0)
+	return TerrainTexturing.encode_control(b_id, s_id, maxf(s_w, 0.0) / total)
+
+## Coast/sea biome weight at a world XZ: 1 in the middle of the coast or sea
+## biome, fading to 0 at its radius. Pure.
+static func coast_weight(wx: float, wz: float) -> float:
+	var dc := Vector2(wx, wz).distance_to(BIOME_COAST_CENTER)
+	var ds := Vector2(wx, wz).distance_to(BIOME_SEA_CENTER)
+	var c := 1.0 - smoothstep(BIOME_COAST_RADIUS * 0.55, BIOME_COAST_RADIUS, dc)
+	var s := 1.0 - smoothstep(BIOME_SEA_RADIUS * 0.7, BIOME_SEA_RADIUS, ds)
+	return maxf(c, s)
+
+func _configure_control_noise() -> void:
+	_ctrl_patch.seed = CTRL_PATCH_SEED
+	_ctrl_patch.frequency = CTRL_PATCH_FREQUENCY
+	_ctrl_patch.fractal_type = FastNoiseLite.FRACTAL_FBM
+	_ctrl_patch.fractal_octaves = 3
+	_ctrl_detail.seed = CTRL_DETAIL_SEED
+	_ctrl_detail.frequency = CTRL_DETAIL_FREQUENCY
+	_ctrl_detail.fractal_type = FastNoiseLite.FRACTAL_FBM
+	_ctrl_detail.fractal_octaves = 2
+
+## Per-texel metres past the nearest road EDGE (centreline distance minus that
+## road's half width), INF beyond `reach` past every edge. Empty when there are
+## no roads. Each road's segments are only scanned over their own clipped AABB.
+func _road_edge_field(roads: Array, road_widths: PackedFloat32Array, origin: Vector2, step: float, stride: int, reach: float) -> PackedFloat32Array:
+	var field := PackedFloat32Array()
+	if roads.is_empty():
+		return field
+	field.resize(stride * stride)
+	field.fill(INF)
+	var max_x := origin.x + REGION_SIZE
+	var max_z := origin.y + REGION_SIZE
+	for ci in roads.size():
+		var road: Array = roads[ci]
+		if road.size() < 2:
+			continue
+		var half := (road_widths[ci] if ci < road_widths.size() else ROAD_WIDTH) * 0.5
+		var lim := half + reach
+		var pts := PackedVector3Array(road)
+		if _chain_is_closed(pts):
+			pts.append(pts[0])
+		for s in pts.size() - 1:
+			var a := pts[s]
+			var b := pts[s + 1]
+			if not _seg_in_rect(a, b, origin.x - lim, origin.y - lim, max_x + lim, max_z + lim):
+				continue
+			var abx := b.x - a.x
+			var abz := b.z - a.z
+			var len2 := abx * abx + abz * abz
+			if len2 <= 0.0001:
+				continue
+			var lo_ix := maxi(0, int(floorf((minf(a.x, b.x) - lim - origin.x) / step)))
+			var hi_ix := mini(stride - 1, int(floorf((maxf(a.x, b.x) + lim - origin.x) / step)))
+			var lo_iz := maxi(0, int(floorf((minf(a.z, b.z) - lim - origin.y) / step)))
+			var hi_iz := mini(stride - 1, int(floorf((maxf(a.z, b.z) + lim - origin.y) / step)))
+			for iz in range(lo_iz, hi_iz + 1):
+				var wz := origin.y + (float(iz) + 0.5) * step
+				var dz := wz - a.z
+				var row := iz * stride
+				for ix in range(lo_ix, hi_ix + 1):
+					var wx := origin.x + (float(ix) + 0.5) * step
+					var t := clampf(((wx - a.x) * abx + dz * abz) / len2, 0.0, 1.0)
+					var ex := wx - (a.x + abx * t)
+					var ez := dz - abz * t
+					var e := sqrt(ex * ex + ez * ez) - half
+					if e < field[row + ix]:
+						field[row + ix] = e
+	return field
 
 func _upsample_roads(roads: Array) -> Array[PackedVector3Array]:
 	var chains: Array[PackedVector3Array] = []

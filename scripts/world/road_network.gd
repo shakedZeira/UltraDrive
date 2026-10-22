@@ -67,6 +67,21 @@ func add_road_def(def: RoadDef) -> int:
 func get_road_defs() -> Array[RoadDef]:
     return _road_defs.duplicate()
 
+## The RoadDef at `index` (the id nearest_road_lookup returns), null when out of
+## range. No array copy, unlike get_road_defs().
+func get_road_def(index: int) -> RoadDef:
+    if index < 0 or index >= _road_defs.size():
+        return null
+    return _road_defs[index]
+
+## Widest carriageway in the network (0 when empty): the bound a clearance
+## query needs so a bounded nearest_road_lookup never misses a road it cares about.
+func max_road_width() -> float:
+    var widest := 0.0
+    for def: RoadDef in _road_defs:
+        widest = maxf(widest, def.width)
+    return widest
+
 func _ensure_topology() -> void:
     if not _topology_dirty:
         return
@@ -185,7 +200,13 @@ static func closest_point_on_segment_xz(query: Vector3, a: Vector3, b: Vector3) 
 ## prop) projects a handful of segments instead of the whole network. On the
 ## 4,800-point Le Mans loop a full scan cost ~3.2 ms per call and runs once per
 ## car per physics frame; the grid takes that to well under 0.1 ms.
-func nearest_road_lookup(pos: Vector3) -> Dictionary:
+##
+## `max_dist` bounds the ring search: once every unscanned cell is at least
+## `max_dist` away the search stops, so a road closer than `max_dist` is always
+## found exactly, while a far-from-road query (open countryside) costs a few
+## rings instead of walking the whole grid. With a finite bound, a returned
+## distance >= max_dist only means "nothing closer than max_dist".
+func nearest_road_lookup(pos: Vector3, max_dist: float = INF) -> Dictionary:
     var best_pos := pos
     var best_id := -1
     var best_seg := -1
@@ -228,7 +249,8 @@ func nearest_road_lookup(pos: Vector3) -> Dictionary:
                 best_pos = a if a == b else closest_point_on_segment_xz(pos, a, b)
         # Every unscanned cell lies outside the square we have covered; nothing
         # there can beat `best_dist` once it is no further than the square edge.
-        if best_dist <= _near_ring_inner_dist(q, base, ring):
+        var inner := _near_ring_inner_dist(q, base, ring)
+        if best_dist <= inner or inner >= max_dist:
             break
         ring += 1
     # "seg" = the nearest segment's index j (the one starting at point j; a

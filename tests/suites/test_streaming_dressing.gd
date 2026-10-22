@@ -15,10 +15,13 @@ extends GdUnitTestSuite
 const MASTER_TEST := 82731408
 const REGION_CELL := 256.0
 const SPAWN := Vector3(128.0, 0.0, 128.0)
-## Foliage counts are zone-independent (exports only), so live density is
-## exactly grass_count + tree_count and prefetch (0.5) is half of that.
-const LIVE_FOLIAGE_GRAPHICS := 700 + 40
-const PREFETCH_FOLIAGE_GRAPHICS := 350 + 20
+## Region foliage counts come from the dresser's per-zone table
+## (RegionDresser.ZONE_FOLIAGE; the spawn regions are "lowlands"), so live
+## density is exactly grass + trees and prefetch (0.5) is half of that.
+## Re-pinned 2026-10-22 when region grass dropped from the Foliage export
+## default (700) to the zone table (deliberate: spawn-cost budget).
+const LIVE_FOLIAGE_GRAPHICS := 350 + 40
+const PREFETCH_FOLIAGE_GRAPHICS := 175 + 20
 
 var _tracked_nodes: Array[Node] = []
 var _tracked_seeders: Array[TerrainSeeder] = []
@@ -58,10 +61,11 @@ func _make_seeder() -> TerrainSeeder:
 	_tracked_seeders.append(seeder)
 	return seeder
 
+## Drains spawns, frees AND the deferred grass batches (one per idle drain).
 func _drain_all(dresser: RegionDresser) -> void:
-	for _i in range(64):
+	for _i in range(128):
 		dresser.drain_pending()
-		if dresser.pending_spawn_count() == 0 and dresser.pending_free_count() == 0:
+		if dresser.pending_spawn_count() == 0 and dresser.pending_free_count() == 0 and dresser.pending_grass_count() == 0:
 			return
 
 func _positions_of(dresser: RegionDresser, loc: Vector2i) -> PackedVector3Array:
@@ -323,3 +327,186 @@ func test_dressed_props_cluster_along_the_road() -> void:
 		if distance <= props.roadside_max_dist + 0.001:
 			roadside += 1
 	assert_int(roadside).is_greater(placed.size() / 4)
+
+
+## test (l): zones follow the biome map (natural centre height + coast weight)
+## with the same thresholds as the ground texture bake; never "festival".
+func test_region_zone_follows_biomes() -> void:
+	assert_str(RegionDresser.region_zone(MASTER_TEST, Vector2i(0, 0))).is_equal("lowlands")
+	var peak: Vector2 = TerrainBaker.DOME_FAMILY[0]["center"]
+	assert_str(RegionDresser.region_zone(MASTER_TEST, Vector2i(floori(peak.x / REGION_CELL), floori(peak.y / REGION_CELL)))).is_equal("alpine")
+	var coast := TerrainBaker.BIOME_COAST_CENTER
+	assert_str(RegionDresser.region_zone(MASTER_TEST, Vector2i(floori(coast.x / REGION_CELL), floori(coast.y / REGION_CELL)))).is_equal("coast")
+	for dx in range(0, 40, 3):
+		for dz in range(-12, 34, 3):
+			assert_str(RegionDresser.region_zone(MASTER_TEST, Vector2i(dx, dz))).is_not_equal("festival")
+
+## test (m): region kits are natural props only (no racing kit in the
+## countryside) and tile the region cell as a square.
+func test_region_preset_is_natural_and_square() -> void:
+	for zone in ["lowlands", "coast", "highlands", "alpine"]:
+		var preset: Dictionary = RegionDresser.region_preset(zone)
+		assert_float(float(preset["square_half_extent"])).is_equal(REGION_CELL * 0.5)
+		var props: Dictionary = preset["props"]
+		assert_int(props.size()).is_greater(0)
+		for key: String in props.keys():
+			assert_array(["rock", "power_pole"]).contains([key])
+
+## test (n): every dressed instance stays inside its own 256 m cell (square
+## placement, no overlap with the neighbours), and the live zone counts apply.
+func test_region_kit_stays_inside_its_cell() -> void:
+	var dresser := _make_dresser(8)
+	dresser.sync_player_pos(SPAWN)
+	_drain_all(dresser)
+	var half := REGION_CELL * 0.5 + 0.001
+	for loc: Vector2i in [Vector2i(0, 0), Vector2i(1, -1), Vector2i(-2, 2)]:
+		var positions := _positions_of(dresser, loc)
+		assert_int(positions.size()).is_greater(0)
+		for p: Vector3 in positions:
+			assert_float(absf(p.x)).is_less_equal(half)
+			assert_float(absf(p.z)).is_less_equal(half)
+
+## test (o): with a seeder attached, a region is only dressed once its terrain
+## bake is cached (props sit on the real carved ground); the other queued
+## regions keep waiting without stalling the queue.
+func test_spawn_waits_for_the_seeder_bake() -> void:
+	var seeder := _make_seeder()
+	var dresser := RegionDresser.new()
+	dresser.terrain_seeder = seeder
+	dresser.max_dresses_per_frame = 4
+	add_child(dresser)
+	dresser.set_process(false)
+	_tracked_nodes.append(dresser)
+	dresser.sync_player_pos(SPAWN)
+	dresser.drain_pending()
+	assert_int(dresser.dressed_region_count()).is_equal(0)
+	assert_int(dresser.pending_spawn_count()).is_equal(25)
+	var img: Image = TerrainBaker.new().bake_region(Vector2i(1, 0), 1.0, 32, [])
+	seeder._baked[Vector2i(1, 0)] = {"image": img, "color": null, "height_min": 0.0, "height_max": 1.0}
+	dresser.drain_pending()
+	assert_int(dresser.dressed_region_count()).is_equal(1)
+	assert_bool(dresser.is_dressed(Vector2i(1, 0))).is_true()
+	assert_int(dresser.pending_spawn_count()).is_equal(24)
+
+## test (p): dressing heights come from the cached bake of whichever region
+## contains the point, and fall back to the natural height when uncached.
+func test_ground_height_uses_the_containing_region_bake() -> void:
+	var seeder := _make_seeder()
+	var dresser := _make_dresser(2)
+	dresser.terrain_seeder = seeder
+	var loc := Vector2i(1, 0)
+	var img: Image = TerrainBaker.new().bake_region(loc, 1.0, 256, [])
+	seeder._baked[loc] = {"image": img, "color": null, "height_min": 0.0, "height_max": 1.0}
+	var wx := REGION_CELL + 40.5
+	var wz := 100.5
+	assert_float(dresser.ground_height_at(wx, wz)).is_equal(float(img.get_pixel(40, 100).r))
+	var far_x := REGION_CELL * 9.0 + 10.0
+	assert_float(dresser.ground_height_at(far_x, wz)).is_equal_approx(TerrainBaker.new().natural_height_at(far_x, wz), 0.0001)
+
+## test (q): foliage never grows in a landmark clearing, above the treeline or
+## on beach sand; open lowland is allowed.
+func test_foliage_filter_clearings_treeline_and_beach() -> void:
+	var dresser := _make_dresser(2)
+	var zones: Array[Vector3] = [Vector3(128.0, 128.0, 150.0)]
+	dresser.clear_zones = zones
+	assert_bool(dresser.foliage_allowed_at(130.0, 120.0)).is_false()
+	assert_bool(dresser.foliage_allowed_at(900.0, 600.0)).is_true()
+	var peak: Vector2 = TerrainBaker.DOME_FAMILY[0]["center"]
+	assert_bool(dresser.foliage_allowed_at(peak.x, peak.y)).is_false()
+	var coast := TerrainBaker.BIOME_COAST_CENTER
+	assert_bool(dresser.foliage_allowed_at(coast.x, coast.y)).is_false()
+
+## test (r): a cleared spawn region drops its foliage instead of piling it
+## onto the hub, while the uncleared neighbours keep theirs.
+func test_clear_zone_empties_the_hub_region_foliage() -> void:
+	var dresser := _make_dresser(8)
+	var zones: Array[Vector3] = [Vector3(128.0, 128.0, 400.0)]
+	dresser.clear_zones = zones
+	dresser.sync_player_pos(SPAWN)
+	_drain_all(dresser)
+	assert_int(_foliage_count(dresser, Vector2i(0, 0))).is_equal(0)
+	assert_int(_foliage_count(dresser, Vector2i(2, 2))).is_greater(0)
+
+## test (s): every dressed batch has a draw distance (grass shortest), so the
+## 25-region band only submits the batches near the camera.
+func test_dressed_batches_have_draw_distances() -> void:
+	var dresser := _make_dresser(8)
+	dresser.sync_player_pos(SPAWN)
+	_drain_all(dresser)
+	var node: Node3D = dresser.region_node(Vector2i(0, 0))
+	assert_object(node).is_not_null()
+	if node == null:
+		return
+	var seen := 0
+	for holder: Node in node.get_children():
+		for child in holder.get_children():
+			var gi := child as GeometryInstance3D
+			if gi == null:
+				continue
+			seen += 1
+			assert_float(gi.visibility_range_end).is_greater(0.0)
+			if String(gi.name) == "GrassMMI":
+				assert_float(gi.visibility_range_end).is_equal(RegionDresser.GRASS_DRAW_DISTANCE)
+	assert_int(seen).is_greater(1)
+
+## test (t): grass is deferred to a later drain that dressed nothing else, so
+## a region's props + trees and its grass never cost the same frame; nearest
+## regions get theirs first.
+func test_grass_is_built_on_a_later_idle_drain() -> void:
+	var dresser := _make_dresser(1)
+	dresser.sync_player_pos(SPAWN)
+	dresser.drain_pending()
+	var node: Node3D = dresser.region_node(Vector2i(0, 0))
+	assert_object(node).is_not_null()
+	if node == null:
+		return
+	var foliage: Foliage = node.get_node_or_null(RegionDresser.FOLIAGE_CHILD_NAME) as Foliage
+	assert_bool(foliage.has_grass_batch()).is_false()
+	assert_int(dresser.pending_grass_count()).is_equal(1)
+	for _i in range(24):
+		dresser.drain_pending()
+	assert_int(dresser.pending_spawn_count()).is_equal(0)
+	assert_bool(foliage.has_grass_batch()).is_false()
+	assert_int(dresser.pending_grass_count()).is_equal(25)
+	# Time-sliced: a live lowland region needs ceil(grass / grass_tufts_per_frame)
+	# idle drains, never all of it in one frame.
+	var grass: int = int(RegionDresser.ZONE_FOLIAGE["lowlands"]["grass"])
+	var slices := ceili(float(grass) / float(dresser.grass_tufts_per_frame))
+	assert_int(slices).is_greater(1)
+	for _i in range(slices - 1):
+		dresser.drain_pending()
+		assert_bool(foliage.has_grass_batch()).is_false()
+	dresser.drain_pending()
+	assert_bool(foliage.has_grass_batch()).is_true()
+	assert_int(dresser.pending_grass_count()).is_equal(24)
+	# Sliced or not, the batch is identical to a one-shot build of the same stream.
+	var sliced := foliage.get_batch_positions("GrassMMI")
+	foliage.build_grass()
+	assert_that(foliage.get_batch_positions("GrassMMI")).is_equal(sliced)
+
+## test (u): with a seeder, only live-ring dressing is drawn (terrain exists
+## only there; prefetch trees would float over the flat background), while the
+## prefetch band stays generated. Without a seeder everything is drawn.
+func test_only_live_ring_dressing_is_shown_with_a_seeder() -> void:
+	var seeder := _make_seeder()
+	var dresser := RegionDresser.new()
+	dresser.terrain_seeder = seeder
+	dresser.max_dresses_per_frame = 8
+	add_child(dresser)
+	dresser.set_process(false)
+	_tracked_nodes.append(dresser)
+	for loc: Vector2i in [Vector2i(0, 0), Vector2i(2, 0)]:
+		var img: Image = TerrainBaker.new().bake_region(loc, 1.0, 32, [])
+		seeder._baked[loc] = {"image": img, "color": null, "height_min": 0.0, "height_max": 1.0}
+	dresser.sync_player_pos(SPAWN)
+	dresser.drain_pending()
+	var live: Node3D = dresser.region_node(Vector2i(0, 0))
+	var pref: Node3D = dresser.region_node(Vector2i(2, 0))
+	assert_object(live).is_not_null()
+	assert_object(pref).is_not_null()
+	if live == null or pref == null:
+		return
+	assert_bool(live.visible).is_true()
+	assert_bool(pref.visible).is_false()
+	assert_int(pref.get_child_count()).is_equal(2)
+	assert_bool(_make_dresser(1).band_shown(RegionDresser.BAND_PREFETCH)).is_true()

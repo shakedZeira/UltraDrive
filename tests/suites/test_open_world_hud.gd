@@ -141,15 +141,20 @@ func test_open_world_traffic_budget_caps() -> void:
 	assert_that(traffic.vehicle_scene).is_not_null()
 	scene.free()
 
-func test_open_world_dressing_static_budget() -> void:
+## Dressing budget of the open world (deliberately re-pinned 2026-10-22 when the
+## RegionDresser was wired in, ROADMAP W.6/W.7; the old version asserted the
+## dresser was ABSENT). The hand-placed landmark kits stay static (one hub
+## Foliage + 5 Props kits); everything else is region-streamed by exactly one
+## RegionDresser bound to the seeder/terrain/roads/player, at the bounded
+## per-frame budget, with the hub cleared so it is not double-dressed. The
+## dresser must not also drive traffic (LivingWorld owns TrafficSpawner).
+func test_open_world_dressing_budget() -> void:
 	var packed := load(OPEN_WORLD_SCENE) as PackedScene
 	assert_that(packed).is_not_null()
 	var scene := packed.instantiate()
 	assert_that(scene).is_not_null()
 	if scene == null:
 		return
-	# The scene ships with one static Foliage + 5 static PropScatterer nodes
-	# and no runtime RegionDresser: dressing budget stays bounded and static.
 	var foliage := scene.get_node_or_null("Foliage")
 	assert_that(foliage).is_not_null()
 	if foliage != null:
@@ -160,5 +165,42 @@ func test_open_world_dressing_static_budget() -> void:
 		if String(child.name).begins_with("Props"):
 			props += 1
 	assert_that(props).is_equal(5)
-	assert_that(scene.get_node_or_null("RegionDresser")).is_null()
+	var dressers := 0
+	for child in scene.get_children():
+		if child is RegionDresser:
+			dressers += 1
+	assert_that(dressers).is_equal(1)
+	var dresser := scene.get_node_or_null("RegionDresser") as RegionDresser
+	assert_that(dresser).is_not_null()
+	if dresser != null:
+		# Typed Node exports resolve at instantiate only when the scene lists
+		# them in the node's node_paths; a bare NodePath is silently dropped
+		# (null), which is how the first wiring shipped a dresser that never
+		# dressed anything. So assert the RESOLVED nodes.
+		assert_that(dresser.terrain_seeder).is_equal(scene.get_node_or_null("TerrainSeeder"))
+		assert_that(dresser.terrain).is_equal(scene.get_node_or_null("Terrain3D"))
+		assert_that(dresser.road_network).is_equal(scene.get_node_or_null("RoadNetwork"))
+		assert_that(dresser.player).is_equal(scene.get_node_or_null("PlayerCar"))
+		assert_that(dresser.terrain_seeder).is_not_null()
+		assert_that(dresser.player).is_not_null()
+		assert_that(dresser.traffic_spawner).is_null()
+		# Region grass tufts stay off in the open world (flat-quad mesh reads as
+		# green squares on the textured ground); trees/rocks/poles remain.
+		assert_that(dresser.region_grass_scale).is_equal(0.0)
+		assert_that(dresser.max_dresses_per_frame).is_between(1, 2)
+		assert_that(dresser.max_frees_per_frame).is_between(1, 2)
+		assert_that(dresser.live_ring_radius).is_equal(TerrainSeeder.RING_RADIUS)
+		assert_that(dresser.prefetch_band_radius).is_equal(TerrainSeeder.PREFETCH_RADIUS)
+		var hub_cleared := false
+		for zone: Vector3 in dresser.clear_zones:
+			if Vector2(zone.x, zone.y).distance_to(Vector2(128.0, 128.0)) < 1.0 and zone.z >= 140.0:
+				hub_cleared = true
+		assert_that(hub_cleared).is_true()
+	var seeder := scene.get_node_or_null("TerrainSeeder") as TerrainSeeder
+	assert_that(seeder).is_not_null()
+	if seeder != null:
+		assert_that(seeder.apply_ground_textures).is_true()
+		assert_that(seeder.bake_ground_control).is_true()
+		# The ~+1 ms LITE ground shader is the shipped default (perf budget).
+		assert_that(seeder.ground_texture_quality).is_equal(TerrainTexturing.QUALITY_LITE)
 	scene.free()

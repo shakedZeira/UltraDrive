@@ -34,11 +34,18 @@ const TREES_BATCH_NAMES := ["TreesMMI", "TreesMMI_B", "TreesMMI_C"]
 @export var grass_count: int = 700
 @export var tree_count: int = 40
 @export var seed: int = 2120
+## Square placement (RegionDresser regions): when > 0, positions are uniform
+## over [-h, h]^2 around the node instead of the annulus, so neighbouring
+## regions tile the map. 0 keeps the annulus (the hub and circuit foliage).
+@export var square_half_extent: float = 0.0
 
 var _rng := RandomNumberGenerator.new()
 var _tree_roots: Array[Vector2] = []
 var _positions: Dictionary = {}
-var _tree_mesh_cache: Dictionary = {}
+## Shared across every Foliage node (static): the RegionDresser builds one per
+## streamed region, and merging + re-baking the same tree GLB per region cost
+## main-thread time and a duplicate GPU mesh each time. Never mutated after build.
+static var _tree_mesh_cache: Dictionary = {}
 
 ## P7 per-region dressing state. When managed by a RegionDresser these identify
 ## the region and the LOD density generated into it (full counts on the live
@@ -53,6 +60,29 @@ var density := 1.0
 ## (the flat-floor default used by the oval circuit).
 var ground_height_provider: Callable = Callable()
 var road_network: RoadNetwork = null
+## Optional extra placement rule, given a node-local (x, z) as Vector2 and
+## returning false where nothing may grow (biome: snow, rock, beach; landmark
+## clearings). Rejected samples are redrawn inside the existing bounded retry
+## loops (the RNG stream length never changes); a slot whose final sample is
+## still rejected is dropped, so counts only shrink where the filter says no.
+## Unset (the default) keeps every legacy count exact.
+var placement_filter: Callable = Callable()
+## Optional grass-only rule (node-local XZ in, bool out). When set it REPLACES
+## placement_filter + the road check for grass tufts: the RegionDresser passes
+## a lookup into the baked ground control map (grass only on grass-family
+## texels), which already excludes roads, shoulders, rock, sand and snow at a
+## fraction of the cost of a road query per tuft. Trees keep the exact checks.
+var grass_filter: Callable = Callable()
+## Deferred grass (RegionDresser): generate() then builds only the trees and
+## build_grass() adds the grass batch later, from its own RNG stream (seed ^
+## GRASS_SEED_SALT), so a streamed region's two costliest batches land on
+## different frames. Off (the default) keeps the legacy single-stream build.
+var defer_grass := false
+var _grass_last_ok := true
+## Running time-sliced grass build (begin_grass / step_grass), empty when idle.
+var _grass_job: Dictionary = {}
+
+const GRASS_SEED_SALT := 0x5bd1e995
 
 func _ready() -> void:
 	generate()
@@ -61,16 +91,66 @@ func _ready() -> void:
 ## existing children are removed and the tree-root rejection history is cleared
 ## first, so re-generating (band density change, region re-entry) never stacks
 ## duplicate instances and stays bit-identical for a given seed. Density scales
-## the instance counts for the LOD prefetch band.
+## the instance counts for the LOD prefetch band. With defer_grass only the
+## trees are built here (see build_grass).
 func generate() -> void:
 	for child in get_children():
 		child.free()
 	_tree_roots.clear()
 	_positions.clear()
+	_grass_job = {}  # a regenerate cancels any half-built grass batch
 	_rng.seed = seed
-	add_child(_build_grass())
+	if not defer_grass:
+		add_child(_build_grass())
 	for mmi: MultiMeshInstance3D in _build_trees():
 		add_child(mmi)
+
+## Builds (or rebuilds) just the grass batch from its own deterministic stream
+## in one go. Same result as begin_grass() + step_grass() until done.
+func build_grass() -> void:
+	begin_grass()
+	step_grass(1 << 30)
+
+## Starts a (re)build of the grass batch, time-sliced through step_grass() so
+## the RegionDresser can spread one region's tufts over several frames. The
+## slices draw from one deterministic stream, so the result is identical to a
+## single build_grass(). Any previous grass batch is removed now.
+func begin_grass() -> void:
+	var old := get_node_or_null("GrassMMI")
+	if old != null:
+		old.free()
+	_rng.seed = seed ^ GRASS_SEED_SALT
+	var placed: Array[Transform3D] = []
+	_grass_job = {"count": maxi(0, int(round(float(grass_count) * density))), "done": 0, "placed": placed}
+
+## Places up to max_tufts more grass slots of the running job; returns true
+## (and adds the GrassMMI batch) once every slot is done.
+func step_grass(max_tufts: int) -> bool:
+	if _grass_job.is_empty():
+		return true
+	var count: int = _grass_job["count"]
+	var done: int = _grass_job["done"]
+	var placed: Array[Transform3D] = _grass_job["placed"]
+	var filtered := grass_filter.is_valid() or placement_filter.is_valid()
+	var stop := mini(count, done + maxi(max_tufts, 1))
+	while done < stop:
+		var t := _grass_transform()
+		done += 1
+		if filtered and not _grass_last_ok:
+			continue
+		placed.append(t)
+	_grass_job["done"] = done
+	if done < count:
+		return false
+	_grass_job = {}
+	add_child(_make_grass_mmi(placed))
+	return true
+
+func grass_job_active() -> bool:
+	return not _grass_job.is_empty()
+
+func has_grass_batch() -> bool:
+	return get_node_or_null("GrassMMI") != null
 
 ## P7 per-region hook (RegionDresser): pins this instance to a region, its
 ## deterministic per-region seed and the LOD density for the prefetch band.
@@ -155,19 +235,29 @@ func get_instance_count() -> int:
 	return total
 
 func _build_grass() -> MultiMeshInstance3D:
+	var count := maxi(0, int(round(float(grass_count) * density)))
+	# Every slot draws its samples (the RNG stream never depends on the filter);
+	# a slot whose last sample is still rejected by placement_filter is dropped.
+	var placed: Array[Transform3D] = []
+	var filtered := grass_filter.is_valid() or placement_filter.is_valid()
+	for i in count:
+		var t := _grass_transform()
+		if filtered and not _grass_last_ok:
+			continue
+		placed.append(t)
+	return _make_grass_mmi(placed)
+
+func _make_grass_mmi(placed: Array[Transform3D]) -> MultiMeshInstance3D:
 	var plane := PlaneMesh.new()
 	plane.size = GRASS_MESH_SIZE
-
-	var count := maxi(0, int(round(float(grass_count) * density)))
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.mesh = plane
-	mm.instance_count = count
+	mm.instance_count = placed.size()
 	var batch := PackedVector3Array()
-	for i in count:
-		var t := _grass_transform()
-		mm.set_instance_transform(i, t)
-		batch.append(t.origin)
+	for i in placed.size():
+		mm.set_instance_transform(i, placed[i])
+		batch.append(placed[i].origin)
 	_positions["GrassMMI"] = batch
 
 	var mat := ShaderMaterial.new()
@@ -212,8 +302,12 @@ func _build_trees() -> Array[MultiMeshInstance3D]:
 	for v in counts.size():
 		var slots_for_v: Array[int] = []
 		for i in total:
-			if variant_pool[i] == v:
-				slots_for_v.append(i)
+			if variant_pool[i] != v:
+				continue
+			# A fallback position the placement_filter still rejects is dropped.
+			if placement_filter.is_valid() and not _placement_ok(positions[i]):
+				continue
+			slots_for_v.append(i)
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
 		mm.mesh = _build_tree_mesh(TREE_MODELS[v])
@@ -321,12 +415,19 @@ func _bake_tree_height_uvs(tree_mesh: ArrayMesh) -> void:
 	tree_mesh.surface_remove(0)
 	tree_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 
+## Sets _grass_last_ok: whether the returned tuft passed the grass checks (the
+## final redraw after GRASS_ROAD_ATTEMPTS misses is only checked against the
+## filters, never the road, which keeps the legacy road fallback unchanged).
 func _grass_transform() -> Transform3D:
 	var pos := _annulus_pos()
+	_grass_last_ok = false
 	for _attempt in range(GRASS_ROAD_ATTEMPTS):
-		if _road_clear_of(pos):
+		if _grass_ok(pos):
+			_grass_last_ok = true
 			break
 		pos = _annulus_pos()
+	if not _grass_last_ok and (grass_filter.is_valid() or placement_filter.is_valid()):
+		_grass_last_ok = _grass_ok(pos, false)
 	var yaw := _rng.randf_range(0.0, TAU)
 	var scale := _rng.randf_range(0.8, 1.6)
 	var basis := Basis(Vector3.UP, yaw).scaled(Vector3.ONE * scale)
@@ -342,7 +443,7 @@ func _tree_pos() -> Vector2:
 	# Rejection sampling keeps roughly 8 m between tree trunks.
 	for attempt in range(TREE_PLACEMENT_ATTEMPTS):
 		var candidate := _annulus_pos()
-		if _spacing_ok(candidate) and _road_clear_of(candidate):
+		if _spacing_ok(candidate) and _placement_ok(candidate) and _road_clear_of(candidate):
 			_tree_roots.append(candidate)
 			return candidate
 	var fallback := _annulus_pos()
@@ -356,6 +457,11 @@ func _spacing_ok(pos: Vector2) -> bool:
 	return true
 
 func _annulus_pos() -> Vector2:
+	if square_half_extent > 0.0:
+		# Two draws, like the annulus, so both modes consume the same stream.
+		var sx := _rng.randf_range(-square_half_extent, square_half_extent)
+		var sz := _rng.randf_range(-square_half_extent, square_half_extent)
+		return Vector2(sx, sz)
 	# Uniform area sampling inside the ring [inner_clear_radius, radius].
 	var angle := _rng.randf_range(0.0, TAU)
 	var dist := sqrt(_rng.randf_range(inner_clear_radius * inner_clear_radius, radius * radius))
@@ -364,6 +470,20 @@ func _annulus_pos() -> Vector2:
 func _world_pos(xz: Vector2) -> Vector3:
 	var gt := global_transform if is_inside_tree() else transform
 	return gt.origin + gt.basis * Vector3(xz.x, 0.0, xz.y)
+
+## Grass acceptance: grass_filter alone when set, else placement_filter plus
+## (unless skipped) the road clearance.
+func _grass_ok(xz: Vector2, check_road: bool = true) -> bool:
+	if grass_filter.is_valid():
+		return bool(grass_filter.call(xz))
+	if not _placement_ok(xz):
+		return false
+	return not check_road or _road_clear_of(xz)
+
+func _placement_ok(xz: Vector2) -> bool:
+	if not placement_filter.is_valid():
+		return true
+	return bool(placement_filter.call(xz))
 
 func _road_clear_of(xz: Vector2) -> bool:
 	if road_network == null:

@@ -30,6 +30,8 @@ extends Node3D
 const MAX_PLACEMENT_ATTEMPTS := 64
 const GROUND_OFFSET_Y := 0.0
 const ROAD_CLEARANCE_MARGIN := 3.0
+## Clearance the spawn ramp demands (see is_clear_of_road).
+const SPAWN_RAMP_CLEARANCE := 20.0
 ## Roadside weight per RoadDef tier: the highways and arterials the player
 ## actually drives get the most roadside dressing, dirt tracks get the least.
 const ROADSIDE_TIER_WEIGHTS := {
@@ -89,6 +91,11 @@ const NATIVE_MATERIAL_TYPES := [
 @export_range(0.0, 1.0) var roadside_fraction: float = 0.5
 @export var roadside_max_dist: float = 18.0
 @export var roadside_min_dist: float = 3.0
+## Square placement (RegionDresser regions): when > 0, the non-roadside samples
+## are uniform over the square [-h, h]^2 instead of the annulus, and a roadside
+## sample is kept only inside that square, so neighbouring 256 m regions tile
+## the map without overlap or gaps. 0 keeps the annulus (static scatterers).
+@export var square_half_extent: float = 0.0
 
 ## Optional map-height lookup, given a world (x, z) position as Vector2,
 ## returning the ground surface Y at that spot. When unset, props sit at Y 0
@@ -104,8 +111,12 @@ var _rng := RandomNumberGenerator.new()
 var _preset: Dictionary = {}
 var _placed: Dictionary = {}  # prop_type -> PackedVector3Array of positions
 var _mesh_builders: Dictionary = {}
-var _materials: Dictionary = {}
-var _real_mesh_cache: Dictionary = {}  # GLB path -> cached ArrayMesh
+## Shared across every scatterer (static): the RegionDresser builds one
+## scatterer per streamed region, and re-importing/re-baking the same GLB and
+## re-creating the same materials per region cost main-thread time and a
+## duplicate GPU mesh per region. Meshes/materials are never mutated after build.
+static var _materials: Dictionary = {}
+static var _real_mesh_cache: Dictionary = {}  # GLB path -> cached ArrayMesh
 ## Full-map road snapshot + its tier-weighted cumulative pick table, refreshed
 ## once per generate() (RoadNetwork.get_road_defs() duplicates on every call,
 ## so the per-attempt sampler reads these instead).
@@ -156,6 +167,7 @@ func configure(preset: Dictionary) -> void:
 	roadside_fraction = clampf(float(preset.get("roadside_fraction", roadside_fraction)), 0.0, 1.0)
 	roadside_max_dist = maxf(float(preset.get("roadside_max_dist", roadside_max_dist)), 0.0)
 	roadside_min_dist = maxf(float(preset.get("roadside_min_dist", roadside_min_dist)), 0.0)
+	square_half_extent = maxf(float(preset.get("square_half_extent", square_half_extent)), 0.0)
 	_preset = preset
 
 ## P7 per-region hook (RegionDresser): pins this scatterer to a region and its
@@ -324,28 +336,46 @@ static func road_clearance_info(pos: Vector3, defs: Array[RoadDef]) -> Dictionar
 			if d < best:
 				best = d
 				half_width = def.width * 0.5
-				is_ramp = def.id.begins_with("ramp") or def.id.begins_with("hub-highway-ramp") or def.id.begins_with("pass-highway-ramp") or def.id.begins_with("coast-highway-ramp") or def.id.begins_with("touge-highway-ramp") or def.id.begins_with("spawn-highway-ramp")
+				is_ramp = _is_ramp_id(def.id)
 				def_id = def.id
 		if def.closed and count > 2:
 			var d := _point_segment_distance_xz(pos, pts[count - 1], pts[0])
 			if d < best:
 				best = d
 				half_width = def.width * 0.5
-				is_ramp = def.id.begins_with("ramp") or def.id.begins_with("hub-highway-ramp") or def.id.begins_with("pass-highway-ramp") or def.id.begins_with("coast-highway-ramp") or def.id.begins_with("touge-highway-ramp") or def.id.begins_with("spawn-highway-ramp")
+				is_ramp = _is_ramp_id(def.id)
 				def_id = def.id
 	return {"distance": best, "half_width": half_width, "is_ramp": is_ramp, "def_id": def_id}
 
+static func _is_ramp_id(def_id: String) -> bool:
+	return def_id.begins_with("ramp") or def_id.begins_with("hub-highway-ramp") or def_id.begins_with("pass-highway-ramp") or def_id.begins_with("coast-highway-ramp") or def_id.begins_with("touge-highway-ramp") or def_id.begins_with("spawn-highway-ramp")
+
+## Same predicate as road_clearance_info() over the whole network (nearest
+## road's half width + ROAD_CLEARANCE_MARGIN, never below floor_m, ramp rules),
+## but resolved through RoadNetwork's nearest-road grid with the search bounded
+## to the largest clearance any road could demand: a road farther than that can
+## never make the point unclear. Region dressing calls this thousands of times
+## per region, so the full every-segment scan it replaces was the bottleneck.
 static func is_clear_of_road(pos: Vector3, network: RoadNetwork, floor_m: float = 0.0) -> bool:
 	if network == null:
 		return true
-	var info := road_clearance_info(pos, network.get_road_defs())
+	var reach := maxf(maxf(floor_m, network.max_road_width() * 0.5 + ROAD_CLEARANCE_MARGIN), maxf(floor_m + 4.0, SPAWN_RAMP_CLEARANCE))
+	var hit := network.nearest_road_lookup(pos, reach)
+	var road_id := int(hit["id"])
+	var distance := float(hit["distance"])
+	if road_id < 0 or distance >= reach:
+		return true
+	var def := network.get_road_def(road_id)
+	if def == null:
+		return true
+	var info := {"distance": distance, "half_width": def.width * 0.5, "is_ramp": _is_ramp_id(def.id), "def_id": def.id}
 	var required_clearance := maxf(floor_m, float(info["half_width"]) + ROAD_CLEARANCE_MARGIN)
 	if info["is_ramp"]:
 		var def_id: String = info["def_id"]
 		var is_spawn_ramp: bool = def_id.begins_with("spawn-highway-ramp")
 		var ramp_clearance := floor_m + 4.0
 		if is_spawn_ramp:
-			ramp_clearance = 20.0
+			ramp_clearance = SPAWN_RAMP_CLEARANCE
 		required_clearance = maxf(required_clearance, ramp_clearance)
 	return float(info["distance"]) >= required_clearance
 
@@ -600,6 +630,8 @@ func _spacing_ok(pos: Vector2, used: Array[Vector2], min_spacing: float) -> bool
 ## built from two pre-drawn tokens (angle fraction, radial fraction) so the
 ## draw count never depends on which placement mode was taken.
 func _annulus_pos(angle_roll: float, radial_roll: float) -> Vector2:
+	if square_half_extent > 0.0:
+		return Vector2(lerpf(-square_half_extent, square_half_extent, angle_roll), lerpf(-square_half_extent, square_half_extent, radial_roll))
 	var inner := clampf(inner_clear_radius, 0.0, maxf(radius - 0.5, 0.0))
 	var angle := angle_roll * TAU
 	var dist := sqrt(lerpf(inner * inner, radius * radius, radial_roll))
@@ -623,9 +655,16 @@ func _sample_pos() -> Vector2:
 		# degenerate networks fall back to the annulus built from the SAME
 		# tokens, so the dressing a region owns stays inside its own radius and
 		# a roadless region keeps today's placement and count exactly.
-		if roadside.is_finite() and roadside.length() <= radius:
+		if roadside.is_finite() and _within_reach(roadside):
 			return roadside
 	return _annulus_pos(angle_roll, radial_roll)
+
+## Whether a node-local roadside sample belongs to this scatterer: inside the
+## square in square mode, inside `radius` otherwise.
+func _within_reach(local_xz: Vector2) -> bool:
+	if square_half_extent > 0.0:
+		return absf(local_xz.x) <= square_half_extent and absf(local_xz.y) <= square_half_extent
+	return local_xz.length() <= radius
 
 ## Roadside candidate in node-local xz from five pre-drawn tokens: which road
 ## (tier-weighted over the full map set), which centerline segment, where inside
