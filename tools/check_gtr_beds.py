@@ -9,7 +9,10 @@ import math
 import struct
 import wave
 
-GT_R = sorted(glob.glob("assets/audio/engine/gtr/*.wav"))
+# Looped beds + looped support layers only (the turbo/BOV/flutter one-shots are
+# covered by check_gtr_turbo.py).
+GT_R = sorted(glob.glob("assets/audio/engine/gtr/engine_*.wav")
+              + ["assets/audio/engine/gtr/intake_roar.wav", "assets/audio/engine/gtr/gear_whine.wav"])
 REF = "assets/audio/engine/muscle/engine_idle.wav"
 
 

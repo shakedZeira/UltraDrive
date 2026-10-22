@@ -14,6 +14,14 @@ WHINE = "assets/audio/engine/gtr/turbo_whine.wav"
 ONE_SHOTS = [
     "assets/audio/engine/gtr/bov_tail.wav",
     "assets/audio/engine/gtr/flutter_hits.wav",
+    "assets/audio/engine/gtr/bov_0.wav",
+    "assets/audio/engine/gtr/bov_1.wav",
+    "assets/audio/engine/gtr/flutter_lo_0.wav",
+    "assets/audio/engine/gtr/flutter_lo_1.wav",
+    "assets/audio/engine/gtr/flutter_mid_0.wav",
+    "assets/audio/engine/gtr/flutter_mid_1.wav",
+    "assets/audio/engine/gtr/flutter_hi_0.wav",
+    "assets/audio/engine/gtr/flutter_hi_1.wav",
 ]
 
 

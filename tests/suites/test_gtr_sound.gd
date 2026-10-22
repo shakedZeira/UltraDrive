@@ -77,3 +77,51 @@ func test_gtr_streams_resolve_and_loop() -> void:
 		assert_that(wav.loop_end).is_greater(1)
 		assert_that(wav.get_length()).is_greater(0.001)
 		assert_that(wav.get_length()).is_less(60.0)
+
+## --- GT-R support layers (induction roar + GR6 gear whine) -------------------
+
+const ROAR_PATH := "res://assets/audio/engine/gtr/intake_roar.wav"
+const WHINE_PATH := "res://assets/audio/engine/gtr/gear_whine.wav"
+
+
+func test_gear_whine_pitch_and_level_follow_road_speed() -> void:
+	var prev_pitch := 0.0
+	var prev_db := EngineAudio.MUTE_FLOOR_DB
+	for kmh in [10.0, 40.0, 80.0, 120.0, 200.0, 300.0]:
+		var p := EngineAudio.gear_whine_pitch(kmh)
+		assert_that(p).is_greater(prev_pitch)
+		prev_pitch = p
+		var db := EngineAudio.gear_whine_gain_db(kmh, 0.5)
+		assert_that(db).is_greater_equal(prev_db)
+		prev_db = db
+	assert_that(EngineAudio.gear_whine_gain_db(0.0, 1.0)).is_equal(EngineAudio.MUTE_FLOOR_DB)
+	# drive side is louder than coast at the same speed
+	assert_that(EngineAudio.gear_whine_gain_db(120.0, 1.0)).is_greater(EngineAudio.gear_whine_gain_db(120.0, 0.0))
+
+
+func test_intake_roar_is_an_on_throttle_layer() -> void:
+	assert_that(EngineAudio.intake_roar_gain_db(0.0, 0.8)).is_equal(EngineAudio.MUTE_FLOOR_DB)
+	assert_that(EngineAudio.intake_roar_gain_db(1.0, 0.8)).is_greater(EngineAudio.intake_roar_gain_db(0.4, 0.8))
+	assert_that(EngineAudio.intake_roar_gain_db(1.0, 1.0)).is_greater(EngineAudio.intake_roar_gain_db(1.0, 0.1))
+	assert_that(EngineAudio.intake_roar_pitch(7000.0)).is_greater(EngineAudio.intake_roar_pitch(2000.0))
+	assert_that(EngineAudio.intake_roar_pitch(EngineAudio.ROAR_REF_RPM)).is_equal_approx(1.0, 0.0001)
+
+
+func test_engine_layer_creation_gate() -> void:
+	assert_that(EngineAudio.should_create_engine_layers(EngineAudio.TIMBRE_GTR, "headless")).is_false()
+	assert_that(EngineAudio.should_create_engine_layers(EngineAudio.TIMBRE_SPORT, "dummy")).is_false()
+	assert_that(EngineAudio.should_create_engine_layers(EngineAudio.TIMBRE_GTR, "dummy")).is_true()
+
+
+func test_engine_layer_assets_exist_and_loop() -> void:
+	assert_bool(FileAccess.file_exists(ROAR_PATH)).is_true()
+	assert_bool(FileAccess.file_exists(WHINE_PATH)).is_true()
+	var streams := EngineAudio.load_engine_layer_assets()
+	for key in ["roar", "whine"]:
+		var wav := streams.get(key) as AudioStreamWAV
+		assert_that(wav).is_not_null()
+		if wav == null:
+			continue
+		assert_that(wav.loop_mode).is_equal(AudioStreamWAV.LOOP_FORWARD)
+		assert_that(wav.loop_end).is_greater(1)
+		assert_that(wav.get_length()).is_greater(1.0)

@@ -123,8 +123,8 @@ const LIFT_GAIN_DB: float = 3.0
 ## (same guard as CarAudio's feel players).
 const TURBO_ASSETS: Dictionary = {
 	"whine": "res://assets/audio/engine/gtr/turbo_whine.wav",
-	"bov": "res://assets/audio/engine/gtr/bov_tail.wav",
-	"flutter": "res://assets/audio/engine/gtr/flutter_hits.wav",
+	"bov": "res://assets/audio/engine/gtr/bov_0.wav",
+	"flutter": "res://assets/audio/engine/gtr/flutter_mid_0.wav",
 }
 const TURBO_LAYER_ORDER: Array[String] = ["whine", "bov", "flutter"]
 const TURBO_LAYER_NAMES: Array[String] = ["TurboWhine", "TurboBOV", "TurboFlutter"]
@@ -134,7 +134,73 @@ const TURBO_BOV_MIN_FRACTION: float = 0.25
 const TURBO_FLUTTER_MIN_FRACTION: float = 0.4
 const TURBO_WHINE_TRIM_DB: float = 6.0
 const TURBO_BOV_TRIM_DB: float = 6.0
-const TURBO_FLUTTER_TRIM_DB: float = 6.0
+## Re-levelled for the synthesised flutter set (peak 0.85 vs 0.44 for the
+## retired flutter_hits.wav): 6.0 dB - 5.7 dB.
+const TURBO_FLUTTER_TRIM_DB: float = 0.3
+
+## Flutter / blow-off one-shot variants (tools/make_gtr_flutter.py; the layer
+## is the GT-R's -- the only car with turbo_max_boost_bar > 0). Flutter tier is
+## picked from the boost at lift-off: 0 = low (<0.65), 1 = mid, 2 = high
+## (>= 0.85); two variants per tier. The vented, sharp bov_0 plays for a
+## high-boost lift (> TURBO_BOV_VENTED_BOOST), the soft recirculating bov_1
+## otherwise. docs/research/turbo_flutter_sound.md.
+const TURBO_FLUTTER_VARIANTS: Dictionary = {
+	0: ["res://assets/audio/engine/gtr/flutter_lo_0.wav", "res://assets/audio/engine/gtr/flutter_lo_1.wav"],
+	1: ["res://assets/audio/engine/gtr/flutter_mid_0.wav", "res://assets/audio/engine/gtr/flutter_mid_1.wav"],
+	2: ["res://assets/audio/engine/gtr/flutter_hi_0.wav", "res://assets/audio/engine/gtr/flutter_hi_1.wav"],
+}
+const TURBO_BOV_VARIANTS: Array[String] = [
+	"res://assets/audio/engine/gtr/bov_0.wav",
+	"res://assets/audio/engine/gtr/bov_1.wav",
+]
+const TURBO_FLUTTER_COOLDOWN_S: float = 1.4      # min gap between events (never retrigger mid-flutter)
+const TURBO_FLUTTER_TIER_EDGES: Array[float] = [0.65, 0.85]
+const TURBO_FLUTTER_RATE_SCALE_MIN: float = 0.92  # playback rate at the lowest boost
+const TURBO_FLUTTER_RATE_SCALE_MAX: float = 1.08  # playback rate at full boost
+const TURBO_FLUTTER_PITCH_JITTER: float = 0.03    # +/- per-event random pitch factor
+const TURBO_BOV_VENTED_BOOST: float = 0.75
+## Analog fast-lift detector: the throttle falls by more than TURBO_FAST_LIFT_DROP
+## from its short-memory peak (decays over TURBO_FAST_LIFT_WINDOW_S) and ends
+## below TURBO_FAST_LIFT_END -- catches pedal lifts the single-frame
+## 0.5 -> 0.15 edge misses.
+const TURBO_FAST_LIFT_DROP: float = 0.45
+const TURBO_FAST_LIFT_WINDOW_S: float = 0.12
+const TURBO_FAST_LIFT_END: float = 0.2
+
+## Turbo boost smoothing (wobble fix). The Drivetrain's raw boost_fraction is a
+## control-model value: on a wastegate car it is dipped to 15% on EVERY upshift
+## and its target rides rpm_norm, so under steady acceleration it saws down/up
+## each gear change. Driving the whistle straight from it (plus an rpm_norm
+## gain term that also saws with shifts, and a 4 dB/frame volume slew) made the
+## turbo audibly pump in volume and pitch. EngineAudio therefore keeps its OWN
+## audio boost state: rate-limited spool-up, slow decay while the driver stays
+## on the gas (so a shift dip is bridged, not followed), faster spool-down only
+## when the driver lifts.
+const TURBO_SPOOL_UP_RATE: float = 2.0         # boost-fraction per second, rising
+const TURBO_SPOOL_DOWN_RATE: float = 1.4       # per second after a lift-off
+const TURBO_HOLD_DECAY_RATE: float = 0.12      # per second while on the gas
+const TURBO_LIFT_THROTTLE: float = 0.15        # at/below: full spool-down rate
+const TURBO_ON_THROTTLE: float = 0.30          # at/above: hold-decay rate only
+const TURBO_RPM_SLOW_TAU: float = 1.6          # s, rpm term of the whistle gain
+const TURBO_VOL_TAU: float = 0.12              # s, linear-amplitude smoothing
+const TURBO_PITCH_MIN: float = 0.94            # whistle pitch at no boost
+const TURBO_PITCH_MAX: float = 1.08            # whistle pitch at full boost
+const TURBO_PITCH_RATE: float = 0.07           # max pitch_scale change per second
+
+## GT-R support layers (non-headless, gtr bed set only): induction roar (on
+## throttle, pulses at the firing rate) and GR6 gear/final-drive whine (pitch
+## follows ROAD SPEED, not rpm). Both are loops from tools/make_gtr_beds.py.
+const ENGINE_LAYER_ASSETS: Dictionary = {
+	"roar": "res://assets/audio/engine/gtr/intake_roar.wav",
+	"whine": "res://assets/audio/engine/gtr/gear_whine.wav",
+}
+const ENGINE_LAYER_ORDER: Array[String] = ["roar", "whine"]
+const ENGINE_LAYER_NAMES: Array[String] = ["IntakeRoar", "GearWhine"]
+const ROAR_REF_RPM: float = 3500.0        # rpm the roar loop was authored at
+const ROAR_TRIM_DB: float = -11.0
+const GEAR_WHINE_REF_KMH: float = 90.0    # road speed where the loop's 1 kHz tone is unshifted
+const GEAR_WHINE_TRIM_DB: float = -21.0
+const ENGINE_LAYER_VOL_TAU: float = 0.10  # s, linear-amplitude smoothing
 
 ## Overrun exhaust layer (pops & bangs), presentation-only: a synthesized burst
 ## one-shot layered on the bed mix when a high-rpm throttle release is detected.
@@ -185,6 +251,8 @@ var _culled: bool = false
 var _is_player: bool = false
 var _lpf_effect: AudioEffectLowPassFilter = null
 var _lpf_bus_index: int = -1
+var _routed_child_count: int = -1
+const VEHICLE_BUS := &"Vehicle"
 var _lpf_added: bool = false
 var _prev_gear: int = 0
 var _gear_primed: bool = false
@@ -201,6 +269,18 @@ var _turbo_streams: Dictionary = {}
 var _turbo_players: Array[AudioStreamPlayer3D] = []
 var _turbo_vol_ema: Array[float] = []
 var _prev_boost_fraction: float = 0.0
+var _turbo_boost: float = 0.0          # smoothed audio boost state (0..1)
+var _turbo_rpm_slow: float = 0.0       # slow rpm_norm for the whistle gain
+var _turbo_whine_lin: float = 0.0      # smoothed whistle amplitude (linear)
+var _turbo_pitch: float = TURBO_PITCH_MIN
+var _flutter_variants: Dictionary = {}   # load_flutter_variants() result
+var _flutter_cooldown: float = 0.0
+var _throttle_peak: float = 0.0          # short-memory throttle peak (fast-lift detector)
+var _last_flutter_idx: int = -1
+var _last_bov_idx: int = -1
+var _flutter_rng := RandomNumberGenerator.new()
+var _engine_layer_players: Array[AudioStreamPlayer3D] = []
+var _engine_layer_lin: Array[float] = [0.0, 0.0]
 var _pop_player: AudioStreamPlayer3D = null
 var _pop_rng := RandomNumberGenerator.new()
 var _pop_cooldown: float = 0.0
@@ -279,6 +359,9 @@ func _create_turbo_players() -> void:
 		return
 	if _turbo_streams.is_empty():
 		_turbo_streams = load_turbo_assets()
+	if _flutter_variants.is_empty():
+		_flutter_variants = load_flutter_variants()
+		_flutter_rng.randomize()
 	for i in range(TURBO_LAYER_ORDER.size()):
 		var player := AudioStreamPlayer3D.new()
 		player.name = TURBO_LAYER_NAMES[i]
@@ -292,6 +375,8 @@ func _create_turbo_players() -> void:
 	# The whine is a whole-file loop: start it now (muted until boost arrives).
 	# The BOV/flutter one-shots fire on the gas-off edge in _update_turbo().
 	if _turbo_players.size() > 0:
+		_turbo_pitch = TURBO_PITCH_MIN
+		_turbo_players[0].pitch_scale = _turbo_pitch
 		_turbo_players[0].play()
 
 
@@ -324,38 +409,122 @@ func _ensure_pop_layer(cfg: CarConfig) -> void:
 	_pop_player = player
 
 
-## Per-frame turbo voice update: the spool whine chases the boost fraction x
-## rpm position; the blow-off valve fires once on the lift edge while boost was
-## built; the wastegate flutter fires on a gear-change edge while boost is up.
-func _update_turbo(cfg: CarConfig, info: Dictionary, rpm_norm: float, throttle: float) -> void:
+## Per-frame turbo voice update. The whistle follows a SMOOTHED audio boost
+## state (turbo_boost_step), not the Drivetrain's raw per-shift-dipping
+## boost_fraction: a stable continuous whistle with a gentle rise under load
+## that bridges upshift dips and only decays when the driver lifts. The
+## blow-off valve and wastegate flutter still fire once on the lift edge while
+## boost was built.
+func _update_turbo(cfg: CarConfig, info: Dictionary, rpm_norm: float, throttle: float, delta: float = 0.016667) -> void:
 	if _turbo_players.is_empty():
 		return
-	var boost := clampf(float(info.get("boost_fraction", 0.0)), 0.0, 1.0)
+	var raw_boost := clampf(float(info.get("boost_fraction", 0.0)), 0.0, 1.0)
+	var boost := turbo_boost_step(_turbo_boost, raw_boost, throttle, delta)
+	_turbo_boost = boost
+	_turbo_rpm_slow = lerpf(_turbo_rpm_slow, rpm_norm, 1.0 - exp(-delta / TURBO_RPM_SLOW_TAU))
 	var whine := _turbo_players[0]
 	var bov := _turbo_players[1]
 	var flutter := _turbo_players[2]
-	var whine_gain := turbo_whine_gain_db(boost, rpm_norm)
+	var whine_gain := turbo_whine_gain_db(boost, _turbo_rpm_slow)
 	if cfg != null:
 		whine_gain += linear_to_db(maxf(cfg.turbo_whine_gain, 0.001))
 	var whine_target := clampf(whine_gain + extra_trim_db, MUTE_FLOOR_DB, 6.0)
-	var whine_vol: float = move_toward(_turbo_vol_ema[0], whine_target, VOL_SLEW_DB)
+	var target_lin := 0.0
+	if whine_target > MUTE_FLOOR_DB + 0.5:
+		target_lin = db_to_linear(whine_target)
+	_turbo_whine_lin = ema_linear(_turbo_whine_lin, target_lin, delta, TURBO_VOL_TAU)
+	var whine_vol := MUTE_FLOOR_DB
+	if _turbo_whine_lin > 0.0001:
+		whine_vol = maxf(linear_to_db(_turbo_whine_lin), MUTE_FLOOR_DB)
 	_turbo_vol_ema[0] = whine_vol
 	whine.volume_db = whine_vol
+	_turbo_pitch = move_toward(_turbo_pitch, turbo_whine_pitch(boost, _turbo_rpm_slow), TURBO_PITCH_RATE * delta)
+	whine.pitch_scale = _turbo_pitch
 	if not whine.playing:
 		whine.play()
-	# BOV: same lift edge as the lift-off pop, gated on boost actually built.
-	if _prev_throttle > 0.5 and throttle < 0.15 and _prev_boost_fraction > TURBO_BOV_MIN_FRACTION:
+	# BOV + wastegate flutter ("stu-tu-tu"): the after-effects of LETTING OFF
+	# the gas -- the lift edge (throttle drops through 0.5 -> 0.15, or a fast
+	# analog lift) while boost was built. Gas-off reactions, not gear-change
+	# ones, so a steady throttle holds a clean whistle. One shared cooldown
+	# stops either from retriggering mid-flutter; variant, pitch and length
+	# follow the boost at lift-off.
+	_flutter_cooldown = maxf(_flutter_cooldown - delta, 0.0)
+	_throttle_peak = maxf(throttle, _throttle_peak - delta / TURBO_FAST_LIFT_WINDOW_S)
+	var has_wastegate := cfg == null or cfg.turbo_has_wastegate
+	var fire_bov := bov_should_fire(_prev_throttle, throttle, _prev_boost_fraction, _flutter_cooldown, _throttle_peak)
+	var fire_flutter := flutter_should_fire(_prev_throttle, throttle, _prev_boost_fraction, _flutter_cooldown, has_wastegate, _throttle_peak)
+	var event_len := 0.0
+	if fire_bov:
+		var bov_variants: Array = _flutter_variants.get("bov", [])
+		if not bov_variants.is_empty():
+			var bov_idx := 0 if _prev_boost_fraction > TURBO_BOV_VENTED_BOOST else 1
+			bov_idx = mini(bov_idx, bov_variants.size() - 1)
+			_last_bov_idx = bov_idx
+			bov.stream = bov_variants[bov_idx] as AudioStream
+		bov.pitch_scale = flutter_pitch_scale(_prev_boost_fraction, _flutter_rng.randf())
 		bov.volume_db = bov_gain_db(_prev_boost_fraction) + extra_trim_db
 		bov.play()
-	# Wastegate flutter ("stutu"): the after-effect of LETTING OFF the gas --
-	# same lift edge as the BOV (throttle drops through 0.5 -> 0.15 while boost
-	# was built), gated on a wastegate being fitted. It is a gas-off reaction,
-	# not a gear-change reaction, so a steady throttle holds a clean whistle.
-	if _prev_throttle > 0.5 and throttle < 0.15 and _prev_boost_fraction > TURBO_FLUTTER_MIN_FRACTION \
-			and (cfg == null or cfg.turbo_has_wastegate):
+		event_len = maxf(event_len, _stream_seconds(bov.stream) / bov.pitch_scale)
+	if fire_flutter:
+		var tiers: Array = _flutter_variants.get("flutter", [])
+		var tier := flutter_tier(_prev_boost_fraction)
+		if tier < tiers.size() and not (tiers[tier] as Array).is_empty():
+			var pool: Array = tiers[tier]
+			var idx := pick_variant(pool.size(), _last_flutter_idx, _flutter_rng.randf())
+			_last_flutter_idx = idx
+			flutter.stream = pool[idx] as AudioStream
+		flutter.pitch_scale = flutter_pitch_scale(_prev_boost_fraction, _flutter_rng.randf())
 		flutter.volume_db = flutter_gain_db(_prev_boost_fraction) + extra_trim_db
 		flutter.play()
+		event_len = maxf(event_len, _stream_seconds(flutter.stream) / flutter.pitch_scale)
+	if fire_bov or fire_flutter:
+		_flutter_cooldown = maxf(TURBO_FLUTTER_COOLDOWN_S, event_len)
 	_prev_boost_fraction = boost
+
+
+## Per-frame GT-R support layers: induction roar (throttle x rpm, pitch follows
+## rpm so its firing-rate pulsing tracks the engine) and GR6 gear whine (pitch
+## and level follow road speed). Created lazily for the gtr bed set only.
+func _update_engine_layers(info: Dictionary, live_rpm: float, rpm_norm: float, throttle: float, delta: float) -> void:
+	if _engine_layer_players.is_empty():
+		return
+	var speed_kmh := absf(float(info.get("speed_kmh", 0.0)))
+	var targets: Array[float] = [
+		intake_roar_gain_db(throttle, rpm_norm) + extra_trim_db,
+		gear_whine_gain_db(speed_kmh, throttle) + extra_trim_db,
+	]
+	for i in range(_engine_layer_players.size()):
+		var tgt_lin := 0.0
+		if targets[i] > MUTE_FLOOR_DB + 0.5:
+			tgt_lin = db_to_linear(clampf(targets[i], MUTE_FLOOR_DB, 6.0))
+		_engine_layer_lin[i] = ema_linear(_engine_layer_lin[i], tgt_lin, delta, ENGINE_LAYER_VOL_TAU)
+		var player := _engine_layer_players[i]
+		player.volume_db = MUTE_FLOOR_DB
+		if _engine_layer_lin[i] >= 0.0001:
+			player.volume_db = maxf(linear_to_db(_engine_layer_lin[i]), MUTE_FLOOR_DB)
+		if not player.playing:
+			player.play()
+	_engine_layer_players[0].pitch_scale = intake_roar_pitch(live_rpm)
+	_engine_layer_players[1].pitch_scale = gear_whine_pitch(speed_kmh)
+
+
+## Lazily creates the roar / gear-whine players for the gtr bed set (never
+## under the headless display server, same guard as the turbo layer).
+func _ensure_engine_layers() -> void:
+	if not _engine_layer_players.is_empty():
+		return
+	if not should_create_engine_layers(_bed_set, DisplayServer.get_name()):
+		return
+	var streams := load_engine_layer_assets()
+	for i in range(ENGINE_LAYER_ORDER.size()):
+		var player := AudioStreamPlayer3D.new()
+		player.name = ENGINE_LAYER_NAMES[i]
+		player.unit_size = unit_size
+		player.max_distance = max_distance
+		add_child(player)
+		player.stream = streams.get(ENGINE_LAYER_ORDER[i]) as AudioStream
+		player.volume_db = MUTE_FLOOR_DB
+		_engine_layer_players.append(player)
 
 
 ## Per-frame overrun update: decay the anti-machine-gun cooldown, evaluate the
@@ -419,6 +588,9 @@ func _physics_process(delta: float) -> void:
 		for player in _turbo_players:
 			if player.playing:
 				player.stop()
+		for player in _engine_layer_players:
+			if player.playing:
+				player.stop()
 		return
 	if _car == null:
 		_car = get_parent() as VehiclePhysics
@@ -456,7 +628,7 @@ func _physics_process(delta: float) -> void:
 	# _prev_throttle (last frame's value) for the BOV edge, exactly like the
 	# lift-off pop does one block later.
 	_ensure_turbo_layer(cfg)
-	_update_turbo(cfg, info, rpm_norm, throttle)
+	_update_turbo(cfg, info, rpm_norm, throttle, delta)
 
 	# Exhaust overrun layer (presentation-only): create lazily like the turbo
 	# layer, then evaluate the overrun trigger. Same ordering rule -- it reads
@@ -483,6 +655,8 @@ func _physics_process(delta: float) -> void:
 
 	var weights := sample_curves(_curves, _smooth_rpm)
 	var shaping := load_shaping(load)
+	_ensure_engine_layers()
+	_update_engine_layers(info, live_rpm, rpm_norm, throttle, delta)
 	var load_gain: float = float(shaping["gain_db"])
 	var shift_pitch := gear_shift_pitch_mult(_shift_elapsed)
 	var trans_db := transient_gain_db(_shift_elapsed, _lift_env)
@@ -524,8 +698,17 @@ func set_audio_active(active: bool) -> void:
 		_turbo_vol_ema[i] = MUTE_FLOOR_DB
 		if turbo_player.playing:
 			turbo_player.stop()
+	_flutter_cooldown = 0.0
+	_throttle_peak = 0.0
+	for i in range(_engine_layer_players.size()):
+		_engine_layer_players[i].volume_db = MUTE_FLOOR_DB
+		_engine_layer_lin[i] = 0.0
+		if _engine_layer_players[i].playing:
+			_engine_layer_players[i].stop()
+	_turbo_whine_lin = 0.0
 	if active:
 		_prev_boost_fraction = 0.0
+		_turbo_boost = 0.0
 
 
 func cull_by_distance(camera_pos: Vector3, range_m: float) -> void:
@@ -865,6 +1048,92 @@ static func turbo_whine_gain_db(boost_fraction: float, rpm_norm: float) -> float
 	return clampf(linear_to_db(linear) + TURBO_WHINE_TRIM_DB, MUTE_FLOOR_DB, 6.0)
 
 
+## Smoothed audio boost state. `state` chases the Drivetrain's raw
+## boost_fraction with a rate limit: rising at TURBO_SPOOL_UP_RATE, falling at a
+## rate blended from TURBO_HOLD_DECAY_RATE (driver on the gas, throttle >=
+## TURBO_ON_THROTTLE -- bridges the per-upshift boost dip) to
+## TURBO_SPOOL_DOWN_RATE (throttle <= TURBO_LIFT_THROTTLE -- real spool-down).
+## Pure + deterministic; the result stays within 0..1.
+static func turbo_boost_step(state: float, raw_boost: float, throttle: float, delta: float) -> float:
+	var target := clampf(raw_boost, 0.0, 1.0)
+	var cur := clampf(state, 0.0, 1.0)
+	if target >= cur:
+		return clampf(move_toward(cur, target, TURBO_SPOOL_UP_RATE * delta), 0.0, 1.0)
+	var k := clampf((throttle - TURBO_LIFT_THROTTLE) / (TURBO_ON_THROTTLE - TURBO_LIFT_THROTTLE), 0.0, 1.0)
+	var down := lerpf(TURBO_SPOOL_DOWN_RATE, TURBO_HOLD_DECAY_RATE, k)
+	return clampf(move_toward(cur, target, down * delta), 0.0, 1.0)
+
+
+## Whistle pitch_scale: a gentle rise with boost (75%) and slow rpm (25%),
+## bounded to TURBO_PITCH_MIN..TURBO_PITCH_MAX.
+static func turbo_whine_pitch(boost: float, rpm_slow: float) -> float:
+	var load := clampf(0.75 * clampf(boost, 0.0, 1.0) + 0.25 * clampf(rpm_slow, 0.0, 1.0), 0.0, 1.0)
+	return lerpf(TURBO_PITCH_MIN, TURBO_PITCH_MAX, load)
+
+
+## One-pole smoothing of a LINEAR amplitude with time constant `tau`
+## (frame-rate independent) so volume changes never jump in dB.
+static func ema_linear(current: float, target: float, delta: float, tau: float) -> float:
+	return lerpf(current, target, 1.0 - exp(-maxf(delta, 0.0) / maxf(tau, 0.0001)))
+
+
+## Induction roar level: only on throttle, rising with rpm. Mute floor when the
+## driver is off the gas (coast/overrun is then just bed + pops).
+static func intake_roar_gain_db(throttle: float, rpm_norm: float) -> float:
+	var t := clampf((throttle - 0.08) / 0.92, 0.0, 1.0)
+	if t <= 0.001:
+		return MUTE_FLOOR_DB
+	var linear := pow(t, 1.3) * lerpf(0.30, 1.0, clampf(rpm_norm, 0.0, 1.0))
+	return clampf(linear_to_db(linear) + ROAR_TRIM_DB, MUTE_FLOOR_DB, 6.0)
+
+
+## Roar pitch: its firing-rate pulsing tracks the engine (authored at ROAR_REF_RPM).
+static func intake_roar_pitch(live_rpm: float) -> float:
+	return clampf(live_rpm / ROAR_REF_RPM, 0.45, 1.8)
+
+
+## GR6 gear/final-drive whine level: fades in with road speed, stronger on
+## throttle (drive side) than on coast. Mute floor when parked.
+static func gear_whine_gain_db(speed_kmh: float, throttle: float) -> float:
+	var v := clampf((absf(speed_kmh) - 5.0) / 115.0, 0.0, 1.0)
+	if v <= 0.001:
+		return MUTE_FLOOR_DB
+	var linear := v * v * (3.0 - 2.0 * v) * (0.45 + 0.55 * clampf(throttle, 0.0, 1.0))
+	return clampf(linear_to_db(linear) + GEAR_WHINE_TRIM_DB, MUTE_FLOOR_DB, 6.0)
+
+
+## Gear-whine pitch follows ROAD SPEED (rises monotonically with km/h).
+static func gear_whine_pitch(speed_kmh: float) -> float:
+	return clampf(absf(speed_kmh) / GEAR_WHINE_REF_KMH, 0.15, 3.5)
+
+
+## True when the roar / gear-whine players should exist: the gtr bed set and
+## NOT the headless display server.
+static func should_create_engine_layers(bed_set: String, display_name: String) -> bool:
+	return bed_set == TIMBRE_GTR and display_name != "headless"
+
+
+## Loads the roar / gear-whine loops as seamless LOOP_FORWARD (same QOA
+## loop_end snap as load_beds_for()). Missing files degrade to null (silence).
+static func load_engine_layer_assets() -> Dictionary:
+	var streams := {}
+	for key: String in ENGINE_LAYER_ASSETS:
+		var path: String = ENGINE_LAYER_ASSETS[key]
+		var stream: AudioStream = null
+		if ResourceLoader.exists(path):
+			var res := load(path) as AudioStream
+			if res != null:
+				stream = res
+				var wav := res as AudioStreamWAV
+				if wav != null:
+					wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
+					wav.loop_begin = 0
+					var frames := int(round(wav.get_length() * wav.mix_rate))
+					wav.loop_end = maxi(frames - 1, 1)
+		streams[key] = stream
+	return streams
+
+
 ## Blow-off valve command: louder the more boost was built when the throttle
 ## lifted. 0 boost => the mute floor, monotonic.
 static func bov_gain_db(boost_fraction: float) -> float:
@@ -874,7 +1143,9 @@ static func bov_gain_db(boost_fraction: float) -> float:
 
 
 ## Wastegate flutter command: a little quieter than the BOV at the same boost.
-## 0 boost => the mute floor, monotonic.
+## 0 boost => the mute floor, monotonic. The synthesised flutter files peak at
+## 0.85 (the retired flutter_hits.wav peaked at 0.44), hence the 5.7 dB lower
+## TURBO_FLUTTER_TRIM_DB.
 static func flutter_gain_db(boost_fraction: float) -> float:
 	if boost_fraction <= 0.001:
 		return MUTE_FLOOR_DB
@@ -914,6 +1185,97 @@ static func load_turbo_assets() -> Dictionary:
 						wav.loop_end = maxi(frames - 1, 1)
 		streams[key] = stream
 	return streams
+
+
+## Length in seconds of a one-shot stream (0 when missing).
+static func _stream_seconds(stream: AudioStream) -> float:
+	if stream == null:
+		return 0.0
+	return stream.get_length()
+
+
+## Flutter strength tier from the boost at lift-off: 0 below the first edge,
+## 1 below the second, else 2. Monotonic in boost.
+static func flutter_tier(boost: float) -> int:
+	var tier := 0
+	for edge in TURBO_FLUTTER_TIER_EDGES:
+		if boost >= edge:
+			tier += 1
+	return tier
+
+
+## Picks a variant index in [0, count) from a 0..1 random draw, never equal to
+## `last` when count > 1 (so the same sample never plays twice in a row).
+static func pick_variant(count: int, last: int, r01: float) -> int:
+	if count <= 1:
+		return 0
+	var r := clampf(r01, 0.0, 0.999999)
+	if last < 0 or last >= count:
+		return int(r * count)
+	var idx := int(r * (count - 1))
+	return idx + 1 if idx >= last else idx
+
+
+## Playback-rate scale: the boost sets a 0.92..1.08 base (more boost = faster,
+## higher flutter), then a +/-3 % per-event random factor from r01 (0..1).
+static func flutter_pitch_scale(boost: float, r01: float) -> float:
+	var base := lerpf(TURBO_FLUTTER_RATE_SCALE_MIN, TURBO_FLUTTER_RATE_SCALE_MAX, clampf(boost, 0.0, 1.0))
+	return base * (1.0 + TURBO_FLUTTER_PITCH_JITTER * (2.0 * clampf(r01, 0.0, 1.0) - 1.0))
+
+
+## True on the throttle lift edge: the classic single-frame 0.5 -> 0.15 drop,
+## or an analog fast lift (fall of more than TURBO_FAST_LIFT_DROP from the
+## short-memory `throttle_peak`, ending below TURBO_FAST_LIFT_END).
+static func is_lift_edge(prev_throttle: float, throttle: float, throttle_peak: float = 0.0) -> bool:
+	if prev_throttle > 0.5 and throttle < 0.15:
+		return true
+	return throttle_peak > 0.5 and throttle_peak - throttle > TURBO_FAST_LIFT_DROP \
+			and throttle < TURBO_FAST_LIFT_END
+
+
+## Whether the wastegate flutter fires this frame: lift edge, boost above
+## TURBO_FLUTTER_MIN_FRACTION, cooldown expired, wastegate fitted.
+static func flutter_should_fire(prev_throttle: float, throttle: float, boost: float, cooldown: float, has_wastegate: bool, throttle_peak: float = 0.0) -> bool:
+	return has_wastegate and cooldown <= 0.0 and boost > TURBO_FLUTTER_MIN_FRACTION \
+			and is_lift_edge(prev_throttle, throttle, throttle_peak)
+
+
+## Whether the blow-off valve fires this frame: lift edge, boost above
+## TURBO_BOV_MIN_FRACTION, cooldown expired.
+static func bov_should_fire(prev_throttle: float, throttle: float, boost: float, cooldown: float, throttle_peak: float = 0.0) -> bool:
+	return cooldown <= 0.0 and boost > TURBO_BOV_MIN_FRACTION \
+			and is_lift_edge(prev_throttle, throttle, throttle_peak)
+
+
+## Loads the flutter / blow-off one-shot variants as
+## {"flutter": [[AudioStreamWAV x2] per tier lo/mid/hi], "bov": [AudioStreamWAV x2]}
+## with looping disabled. A missing file degrades to a shorter array (silence),
+## like load_turbo_assets().
+static func load_flutter_variants() -> Dictionary:
+	var tiers: Array = []
+	for tier in range(TURBO_FLUTTER_TIER_EDGES.size() + 1):
+		var pool: Array = []
+		var paths: Array = TURBO_FLUTTER_VARIANTS.get(tier, [])
+		for path in paths:
+			var wav := _load_oneshot(String(path))
+			if wav != null:
+				pool.append(wav)
+		tiers.append(pool)
+	var bovs: Array = []
+	for path in TURBO_BOV_VARIANTS:
+		var wav := _load_oneshot(path)
+		if wav != null:
+			bovs.append(wav)
+	return {"flutter": tiers, "bov": bovs}
+
+
+static func _load_oneshot(path: String) -> AudioStreamWAV:
+	if not ResourceLoader.exists(path):
+		return null
+	var wav := load(path) as AudioStreamWAV
+	if wav != null:
+		wav.loop_mode = AudioStreamWAV.LOOP_DISABLED
+	return wav
 
 
 ## --- Exhaust overrun (pops & bangs) statics --------------------------------
@@ -1128,11 +1490,16 @@ func _get_config() -> CarConfig:
 
 func _ensure_lpf() -> void:
 	if _lpf_added:
+		_route_to_vehicle_bus()
 		return
-	_lpf_bus_index = AudioServer.get_bus_index("Master")
+	# The shaping low-pass lives on the dedicated Vehicle bus (never Master) so
+	# music routed through Master is not muffled by engine shaping.
+	AudioRouting.ensure_buses()
+	_lpf_bus_index = AudioServer.get_bus_index(VEHICLE_BUS)
 	if _lpf_bus_index < 0:
 		_lpf_added = true
 		return
+	_route_to_vehicle_bus()
 	for i in range(AudioServer.get_bus_effect_count(_lpf_bus_index)):
 		var effect: AudioEffect = AudioServer.get_bus_effect(_lpf_bus_index, i)
 		if effect is AudioEffectLowPassFilter:
@@ -1144,6 +1511,19 @@ func _ensure_lpf() -> void:
 	_lpf_effect.resonance = 0.5
 	AudioServer.add_bus_effect(_lpf_bus_index, _lpf_effect, 0)
 	_lpf_added = true
+
+
+## Sends this node and every sound player directly below it to the Vehicle bus.
+## Only the PLAYER car calls this (via _ensure_lpf); rivals stay on Master.
+## Re-runs when children were added since the last pass (lazy feel players).
+func _route_to_vehicle_bus() -> void:
+	if _lpf_bus_index < 0 or _routed_child_count == get_child_count():
+		return
+	_routed_child_count = get_child_count()
+	bus = VEHICLE_BUS
+	for child in get_children():
+		if child is AudioStreamPlayer3D:
+			(child as AudioStreamPlayer3D).bus = VEHICLE_BUS
 
 
 func _remove_lpf() -> void:
