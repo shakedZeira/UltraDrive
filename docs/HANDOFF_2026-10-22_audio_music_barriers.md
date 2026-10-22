@@ -1,8 +1,11 @@
 # Handoff — 2026-10-22 (session 2): GT-R audio, brakes, backfire, music, Le Mans barriers, open-world plans
 
-Written for the next Claude session. **Nothing from this session is committed.** Sub-agents were
-still running when this was written; see "Agent status" and verify the tree with tests before trusting
-any "done". Read `docs/HANDOFF_2026-10-22_session.md` too (older work, commit plan, usage notes).
+Written for the next Claude session. **UPDATE: the green work IS now committed locally (5 commits on master,
+628f1d3..61ed5db: brake fix, GT-R audio, backfire, music player, docs). NOT pushed.** Still uncommitted:
+the unfinished Le Mans barrier work (`scripts/track/le_mans_dressing.gd`, `tests/suites/test_le_mans_barriers.gd`),
+the pre-existing `.opencode/` changes, graphify-out, and repo-root scratch files. Sub-agents were all stopped;
+the "Agent status" section below describes their state when stopped (music/flutter parts have since been verified
+green by the gate). Verify the tree with tests before trusting any "done". Read `docs/HANDOFF_2026-10-22_session.md` too (older work, commit plan, usage notes).
 
 ## Standing rules (also in CLAUDE.md / memory)
 
