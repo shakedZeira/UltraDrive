@@ -58,6 +58,7 @@ const PARKED_REVEAL_INTERVAL := 0.5
 var _streamer: ChunkStreamer
 var _terrain_seeder: TerrainSeeder
 var _vista: TerrainVista
+var _roads: RoadNetwork
 var _player: Node3D
 var _discovery: WorldDiscovery
 var _weather_audio: WeatherAudio
@@ -174,6 +175,8 @@ func _push_player_position() -> void:
 		_terrain_seeder.sync_player_pos(player_pos)
 	if _vista != null:
 		_vista.sync_player_pos(player_pos)
+	if _roads != null:
+		_roads.sync_player_pos(player_pos)
 
 ## P5 discovery bridge: creates (or reuses) the off-limits-autoload
 ## WorldDiscovery state node, configures it with the seeded road defs so it can
@@ -283,6 +286,12 @@ func _bootstrap_roads() -> void:
 	network.recompute_rails()
 	if _terrain_seeder != null:
 		_terrain_seeder.set_roads(network.get_roads(), network.get_road_defs())
+	# Streamed road geometry (RoadNetwork.stream_geometry, on in the open world
+	# scene): build every cell around the spawn now, inside the loading screen,
+	# then follow the car from _push_player_position().
+	if network.stream_geometry:
+		_roads = network
+		network.prime_stream(_player.global_position if _player != null else Vector3.ZERO)
 
 ## Starts the static far-terrain build (TerrainVista) with the same road
 ## centrelines the seeder carves, nearest region to the player first. Runs

@@ -39,11 +39,71 @@ var _near_stride := 1
 var _near_dirty := true
 var _near_scratch := PackedInt32Array()
 
+## --- Streamed geometry (open world; open_world_status.md section 9) -------
+## Off (the default): every add_road_def() builds one TrackBuilder child for the
+## whole road, as the circuits (Le Mans, Barcelona RX, Northern Isle) expect.
+## On: add_road_def() only registers the RoadDef (topology, nearest-road index,
+## maps, discovery and the terrain carve all read the defs, never the meshes);
+## the geometry is cut into `stream_cell_size` cells by RoadChunkMesher and the
+## cells within `stream_radius` (Chebyshev, in cells) of the position passed to
+## sync_player_pos() are built on WorkerThreadPool and added here, cells past
+## `stream_keep_radius` are freed. The player's own cell is built synchronously
+## when it is missing (spawn, fast travel), so the car never lands on a cell
+## without collision. A single far-LOD mesh of the whole network (surface + edge
+## colours, no collision, no shadow) keeps roads on the horizon.
+@export var stream_geometry := false
+@export var stream_cell_size := 256.0
+@export var stream_radius := 2
+@export var stream_keep_radius := 3
+@export var stream_far_lod := true
+## Main-thread budget per frame for adding finished cells (at least one cell is
+## always added per frame when one is ready).
+@export var stream_apply_budget_ms := 2.0
+## Whether the painted lines (edge lines, lane dashes) cast shadows.
+## TrackBuilder keeps them on; paint 12-14 mm over the carriageway casts
+## nothing visible, so the stream turns them off. The carriageway (an overpass
+## shades the road under it) and the rails always cast.
+@export var stream_flat_shadows := false
+const STREAM_MAX_IN_FLIGHT := 2
+const STREAM_FREES_PER_FRAME := 2
+
+class _CellJob extends RefCounted:
+    var cell: Vector2i
+    var tables: Array
+    var entries: Array
+    var result: Dictionary = {}
+    var task_id := -1
+    func run() -> void:
+        result = RoadChunkMesher.build_cell(tables, entries)
+
+var _stream_rail_gaps: Array = []  # per road: the gaps recompute_rails computed
+var _stream_dirty := true
+var _stream_tables: Array = []
+var _stream_index: Dictionary = {}  # Vector2i cell -> [[road, PackedInt32Array segs], ...]
+var _stream_loaded: Dictionary = {}  # Vector2i -> Node3D
+var _stream_jobs: Dictionary = {}  # Vector2i -> _CellJob (in flight)
+var _stream_ready_jobs: Array = []  # finished _CellJob waiting for the main thread
+var _stream_queue: Array[Vector2i] = []
+var _stream_free_queue: Array[Node] = []
+var _stream_player_cell := Vector2i(-2147483647, -2147483647)
+var _stream_has_player := false
+var _stream_far: MeshInstance3D = null
+var _stream_warm: Node3D = null
+var _stream_stats := {
+    "applied": 0, "sync_builds": 0, "freed": 0, "dropped": 0,
+    "max_apply_ms": 0.0, "max_frame_apply_ms": 0.0, "max_sync_ms": 0.0,
+    "max_job_ms": 0.0, "prepare_ms": 0.0, "far_ms": 0.0, "far_tris": 0,
+}
+
 func _ready() -> void:
     # Lets minimaps/maps find the road source without knowing the scene layout.
     add_to_group("road_network")
+    set_process(stream_geometry)
     if not _road_defs.is_empty():
         recompute_rails()
+
+func _exit_tree() -> void:
+    _stream_wait_all()
 
 ## Legacy convenience shim: wraps the old signature into an ARTERIAL RoadDef.
 func add_road(points: Array[Vector3], width: float = 8.0, closed: bool = true) -> int:
@@ -53,11 +113,15 @@ func add_road(points: Array[Vector3], width: float = 8.0, closed: bool = true) -
 func add_road_def(def: RoadDef) -> int:
     if def.id.is_empty():
         def.id = "road_%d" % _road_defs.size()
-    var builder := TrackBuilder.new()
-    builder.road_width = def.width
-    builder.build_track(def.points, def.closed, def)
-    add_child(builder)
-    _builders.append(builder)
+    if stream_geometry:
+        _stream_rail_gaps.append([])
+        _stream_dirty = true
+    else:
+        var builder := TrackBuilder.new()
+        builder.road_width = def.width
+        builder.build_track(def.points, def.closed, def)
+        add_child(builder)
+        _builders.append(builder)
     _road_defs.append(def)
     _roads.append(def.points)
     _topology_dirty = true
@@ -108,7 +172,7 @@ func recompute_rails() -> void:
     var junctions: Array = _topology["junctions"]
     for road_id in _road_defs.size():
         var def := _road_defs[road_id]
-        if not def.rails_enabled() or road_id >= _builders.size():
+        if not def.rails_enabled() or not _has_geometry(road_id):
             continue
         var gaps: Array = []
         var pts := _roads[road_id]
@@ -127,7 +191,7 @@ func recompute_rails() -> void:
                     # Tier table only, NOT the merge veto: a merge-point road has
                     # no rails of its own, but the receiving road's rail still has
                     # to be cleared where the merge lands on it.
-                    if RoadDef.has_rails(other_def.tier) and other_id < _builders.size():
+                    if RoadDef.has_rails(other_def.tier) and _has_geometry(other_id):
                         # Closest point index on THIS road at the junction.
                         var idx_a := _find_closest_point_index(pts, point)
 
@@ -144,7 +208,253 @@ func recompute_rails() -> void:
                         if start_idx < 0:
                             start_idx += N
                         gaps.append({"start": pts[start_idx], "end": pts[idx_a]})
-        _builders[road_id].configure_rails(gaps)
+        if stream_geometry:
+            # Same rule as TrackBuilder.configure_rails: an empty list leaves the
+            # rails as first built (no gaps, no rail collision).
+            if not gaps.is_empty():
+                _stream_rail_gaps[road_id] = gaps
+                _stream_dirty = true
+        else:
+            _builders[road_id].configure_rails(gaps)
+
+## Whether road `road_id` has (or will stream) geometry that rails can be cut on.
+func _has_geometry(road_id: int) -> bool:
+    if stream_geometry:
+        return road_id >= 0 and road_id < _road_defs.size()
+    return road_id < _builders.size()
+
+## Rail gaps recompute_rails() stored for a streamed road (empty when none).
+func stream_rail_gaps(road_id: int) -> Array:
+    if road_id < 0 or road_id >= _stream_rail_gaps.size():
+        return []
+    return _stream_rail_gaps[road_id]
+
+# --- Streaming ----------------------------------------------------------------
+
+## Cell of a world position in the streaming grid.
+func stream_cell_of(pos: Vector3) -> Vector2i:
+    return RoadChunkMesher.cell_of(pos, stream_cell_size)
+
+func is_cell_loaded(cell: Vector2i) -> bool:
+    return _stream_loaded.has(cell)
+
+## Whether any road segment belongs to `cell` (empty cells are never built).
+func cell_has_roads(cell: Vector2i) -> bool:
+    _stream_prepare()
+    return _stream_index.has(cell)
+
+func loaded_cells() -> Array[Vector2i]:
+    var out: Array[Vector2i] = []
+    for c: Vector2i in _stream_loaded:
+        out.append(c)
+    return out
+
+## The node of a loaded cell (null when not loaded).
+func cell_node(cell: Vector2i) -> Node3D:
+    return _stream_loaded.get(cell, null)
+
+func far_lod_node() -> MeshInstance3D:
+    return _stream_far
+
+func stream_stats() -> Dictionary:
+    var out := _stream_stats.duplicate()
+    out["loaded"] = _stream_loaded.size()
+    out["in_flight"] = _stream_jobs.size()
+    out["queued"] = _stream_queue.size()
+    out["cells_with_roads"] = _stream_index.size()
+    return out
+
+## (Re)builds the per-road tables, the cell index and the far LOD from the
+## current defs. Called lazily; any loaded cell is dropped (the geometry it was
+## built from is stale).
+func _stream_prepare() -> void:
+    if not stream_geometry or not _stream_dirty:
+        return
+    _stream_dirty = false
+    _stream_wait_all()
+    for cell: Vector2i in _stream_loaded:
+        var node: Node = _stream_loaded[cell]
+        if is_instance_valid(node):
+            node.queue_free()
+    _stream_loaded.clear()
+    _stream_queue.clear()
+    _stream_ready_jobs.clear()
+    var t0 := Time.get_ticks_usec()
+    _stream_tables.clear()
+    _stream_index.clear()
+    for i in _road_defs.size():
+        var table := RoadChunkMesher.prepare_road(i, _road_defs[i], stream_rail_gaps(i))
+        _stream_tables.append(table)
+        var cells := RoadChunkMesher.cell_segments(table, stream_cell_size)
+        for cell: Vector2i in cells:
+            var list: Array = _stream_index.get(cell, [])
+            list.append([i, cells[cell]])
+            _stream_index[cell] = list
+    _stream_stats["prepare_ms"] = (Time.get_ticks_usec() - t0) / 1000.0
+    var tm := Time.get_ticks_usec()
+    _stream_stats["materials"] = RoadChunkMesher.warm_materials(_stream_tables)
+    if _stream_warm != null and is_instance_valid(_stream_warm):
+        _stream_warm.queue_free()
+    _stream_warm = RoadChunkMesher.warm_instances(_stream_tables, stream_flat_shadows)
+    add_child(_stream_warm)
+    _stream_stats["materials_ms"] = (Time.get_ticks_usec() - tm) / 1000.0
+    if _stream_far != null and is_instance_valid(_stream_far):
+        _stream_far.queue_free()
+    _stream_far = null
+    if stream_far_lod:
+        var tf := Time.get_ticks_usec()
+        var far := RoadChunkMesher.build_far(_stream_tables)
+        _stream_far = RoadChunkMesher.instantiate_far(far)
+        add_child(_stream_far)
+        _stream_stats["far_ms"] = (Time.get_ticks_usec() - tf) / 1000.0
+        _stream_stats["far_tris"] = (far["idx"] as PackedInt32Array).size() / 3
+    _stream_has_player = false
+
+## Cells around the car that must exist at all times (Chebyshev radius). A
+## segment belongs to the cell of its midpoint and the sparse highway ring has
+## ~150 m segments, so the road under the car can belong to a neighbouring cell.
+const STREAM_GUARANTEED_RADIUS := 1
+
+## Feeds the streaming centre (the player car). Cheap when the cell did not
+## change (nine dictionary lookups). Any cell of the 3x3 block around the car
+## that is still missing (spawn, fast travel, a car outrunning the worker) is
+## built synchronously right here, so the car never reaches a road without
+## collision.
+func sync_player_pos(pos: Vector3) -> void:
+    if not stream_geometry:
+        return
+    _stream_prepare()
+    var cell := stream_cell_of(pos)
+    var batch_t0 := -1
+    for dz in range(-STREAM_GUARANTEED_RADIUS, STREAM_GUARANTEED_RADIUS + 1):
+        for dx in range(-STREAM_GUARANTEED_RADIUS, STREAM_GUARANTEED_RADIUS + 1):
+            var c := cell + Vector2i(dx, dz)
+            if not _stream_loaded.has(c) and _stream_index.has(c):
+                if batch_t0 < 0:
+                    batch_t0 = Time.get_ticks_usec()
+                _stream_build_sync(c)
+    if batch_t0 >= 0:
+        var batch_ms := (Time.get_ticks_usec() - batch_t0) / 1000.0
+        _stream_stats["last_sync_batch_ms"] = batch_ms
+        _stream_stats["max_sync_batch_ms"] = maxf(float(_stream_stats.get("max_sync_batch_ms", 0.0)), batch_ms)
+    if _stream_has_player and cell == _stream_player_cell:
+        return
+    _stream_has_player = true
+    _stream_player_cell = cell
+    _stream_update_wanted()
+
+## Builds every cell within stream_radius of `pos` right now (load time).
+func prime_stream(pos: Vector3) -> void:
+    if not stream_geometry:
+        return
+    _stream_prepare()
+    var centre := stream_cell_of(pos)
+    for cell in _stream_cells_around(centre, stream_radius):
+        if not _stream_loaded.has(cell):
+            _stream_build_sync(cell)
+    sync_player_pos(pos)
+
+func _stream_cells_around(centre: Vector2i, radius: int) -> Array[Vector2i]:
+    var out: Array[Vector2i] = []
+    for dz in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            var c := centre + Vector2i(dx, dz)
+            if _stream_index.has(c):
+                out.append(c)
+    out.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+        return (a - centre).length_squared() < (b - centre).length_squared())
+    return out
+
+static func _cheb(a: Vector2i, b: Vector2i) -> int:
+    return maxi(absi(a.x - b.x), absi(a.y - b.y))
+
+func _stream_update_wanted() -> void:
+    var centre := _stream_player_cell
+    # Free what is past the keep radius (hysteresis: no thrash on a border).
+    for cell: Vector2i in _stream_loaded.keys():
+        if _cheb(cell, centre) > stream_keep_radius:
+            _stream_free_queue.append(_stream_loaded[cell])
+            _stream_loaded.erase(cell)
+    var queue: Array[Vector2i] = []
+    for cell in _stream_cells_around(centre, stream_radius):
+        if not _stream_loaded.has(cell) and not _stream_jobs.has(cell):
+            queue.append(cell)
+    _stream_queue = queue
+
+func _stream_build_sync(cell: Vector2i) -> void:
+    var t0 := Time.get_ticks_usec()
+    var result := RoadChunkMesher.build_cell(_stream_tables, _stream_index[cell])
+    var t1 := Time.get_ticks_usec()
+    _stream_add_cell(cell, result)
+    var ms := (Time.get_ticks_usec() - t0) / 1000.0
+    _stream_stats["max_sync_build_ms"] = maxf(float(_stream_stats.get("max_sync_build_ms", 0.0)), (t1 - t0) / 1000.0)
+    _stream_stats["max_sync_add_ms"] = maxf(float(_stream_stats.get("max_sync_add_ms", 0.0)), (Time.get_ticks_usec() - t1) / 1000.0)
+    _stream_stats["sync_builds"] = int(_stream_stats["sync_builds"]) + 1
+    _stream_stats["max_sync_ms"] = maxf(float(_stream_stats["max_sync_ms"]), ms)
+
+func _stream_add_cell(cell: Vector2i, result: Dictionary) -> void:
+    var node := RoadChunkMesher.instantiate_cell(cell, result, stream_flat_shadows)
+    add_child(node)
+    _stream_loaded[cell] = node
+    _stream_queue.erase(cell)
+
+func _process(_delta: float) -> void:
+    if not stream_geometry:
+        return
+    # 1. Collect finished worker builds.
+    for cell: Vector2i in _stream_jobs.keys():
+        var job: _CellJob = _stream_jobs[cell]
+        if WorkerThreadPool.is_task_completed(job.task_id):
+            WorkerThreadPool.wait_for_task_completion(job.task_id)
+            _stream_jobs.erase(cell)
+            _stream_ready_jobs.append(job)
+            _stream_stats["max_job_ms"] = maxf(float(_stream_stats["max_job_ms"]), float(job.result.get("usec", 0)) / 1000.0)
+    # 2. Add finished cells, nearest first, within the frame budget.
+    if not _stream_ready_jobs.is_empty():
+        var centre := _stream_player_cell
+        _stream_ready_jobs.sort_custom(func(a: _CellJob, b: _CellJob) -> bool:
+            return (a.cell - centre).length_squared() < (b.cell - centre).length_squared())
+        var frame_t0 := Time.get_ticks_usec()
+        var applied := 0
+        while not _stream_ready_jobs.is_empty():
+            if applied > 0 and (Time.get_ticks_usec() - frame_t0) / 1000.0 >= stream_apply_budget_ms:
+                break
+            var job: _CellJob = _stream_ready_jobs.pop_front()
+            if _stream_loaded.has(job.cell) or _cheb(job.cell, centre) > stream_keep_radius:
+                _stream_stats["dropped"] = int(_stream_stats["dropped"]) + 1
+                continue
+            var t0 := Time.get_ticks_usec()
+            _stream_add_cell(job.cell, job.result)
+            applied += 1
+            _stream_stats["applied"] = int(_stream_stats["applied"]) + 1
+            _stream_stats["max_apply_ms"] = maxf(float(_stream_stats["max_apply_ms"]), (Time.get_ticks_usec() - t0) / 1000.0)
+        _stream_stats["max_frame_apply_ms"] = maxf(float(_stream_stats["max_frame_apply_ms"]), (Time.get_ticks_usec() - frame_t0) / 1000.0)
+    # 3. Free a bounded number of cells that left the keep radius.
+    var frees := 0
+    while frees < STREAM_FREES_PER_FRAME and not _stream_free_queue.is_empty():
+        var node: Node = _stream_free_queue.pop_front()
+        if is_instance_valid(node):
+            node.queue_free()
+            _stream_stats["freed"] = int(_stream_stats["freed"]) + 1
+        frees += 1
+    # 4. Start new worker builds, nearest first.
+    while _stream_jobs.size() < STREAM_MAX_IN_FLIGHT and not _stream_queue.is_empty():
+        var cell: Vector2i = _stream_queue.pop_front()
+        if _stream_loaded.has(cell) or _stream_jobs.has(cell) or not _stream_index.has(cell):
+            continue
+        var job := _CellJob.new()
+        job.cell = cell
+        job.tables = _stream_tables
+        job.entries = _stream_index[cell]
+        job.task_id = WorkerThreadPool.add_task(job.run, false, "RoadCell")
+        _stream_jobs[cell] = job
+
+## Blocks until every in-flight build is done (scene exit, re-prepare).
+func _stream_wait_all() -> void:
+    for cell: Vector2i in _stream_jobs.keys():
+        var job: _CellJob = _stream_jobs[cell]
+        WorkerThreadPool.wait_for_task_completion(job.task_id)
+    _stream_jobs.clear()
 
 func _find_closest_point_index(points: Array[Vector3], target: Vector3) -> int:
     var best_idx := 0

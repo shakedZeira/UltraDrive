@@ -445,6 +445,13 @@ func _rail_material() -> StandardMaterial3D:
 ## straight road and is independent of point spacing. Otherwise the legacy path
 ## runs, untouched.
 func _frame(points: Array[Vector3], i: int, closed: bool, banking: float) -> Dictionary:
+    return frame_at(points, i, closed, banking, _bank_angles)
+
+## The frame math behind `_frame`, with the bank profile passed in instead of read
+## from the instance. `RoadChunkMesher` (streamed open-world roads) builds its
+## chunks from this same function, so a streamed chunk's vertices are the exact
+## vertices this builder would have produced for the whole road.
+static func frame_at(points: Array[Vector3], i: int, closed: bool, banking: float, bank_angles: PackedFloat32Array) -> Dictionary:
     var n := points.size()
     var p := points[i]
     var prev := points[(i - 1 + n) % n] if closed else points[maxi(i - 1, 0)]
@@ -452,8 +459,8 @@ func _frame(points: Array[Vector3], i: int, closed: bool, banking: float) -> Dic
     var forward := (next - prev).normalized()
     var right := forward.cross(Vector3.UP).normalized()
     var angle := 0.0
-    if _bank_angles.size() > 0:
-        angle = float(_bank_angles[i])
+    if bank_angles.size() > 0:
+        angle = float(bank_angles[i])
     elif banking > 0.0:
         var t1 := (p - prev).normalized()
         var t2 := (next - p).normalized()

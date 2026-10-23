@@ -118,6 +118,7 @@ apply_ground_textures = true
 
 [node name="RoadNetwork" type="Node" parent="."]
 script = ExtResource("9_net")
+stream_geometry = true
 
 [node name="MountainPassZone" parent="." instance=ExtResource("10_zone")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3800, 14, 3200)

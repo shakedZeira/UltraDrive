@@ -11,6 +11,21 @@ static func build_topology(defs: Array, link_threshold: float) -> Dictionary:
 	var junction_list: Array = []
 	for i in defs.size():
 		adjacency[i] = PackedInt32Array()
+	# Per-road segment boxes and a coarse XZ grid of them, built once and shared
+	# by every pair (see _closest_segments_near: same answer as the full
+	# all-pairs scan whenever the pair links, at a fraction of the cost; the
+	# open-world network took 21 s on the main thread before).
+	var boxes: Array = []
+	var grids: Array = []
+	for i in defs.size():
+		var d := defs[i] as RoadDef
+		if d == null or d.points.is_empty():
+			boxes.append(PackedFloat32Array())
+			grids.append({})
+			continue
+		var bx := _segment_boxes(d.points)
+		boxes.append(bx)
+		grids.append(_segment_grid(bx, link_threshold + NEAR_EPS))
 	for i in range(defs.size()):
 		for j in range(i + 1, defs.size()):
 			var def_a := defs[i] as RoadDef
@@ -21,7 +36,7 @@ static func build_topology(defs: Array, link_threshold: float) -> Dictionary:
 			var b: Array[Vector3] = def_b.points
 			if a.is_empty() or b.is_empty():
 				continue
-			var closest := _closest_segments(a, b)
+			var closest := _closest_segments_near(a, b, boxes[i], boxes[j], grids[j], link_threshold)
 			var dist: float = closest["dist"]
 			if dist < link_threshold:
 				var ia: PackedInt32Array = adjacency[i]
@@ -110,6 +125,105 @@ static func _closest_segments(a: Array[Vector3], b: Array[Vector3]) -> Dictionar
 	var count_b := _segment_count(b)
 	for ia in count_a:
 		for ib in count_b:
+			var data := _segment_data(_seg_start(a, ia), _seg_end(a, ia), _seg_start(b, ib), _seg_end(b, ib))
+			var d: float = data["dist"]
+			if d < best_dist:
+				best_dist = d
+				best_seg_a = ia
+				best_seg_b = ib
+				best_on_a = data["on_a"]
+				best_on_b = data["on_b"]
+	return {
+		"dist": best_dist,
+		"seg_a": best_seg_a,
+		"seg_b": best_seg_b,
+		"on_a": best_on_a,
+		"on_b": best_on_b,
+	}
+
+## Cell size (m) of the per-road segment grid used by build_topology.
+const NEAR_CELL := 64.0
+## Safety margin on the box rejection so float rounding can never skip a pair
+## whose true distance is just under the threshold.
+const NEAR_EPS := 0.01
+
+## Axis-aligned box per segment: [minx, miny, minz, maxx, maxy, maxz] * count.
+static func _segment_boxes(pts: Array[Vector3]) -> PackedFloat32Array:
+	var count := _segment_count(pts)
+	var out := PackedFloat32Array()
+	out.resize(count * 6)
+	for s in count:
+		var p := _seg_start(pts, s)
+		var q := _seg_end(pts, s)
+		out[s * 6] = minf(p.x, q.x)
+		out[s * 6 + 1] = minf(p.y, q.y)
+		out[s * 6 + 2] = minf(p.z, q.z)
+		out[s * 6 + 3] = maxf(p.x, q.x)
+		out[s * 6 + 4] = maxf(p.y, q.y)
+		out[s * 6 + 5] = maxf(p.z, q.z)
+	return out
+
+## { Vector2i XZ cell -> PackedInt32Array segment indices }: each segment is
+## registered in every cell its XZ box, grown by `pad`, touches.
+static func _segment_grid(boxes: PackedFloat32Array, pad: float) -> Dictionary:
+	var grid := {}
+	for s in boxes.size() / 6:
+		var x0 := floori((boxes[s * 6] - pad) / NEAR_CELL)
+		var z0 := floori((boxes[s * 6 + 2] - pad) / NEAR_CELL)
+		var x1 := floori((boxes[s * 6 + 3] + pad) / NEAR_CELL)
+		var z1 := floori((boxes[s * 6 + 5] + pad) / NEAR_CELL)
+		for cz in range(z0, z1 + 1):
+			for cx in range(x0, x1 + 1):
+				var key := Vector2i(cx, cz)
+				var list: PackedInt32Array = grid.get(key, PackedInt32Array())
+				list.append(s)
+				grid[key] = list
+	return grid
+
+## Distance between two segment boxes (a lower bound of the segment distance).
+static func _box_gap(ba: PackedFloat32Array, ia: int, bb: PackedFloat32Array, ib: int) -> float:
+	var dx := maxf(0.0, maxf(ba[ia * 6] - bb[ib * 6 + 3], bb[ib * 6] - ba[ia * 6 + 3]))
+	var dy := maxf(0.0, maxf(ba[ia * 6 + 1] - bb[ib * 6 + 4], bb[ib * 6 + 1] - ba[ia * 6 + 4]))
+	var dz := maxf(0.0, maxf(ba[ia * 6 + 2] - bb[ib * 6 + 5], bb[ib * 6 + 2] - ba[ia * 6 + 5]))
+	return sqrt(dx * dx + dy * dy + dz * dz)
+
+## `_closest_segments` restricted to segment pairs that can be closer than
+## `threshold`. Whenever the true closest distance is below `threshold` the
+## result is IDENTICAL to `_closest_segments` (same pair, same points, same
+## first-minimum tie-break): pairs are visited in the same (seg_a, seg_b)
+## order and a skipped pair is provably >= threshold away (its boxes are; the
+## grid only drops pairs whose XZ boxes are more than threshold apart). When
+## nothing is that close it returns dist = INF; callers only test `< threshold`.
+static func _closest_segments_near(a: Array[Vector3], b: Array[Vector3], boxes_a: PackedFloat32Array, boxes_b: PackedFloat32Array, grid_b: Dictionary, threshold: float) -> Dictionary:
+	var best_dist := INF
+	var best_seg_a := 0
+	var best_seg_b := 0
+	var best_on_a := Vector3.ZERO
+	var best_on_b := Vector3.ZERO
+	var count_a := _segment_count(a)
+	var reject := threshold + NEAR_EPS
+	var cand := PackedInt32Array()
+	for ia in count_a:
+		cand.resize(0)
+		var x0 := floori(boxes_a[ia * 6] / NEAR_CELL)
+		var z0 := floori(boxes_a[ia * 6 + 2] / NEAR_CELL)
+		var x1 := floori(boxes_a[ia * 6 + 3] / NEAR_CELL)
+		var z1 := floori(boxes_a[ia * 6 + 5] / NEAR_CELL)
+		for cz in range(z0, z1 + 1):
+			for cx in range(x0, x1 + 1):
+				var key := Vector2i(cx, cz)
+				if grid_b.has(key):
+					cand.append_array(grid_b[key] as PackedInt32Array)
+		if cand.is_empty():
+			continue
+		cand.sort()
+		var prev := -1
+		for ib in cand:
+			if ib == prev:
+				continue
+			prev = ib
+			if _box_gap(boxes_a, ia, boxes_b, ib) > reject:
+				continue
 			var data := _segment_data(_seg_start(a, ia), _seg_end(a, ia), _seg_start(b, ib), _seg_end(b, ib))
 			var d: float = data["dist"]
 			if d < best_dist:
