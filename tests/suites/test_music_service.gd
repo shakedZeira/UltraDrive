@@ -327,6 +327,47 @@ func test_input_commands_drive_the_service() -> void:
 	assert_that(svc.handle_event(next_btn, 3.0)).is_false()
 	_free(svc)
 
+func test_info_command_re_emits_the_current_track_for_the_toast() -> void:
+	_populate()
+	var svc := _make()
+	_start(svc)
+	var infos: Array = []
+	svc.info_requested.connect(func(meta: Dictionary) -> void: infos.append(meta))
+	var notices: Array = []
+	svc.notice.connect(func(t: String, _s: String) -> void: notices.append(t))
+	svc.run_command("info")
+	assert_that(infos.size()).is_equal(1)
+	assert_that((infos[0] as Dictionary)["id"]).is_equal(svc.current_id)
+	assert_that((infos[0] as Dictionary)["station_name"]).is_equal("All Songs")
+	assert_that(_tracks_changed.size()).is_equal(1) # not a track change
+	_free(svc)
+	var idle := _make()
+	idle.notice.connect(func(t: String, _s: String) -> void: notices.append(t))
+	idle.run_command("info")
+	assert_that(notices).contains(["No music playing"])
+	_free(idle)
+
+func test_back_chord_emits_chord_changed_for_the_station_strip() -> void:
+	_populate()
+	var svc := _make()
+	_start(svc)
+	var seen: Array = []
+	svc.chord_changed.connect(func(held: bool) -> void: seen.append(held))
+	var back := InputEventJoypadButton.new()
+	back.button_index = MusicInput.JOY_BACK
+	back.pressed = true
+	svc.handle_event(back, 1.0)
+	var up := InputEventJoypadButton.new()
+	up.button_index = MusicInput.JOY_BACK
+	up.pressed = false
+	svc.handle_event(up, 1.8)
+	assert_that(seen).is_equal([true, false])
+	# leaving FreeRoam while Back is held releases the chord
+	svc.handle_event(back, 2.0)
+	svc.clear_context(1)
+	assert_that(seen).is_equal([true, false, true, false])
+	_free(svc)
+
 func test_streamer_safe_and_disabled_silence_everything() -> void:
 	_populate()
 	var svc := _make()

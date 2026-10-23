@@ -94,6 +94,8 @@ func bind(service: Node) -> void:
 	service.connect("track_changed", _on_track_changed)
 	service.connect("station_changed", _on_station_changed)
 	service.connect("notice", _on_notice)
+	if service.has_signal("info_requested"):
+		service.connect("info_requested", _on_track_changed)
 	service.connect("cover_ready", _on_cover_ready)
 
 func _enabled() -> bool:

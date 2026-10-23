@@ -6,7 +6,7 @@ extends RefCounted
 ## polling) so the chord / tap logic is unit-testable with synthetic events.
 ##
 ## Keyboard (acts via the music_* InputMap actions): N next, B prev, M pause,
-## = / - volume, Tab / Shift+Tab station.
+## = / - volume, Tab / Shift+Tab station, Y re-shows the now-playing toast.
 ##
 ## Gamepad (raw button indices, so photo mode / menus can gate them):
 ##   D-pad Left / Right      previous / next   (ignored in photo mode and while paused)
@@ -18,7 +18,7 @@ extends RefCounted
 ##   Back held + D-pad Up/Down   volume up / down
 ##   Back held + RB (10)         next station
 ##
-## Commands returned: next, prev, toggle, vol_up, vol_down, station_next, station_prev.
+## Commands returned: next, prev, toggle, vol_up, vol_down, station_next, station_prev, info.
 
 const JOY_BACK := 4
 const JOY_RIGHT_SHOULDER := 10
@@ -31,7 +31,7 @@ const TAP_MAX_S := 0.3
 
 const ACTIONS: Array[String] = [
 	"music_next", "music_prev", "music_toggle", "music_volume_up",
-	"music_volume_down", "music_station_next", "music_station_prev",
+	"music_volume_down", "music_station_next", "music_station_prev", "music_info",
 ]
 
 var _back_down: bool = false
@@ -65,6 +65,8 @@ func interpret(event: InputEvent, now_s: float, flags: Dictionary = {}) -> Dicti
 			cmds.append("vol_up")
 		elif _action(event, "music_volume_down", false):
 			cmds.append("vol_down")
+		elif _action(event, "music_info", false):
+			cmds.append("info")
 		return out
 	if not (event is InputEventJoypadButton):
 		return out

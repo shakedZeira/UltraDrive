@@ -16,11 +16,28 @@ var order: Array[String] = []
 ## folder name -> station.json dictionary (name, order, shuffle, color).
 var folder_meta: Dictionary = {}
 var stations: Array[MusicStation] = []
+## SidecarLoader result ({} when the folder has none): playlists become stations.
+var sidecar: Dictionary = {}
+
+## Sidecar entry for a track (by root-relative path, else by file stem), or {}.
+static func sidecar_track(side: Dictionary, rel: String) -> Dictionary:
+	var tracks: Variant = side.get("tracks", {})
+	if not (tracks is Dictionary) or (tracks as Dictionary).is_empty():
+		return {}
+	var by_rel: Dictionary = tracks
+	var hit: Variant = by_rel.get(rel.to_lower())
+	if hit == null:
+		hit = by_rel.get(rel.get_file().get_basename().to_lower())
+	return hit if hit is Dictionary else {}
+
+func set_sidecar(value: Dictionary) -> void:
+	sidecar = value
 
 func clear() -> void:
 	tracks.clear()
 	order.clear()
 	folder_meta.clear()
+	sidecar = {}
 	stations.clear()
 
 func add_tracks(batch: Array) -> void:
@@ -89,8 +106,16 @@ func rebuild_stations() -> void:
 	all.order = -1000000
 	all.color = MusicStation.color_for(all.display_name)
 	var by_folder: Dictionary = {}
+	var playlist_stations := _playlist_stations()
+	var covered: Dictionary = {}
+	for ps in playlist_stations:
+		for tid in ps.track_ids:
+			covered[tid] = true
 	for id in order:
 		var t: Dictionary = tracks[id]
+		if covered.has(id):
+			all.track_ids.append(id)
+			continue
 		var folder := String(t.get("station_folder", ""))
 		var st: MusicStation = by_folder.get(folder)
 		if st == null:
@@ -123,4 +148,47 @@ func rebuild_stations() -> void:
 			return a.order < b.order
 		return a.display_name.naturalnocasecmp_to(b.display_name) < 0)
 	stations = [all]
+	stations.append_array(playlist_stations)
 	stations.append_array(list)
+
+## One station per sidecar playlist (listed order), resolved against the tracks
+## scanned so far: a playlist key is a root-relative path or a file stem. Only
+## natively playable tracks are listed; the rest count as needs_conversion.
+func _playlist_stations() -> Array[MusicStation]:
+	var out: Array[MusicStation] = []
+	var lists: Variant = sidecar.get("playlists", [])
+	if not (lists is Array) or (lists as Array).is_empty():
+		return out
+	var by_rel: Dictionary = {}
+	var by_stem: Dictionary = {}
+	for id in order:
+		by_rel[String(id).to_lower()] = id
+		var stem := String(id).get_file().get_basename().to_lower()
+		if not by_stem.has(stem):
+			by_stem[stem] = id
+	var used_ids: Dictionary = {}
+	var index := 0
+	for p in lists:
+		var pl: Dictionary = p
+		var st := MusicStation.new()
+		var base_id := "pl:" + String(pl["name"])
+		st.id = base_id if not used_ids.has(base_id) else "%s#%d" % [base_id, index]
+		used_ids[st.id] = true
+		st.display_name = String(pl["name"])
+		st.order = index - 500
+		st.color = MusicStation.color_for(st.display_name)
+		var seen: Dictionary = {}
+		for k in pl["keys"]:
+			var id: Variant = by_rel.get(String(k))
+			if id == null:
+				id = by_stem.get(String(k))
+			if id == null or seen.has(id):
+				continue
+			seen[id] = true
+			if bool(tracks[id].get("native", false)):
+				st.track_ids.append(id)
+			else:
+				st.needs_conversion += 1
+		out.append(st)
+		index += 1
+	return out

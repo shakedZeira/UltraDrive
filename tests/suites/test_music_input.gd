@@ -107,6 +107,7 @@ func test_keyboard_actions() -> void:
 	assert_that(_cmds(m.interpret(_key(KEY_MINUS), 0.0))).is_equal(["vol_down"])
 	assert_that(_cmds(m.interpret(_key(KEY_TAB), 0.0))).is_equal(["station_next"])
 	assert_that(_cmds(m.interpret(_key(KEY_TAB, true), 0.0))).is_equal(["station_prev"])
+	assert_that(_cmds(m.interpret(_key(KEY_Y), 0.0))).is_equal(["info"])
 
 func test_keyboard_ignores_release_echo_and_other_keys() -> void:
 	var m := MusicInput.new()
@@ -148,6 +149,7 @@ func test_default_keys_and_buttons() -> void:
 	assert_that(_first_key("music_volume_down")).is_equal(KEY_MINUS)
 	assert_that(_first_key("music_station_next")).is_equal(KEY_TAB)
 	assert_that(_first_key("music_station_prev")).is_equal(KEY_TAB)
+	assert_that(_first_key("music_info")).is_equal(KEY_Y)
 	assert_that(_joy_buttons("music_next")).is_equal([14])
 	assert_that(_joy_buttons("music_prev")).is_equal([13])
 	assert_that(_joy_buttons("music_toggle")).is_equal([JOY_BUTTON_TOUCHPAD])

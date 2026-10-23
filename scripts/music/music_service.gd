@@ -22,8 +22,12 @@ signal library_progress(done_count: int, total: int)
 signal library_ready(stats: Dictionary)
 signal cover_ready(track_id: String, texture: Texture2D, accent: Color, generated: bool)
 signal volume_changed(volume: float)
+## Gamepad Back held / released (the volume + station chord): drives the station strip.
+signal chord_changed(held: bool)
 ## Generic one-line notice for the toast ("Paused", "Volume 70%", ...).
 signal notice(title: String, subtitle: String)
+## "Y" (music_info): re-show the now-playing toast for the current track.
+signal info_requested(meta: Dictionary)
 
 const MUSIC_BUS := &"Music"
 const MANUAL_FADE_S := 0.4
@@ -51,6 +55,8 @@ var user_paused: bool = false
 var current_id: String = ""
 var current_track: Dictionary = {}
 var current_cover: Texture2D = null
+var current_cover_accent: Color = Color(0.3, 0.6, 1.0)
+var current_cover_generated: bool = false
 var no_playable: bool = false
 var scan_total: int = 0
 var scan_done_count: int = 0
@@ -99,6 +105,7 @@ var _car_hooked: Object = null
 var _trap_hooked: Object = null
 var _cover_job: int = -1
 var _bus_index: int = -1
+var _back_was_held: bool = false
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -143,6 +150,7 @@ func clear_context(owner_id: int = 0) -> void:
 	context = MusicPolicy.Context.NONE
 	_context_owner = 0
 	input_state.reset()
+	_sync_chord()
 	state_changed.emit()
 
 func is_music_allowed() -> bool:
@@ -212,6 +220,7 @@ func _pump_scanner() -> void:
 		match String(msg["type"]):
 			"meta":
 				if _scan_target != null:
+					_scan_target.set_sidecar(msg.get("sidecar", {}))
 					_scan_target.set_folder_meta(msg["meta"])
 			"tracks":
 				if _scan_target != null:
@@ -403,7 +412,8 @@ func _request_load(id: String) -> void:
 		return
 	var job := _LoadJob.new()
 	_jobs[id] = job
-	job.task = WorkerThreadPool.add_task(_load_job.bind(job, path), false, "music_load")
+	# High priority: queued behind terrain/road bakes a skip could lag by seconds.
+	job.task = WorkerThreadPool.add_task(_load_job.bind(job, path), true, "music_load")
 
 func _load_job(job: _LoadJob, path: String) -> void:
 	var s := MusicStreams.load_stream(path)
@@ -587,7 +597,9 @@ func _finish_cover(id: String, res: Dictionary) -> void:
 	if img == null:
 		return
 	current_cover = ImageTexture.create_from_image(img)
-	cover_ready.emit(id, current_cover, res.get("accent", Color(0.3, 0.3, 0.3)), bool(res.get("generated", false)))
+	current_cover_accent = res.get("accent", Color(0.3, 0.3, 0.3))
+	current_cover_generated = bool(res.get("generated", false))
+	cover_ready.emit(id, current_cover, current_cover_accent, current_cover_generated)
 
 # ---------------------------------------------------------------------------
 # Per-frame: policy gate, ducking, bus volume, crossfade, auto-advance.
@@ -672,9 +684,16 @@ func handle_event(event: InputEvent, now_s: float) -> bool:
 	if context != MusicPolicy.Context.FREE_ROAM or not is_music_allowed():
 		return false
 	var res := input_state.interpret(event, now_s, _flags())
+	_sync_chord()
 	for c in res["commands"]:
 		run_command(String(c))
 	return bool(res["consume"])
+
+func _sync_chord() -> void:
+	var held := input_state.back_held()
+	if held != _back_was_held:
+		_back_was_held = held
+		chord_changed.emit(held)
 
 func run_command(command: String) -> void:
 	match command:
@@ -692,6 +711,19 @@ func run_command(command: String) -> void:
 			cycle_station(1)
 		"station_prev":
 			cycle_station(-1)
+		"info":
+			show_now_playing()
+
+## Re-emits the current track for the toast (a no-op notice when nothing plays).
+func show_now_playing() -> void:
+	if current_track.is_empty():
+		notice.emit("No music playing", "")
+		return
+	var meta := current_track.duplicate()
+	meta["station_name"] = station.display_name if station != null else ""
+	info_requested.emit(meta)
+	if current_cover != null:
+		cover_ready.emit(current_id, current_cover, current_cover_accent, current_cover_generated)
 
 # ---------------------------------------------------------------------------
 # Ducking hooks (player impact, speed trap) - connected lazily in FREE_ROAM.

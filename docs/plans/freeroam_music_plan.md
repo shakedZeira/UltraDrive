@@ -1,6 +1,30 @@
 # FreeRoam Music Player - plan (local song folder, stations, now-playing toast)
 
-Status: PLANNING ONLY. No game code, assets or project settings were changed to produce this file.
+Status: **AS BUILT (2026-10-23), FreeRoam only.** The plan below was implemented and audited section by section; user guide:
+`docs/MUSIC_USER_GUIDE.md`. Code: `scripts/music/*`, `scripts/ui/music_toast.gd`, `music_station_strip.gd`,
+`music_settings_section.gd`, `scripts/audio/audio_routing.gd`, `tools/music_convert.py`; tests: `tests/suites/test_music_*.gd`,
+`test_audio_routing.gd`, `tests/test_input_mapping.gd`.
+
+As-built deviations / additions:
+- `music_in_races`, `music_in_menus`, `resume_position` and "Radio Off"/favourites are NOT built (section 12: FreeRoam only).
+- The Music bus carries a Limiter + a 20.5 kHz low-pass that the service closes to 1.2 kHz in the pause menu; the engine
+  low-pass lives on `Vehicle` (EngineAudio, and the legacy unused `CarAudio`); rival cars stay on Master.
+- Added after the audit: `music_station_strip` (Back held / station change; layer 38), `music_info` key Y (re-show toast),
+  `sidecar_loader.gd` (`ultradrive_library.json` / `.m3u8` -> playlist stations + fill of empty tags), `chord_changed` and
+  `info_requested` signals, high-priority worker tasks for track loads (a skip must not queue behind terrain bakes).
+- Tag/ID3/Ogg/FLAC parsing is split differently than the file table in section 2 (`tag_reader`, `id3_parser`,
+  `ogg_comment_parser`, `flac_parser`, `mp3_info`, `music_formats`, `music_covers`, `music_streams`).
+- Verified in a windowed open-world run with generated Ogg/MP3/WAV tracks (Dummy audio driver): playback, `track_changed`,
+  toast (top-left, below the coordinates label, above the minimap), next/prev/pause by key and by synthetic pad events,
+  Back-chord volume/station, Y, pause-menu duck (-8 dB), silence after leaving the world, settings section, folder change.
+
+Remaining / unverified:
+- Not heard by ear and not tried with a real DualShock 4 / DS4Windows (touchpad -> Back mapping), nor with real
+  Spotify Replica files (M4A/Opus). The default folder (D:/Music/UltraDrive) exists and is empty: the user must add songs.
+- Native FileDialog ("Choose Folder...") was not clicked; its result handler was driven directly.
+- Not built: Replica "Export for PC" (separate repo), in-game ffmpeg import button, ReplayGain, LAME-tag gapless trim.
+- Open questions 1, 2, 4, 6, 7, 8, 9 below are still open (defaults chosen: pre-conversion, tags + optional sidecar,
+  2.5 s crossfade, top-left toast, no favourites, Windows-first, separate music slider).
 Date: 2026-10-22. Engine: Godot 4.7 (project pins 4.7.2). Reference project (read-only): `D:\AI Projects\Spotify Replica`.
 
 ## 0. Decisions already made with the user (not re-asked)

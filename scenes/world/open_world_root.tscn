@@ -1,4 +1,4 @@
-[gd_scene load_steps=31 format=3]
+[gd_scene load_steps=32 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/world_driver.gd" id="1_driver"]
 [ext_resource type="Script" path="res://scripts/world/chunk_streamer.gd" id="2_cs"]
@@ -25,6 +25,7 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/speed_trap_hud.tscn" id="23_traphud"]
 [ext_resource type="PackedScene" path="res://scenes/ui/music_toast.tscn" id="24_musictoast"]
 [ext_resource type="Script" path="res://scripts/music/music_context_host.gd" id="25_musicctx"]
+[ext_resource type="PackedScene" path="res://scenes/ui/music_station_strip.tscn" id="27_musicstrip"]
 [ext_resource type="Script" path="res://scripts/world/region_dresser.gd" id="26_dresser"]
 [ext_resource type="Script" path="res://scripts/world/terrain_vista.gd" id="27_vista"]
 
@@ -175,6 +176,8 @@ environment = SubResource("env")
 [node name="SpeedTrapHUD" parent="." instance=ExtResource("23_traphud")]
 
 [node name="MusicToast" parent="." instance=ExtResource("24_musictoast")]
+
+[node name="MusicStationStrip" parent="." instance=ExtResource("27_musicstrip")]
 
 [node name="MusicContext" type="Node" parent="."]
 script = ExtResource("25_musicctx")

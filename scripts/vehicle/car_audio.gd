@@ -386,10 +386,17 @@ static func get_wind_intensity(speed_kmh: float) -> float:
 func _ensure_lpf() -> void:
 	if _lpf_added:
 		return
-	_lpf_bus_index = AudioServer.get_bus_index("Master")
+	# The shaping low-pass lives on the dedicated Vehicle bus (never Master) so
+	# music is not muffled by engine shaping (same as EngineAudio).
+	AudioRouting.ensure_buses()
+	_lpf_bus_index = AudioServer.get_bus_index(AudioRouting.BUS_VEHICLE)
 	if _lpf_bus_index < 0:
 		_lpf_added = true
 		return
+	bus = AudioRouting.BUS_VEHICLE
+	for child in get_children():
+		if child is AudioStreamPlayer3D:
+			(child as AudioStreamPlayer3D).bus = AudioRouting.BUS_VEHICLE
 	for i in range(AudioServer.get_bus_effect_count(_lpf_bus_index)):
 		var effect: AudioEffect = AudioServer.get_bus_effect(_lpf_bus_index, i)
 		if effect is AudioEffectLowPassFilter:

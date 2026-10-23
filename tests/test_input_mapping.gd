@@ -22,6 +22,7 @@ func test_music_actions_exist_with_expected_keys() -> void:
         "music_next": KEY_N, "music_prev": KEY_B, "music_toggle": KEY_M,
         "music_volume_up": KEY_EQUAL, "music_volume_down": KEY_MINUS,
         "music_station_next": KEY_TAB, "music_station_prev": KEY_TAB,
+        "music_info": KEY_Y,
     }
     for action in expected:
         assert_that(InputMap.has_action(action)).is_true()

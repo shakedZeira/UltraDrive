@@ -99,7 +99,8 @@ func _run(gen: int) -> void:
 	if gen != generation:
 		return
 	var files: Array = walked["files"]
-	_push(gen, {"type": "meta", "meta": walked["folder_meta"]})
+	var sidecar := SidecarLoader.load_root(_root)
+	_push(gen, {"type": "meta", "meta": walked["folder_meta"], "sidecar": sidecar})
 	_push(gen, {"type": "progress", "done": 0, "total": files.size()})
 	var index := load_index(_index_path, _root)
 	var new_index := {}
@@ -124,7 +125,7 @@ func _run(gen: int) -> void:
 			else:
 				raw = TagReader.read_raw("") # blank
 		new_index[rel] = {"size": int(f["size"]), "mtime": int(f["mtime"]), "tag": raw}
-		batch.append(_make_track(f, raw))
+		batch.append(_make_track(f, raw, sidecar, _root))
 		done += 1
 		if batch.size() >= BATCH_SIZE:
 			_push(gen, {"type": "tracks", "tracks": batch})
@@ -142,8 +143,18 @@ func _run(gen: int) -> void:
 	_push(gen, {"type": "progress", "done": done, "total": files.size()})
 	_push(gen, {"type": "done", "stats": {"files": files.size(), "parsed": local_parse, "cached": local_hits}})
 
-static func _make_track(f: Dictionary, raw: Dictionary) -> Dictionary:
+static func _make_track(f: Dictionary, raw: Dictionary, sidecar: Dictionary = {}, root: String = "") -> Dictionary:
 	var rel: String = f["rel"]
+	var side := MusicLibrary.sidecar_track(sidecar, rel)
+	if not side.is_empty():
+		# The sidecar only fills fields the embedded tags left empty (raw stays
+		# tag-only in the index cache, so editing the sidecar needs no re-parse).
+		raw = raw.duplicate()
+		for key in ["title", "artist", "album"]:
+			if String(raw.get(key, "")).is_empty():
+				raw[key] = String(side.get(key, ""))
+		if float(raw.get("duration_s", 0.0)) <= 0.0:
+			raw["duration_s"] = float(side.get("duration_s", 0.0))
 	var t := TagReader.resolve(raw, rel)
 	t["id"] = rel
 	t["rel"] = rel
@@ -153,6 +164,12 @@ static func _make_track(f: Dictionary, raw: Dictionary) -> Dictionary:
 	t["native"] = f["native"]
 	t["cover_file"] = f.get("cover_file", "")
 	t["cover_path"] = f.get("cover_path", "")
+	var side_cover := String(side.get("cover", ""))
+	if String(t["cover_file"]).is_empty() and not side_cover.is_empty() and not root.is_empty():
+		var base := root.replace("\\", "/").rstrip("/")
+		if FileAccess.file_exists(base + "/" + side_cover):
+			t["cover_file"] = side_cover
+			t["cover_path"] = base + "/" + side_cover
 	return t
 
 # ---------------------------------------------------------------------------
