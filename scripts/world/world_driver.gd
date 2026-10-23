@@ -91,6 +91,7 @@ func _ready() -> void:
 	# with no centrelines, which the conforming pass then never revisits.
 	_bootstrap_roads()
 	_bootstrap_vista()
+	_bootstrap_world_look()
 	LoadingScreenManager.update_loading("Building roads...", 12.5)
 	await get_tree().process_frame
 	_bootstrap_speed_trap_visuals()
@@ -304,6 +305,38 @@ func _bootstrap_vista() -> void:
 	var roads: Array = network.get_roads() if network != null else []
 	var pos := _player.global_position if _player != null else Vector3.ZERO
 	vista.start(roads, pos)
+
+## Conifer share per dressing zone once Flora adds broadleaf woods (lowlands
+## were pines only; the coast keeps its black-pine look).
+const ZONE_CONIFER_SCALE := {"lowlands": 0.3, "highlands": 0.75, "coast": 0.9}
+
+## FH6-look pass (2026-10-23), runtime-built so the shared scene file stays as
+## authored: biome vegetation / rocks / roadside furniture on the dresser
+## (Flora), the atmosphere (grade, haze, sky, sun colour, sea, clouds) and the
+## region landmarks. The hub's static Foliage drops its flat-quad grass tufts
+## (they read as bright green tiles); Flora's standing grass clumps replace them.
+func _bootstrap_world_look() -> void:
+	var dresser := get_node_or_null("RegionDresser") as RegionDresser
+	if dresser != null:
+		dresser.flora_enabled = true
+		dresser.zone_conifer_scale = ZONE_CONIFER_SCALE
+	var hub_foliage := get_node_or_null("Foliage") as Foliage
+	if hub_foliage != null and hub_foliage.grass_count > 0:
+		hub_foliage.grass_count = 0
+		hub_foliage.generate()
+	if get_node_or_null("WorldAtmosphere") == null:
+		var atmo := WorldAtmosphere.new()
+		atmo.name = "WorldAtmosphere"
+		var we := get_node_or_null("WorldEnvironment") as WorldEnvironment
+		atmo.environment = we.environment if we != null else null
+		atmo.sun = get_node_or_null("Sun") as DirectionalLight3D
+		atmo.player = _player
+		add_child(atmo)
+	if get_node_or_null("WorldLandmarks") == null:
+		var marks := WorldLandmarks.new()
+		marks.name = "WorldLandmarks"
+		marks.road_network = get_node_or_null(road_network_path) as RoadNetwork
+		add_child(marks)
 
 ## Re-syncs the speed-trap gates now the corridors are registered, so every gantry
 ## is aligned to the LIVE centreline and width the player actually drives rather

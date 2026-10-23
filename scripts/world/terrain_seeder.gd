@@ -312,6 +312,23 @@ func baked_region_control(loc: Vector2i, world_pos: Vector3) -> int:
 	var bytes: PackedByteArray = entry[1]
 	return bytes.decode_u32((iz * w + ix) * 4)
 
+## Read-only copies of a cached region bake for bulk main-thread reads (the
+## Flora placer reads thousands of texels per region): {"height":
+## PackedFloat32Array, "control": PackedByteArray (raw uint32 control bits),
+## "width": int}. Empty when the region has no cached bake or no control map.
+func baked_region_maps(loc: Vector2i) -> Dictionary:
+	if not _baked.has(loc):
+		return {}
+	var rec: Dictionary = _baked[loc]
+	var img: Variant = rec.get("image", null)
+	var ctl: Variant = rec.get("control", null)
+	if not img is Image or not ctl is Image:
+		return {}
+	var w := (img as Image).get_width()
+	if (ctl as Image).get_width() != w:
+		return {}
+	return {"height": (img as Image).get_data().to_float32_array(), "control": (ctl as Image).get_data(), "width": w}
+
 func baked_region_height(loc: Vector2i, world_pos: Vector3) -> float:
 	if not _baked.has(loc):
 		return 0.0

@@ -112,6 +112,19 @@ const ZONE_FOLIAGE := {
 ## the textured ground (captures 2026-10-22), so region grass stays off until a
 ## real grass-card mesh exists; the textured ground carries the grass look.
 @export var region_grass_scale: float = 1.0
+## FH6-look pass (2026-10-23): biome vegetation / rocks / roadside furniture
+## (Flora child, procedural meshes) on LIVE-ring regions, built time-sliced on
+## idle drains after the props + conifers. Off by default so flat scenes and the
+## dresser unit tests keep exactly one Props + one Foliage child per region; the
+## open world turns it on (WorldDriver._bootstrap_world_look).
+@export var flora_enabled: bool = false
+## Multiplier on ZONE_FOLIAGE conifer counts per zone (missing zone = 1.0): with
+## broadleaf woods from Flora the lowlands keep only a few pines.
+@export var zone_conifer_scale: Dictionary = {}
+## Quality-ladder world detail (0 Low, 1 Medium, 2 High) handed to every Flora.
+@export var world_detail: int = 1
+## Main-thread budget per idle drain for Flora placement (microseconds).
+@export var flora_budget_usec: int = 1500
 
 var _player_region := Vector2i(1 << 30, 1 << 30)
 ## Main-thread natural-height fallback for samples whose region has no cached
@@ -125,6 +138,9 @@ var _band_queue: Array = []
 var _free_queue: Array = []
 ## Regions whose grass batch is still to be built (defer_grass).
 var _grass_queue: Array[Vector2i] = []
+## LIVE regions whose Flora is still to be built (nearest first).
+var _flora_queue: Array[Vector2i] = []
+const FLORA_CHILD_NAME := "Flora"
 var _offsets_cache: Array[Vector2i] = []
 var _offsets_radius := -1
 
@@ -133,6 +149,7 @@ var dress_count: int = 0
 var free_count: int = 0
 
 func _ready() -> void:
+	add_to_group("world_detail")
 	if terrain_seeder != null:
 		if not terrain_seeder.region_entered.is_connected(_on_region_entered):
 			terrain_seeder.region_entered.connect(_on_region_entered)
@@ -208,7 +225,86 @@ func drain_pending() -> void:
 		_spawn_region(job)
 		dresses += 1
 	if dresses == 0:
-		_drain_one_grass()
+		if _grass_queue.is_empty():
+			_drain_flora()
+		else:
+			_drain_one_grass()
+
+## Advances the nearest pending Flora build by one time slice.
+func _drain_flora() -> void:
+	while not _flora_queue.is_empty():
+		var loc: Vector2i = _flora_queue[0]
+		var flora := _flora_of(loc)
+		if flora == null or region_band(loc) != BAND_LIVE:
+			_flora_queue.pop_front()
+			continue
+		if not flora.job_active():
+			if flora.is_built():
+				_flora_queue.pop_front()
+				continue
+			flora.maps = terrain_seeder.baked_region_maps(loc) if terrain_seeder != null else {}
+			flora.begin()
+		if flora.step(flora_budget_usec):
+			_flora_queue.pop_front()
+		return
+
+func _flora_of(loc: Vector2i) -> Flora:
+	if not _dressed.has(loc):
+		return null
+	var node: Node3D = (_dressed[loc] as Dictionary)["node"]
+	return node.get_node_or_null(FLORA_CHILD_NAME) as Flora if node != null else null
+
+func _queue_flora(loc: Vector2i) -> void:
+	if not flora_enabled or _flora_queue.has(loc):
+		return
+	var flora := _flora_of(loc)
+	if flora == null or flora.is_built():
+		return
+	_flora_queue.append(loc)
+	# Nearest first: the player's own region and the live ring before the rest.
+	_flora_queue.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		var ra := maxi(absi(a.x - _player_region.x), absi(a.y - _player_region.y))
+		var rb := maxi(absi(b.x - _player_region.x), absi(b.y - _player_region.y))
+		return ra < rb)
+
+func pending_flora_count() -> int:
+	return _flora_queue.size()
+
+## Quality ladder hook (SettingsMenu.apply_quality_preset -> "world_detail"):
+## rebuilds every dressed region's Flora at the new detail level.
+func set_world_detail(level: int) -> void:
+	level = clampi(level, 0, 2)
+	if level == world_detail:
+		return
+	world_detail = level
+	for loc: Vector2i in _dressed.keys():
+		var flora := _flora_of(loc)
+		if flora == null:
+			continue
+		flora.detail = level
+		flora.reset()  # drops the old batches; the queue rebuilds them
+		_queue_flora(loc)
+
+func _make_flora(loc: Vector2i, seed: int, zone: String) -> Flora:
+	var flora := Flora.new()
+	flora.name = FLORA_CHILD_NAME
+	flora.region_key = loc
+	flora.seed = seed
+	flora.zone = zone
+	flora.detail = world_detail
+	flora.half_extent = region_size * 0.5
+	flora.road_network = road_network
+	flora.clear_zones = clear_zones
+	flora.height_provider = _make_ground_provider(loc)
+	if terrain_seeder != null:
+		var anchor := Vector2(float(loc.x) * region_size + region_size * 0.5, float(loc.y) * region_size + region_size * 0.5)
+		var sd := terrain_seeder
+		var cell := region_size
+		flora.control_provider = func(xz: Vector2) -> int:
+			var wx := anchor.x + xz.x
+			var wz := anchor.y + xz.y
+			return sd.baked_region_control(Vector2i(floori(wx / cell), floori(wz / cell)), Vector3(wx, 0.0, wz))
+	return flora
 
 ## Builds the next pending grass batch (nearest region first, by queue order).
 ## Regions freed or regenerated meanwhile are skipped / rebuilt idempotently.
@@ -327,7 +423,7 @@ func _spawn_region(job: Dictionary) -> void:
 	foliage.name = FOLIAGE_CHILD_NAME
 	var counts: Dictionary = ZONE_FOLIAGE.get(zone, ZONE_FOLIAGE["lowlands"])
 	foliage.grass_count = int(round(float(counts["grass"]) * maxf(region_grass_scale, 0.0)))
-	foliage.tree_count = int(counts["trees"])
+	foliage.tree_count = int(round(float(counts["trees"]) * float(zone_conifer_scale.get(zone, 1.0))))
 	foliage.square_half_extent = region_size * 0.5
 	foliage.inner_clear_radius = 0.0
 	foliage.radius = region_size * 0.5
@@ -342,8 +438,12 @@ func _spawn_region(job: Dictionary) -> void:
 	_apply_band_budget(props, foliage, band)
 	_apply_draw_distances(node)
 	node.visible = band_shown(band)
+	if flora_enabled:
+		node.add_child(_make_flora(loc, seed, zone))
 	_dressed[loc] = {"band": band, "node": node}
 	_queue_grass(loc)
+	if band == BAND_LIVE:
+		_queue_flora(loc)
 	dress_count += 1
 
 ## Regenerates a dressed region's batches at a different band density
@@ -373,6 +473,8 @@ func _apply_band(loc: Vector2i, band: int) -> void:
 	node.visible = band_shown(band)
 	entry["band"] = band
 	_queue_grass(loc)
+	if band == BAND_LIVE:
+		_queue_flora(loc)
 	dress_count += 1
 
 ## Frees a dressed region immediately (main thread). The node and all its
@@ -462,6 +564,7 @@ func clear_all() -> void:
 	_band_queue.clear()
 	_free_queue.clear()
 	_grass_queue.clear()
+	_flora_queue.clear()
 	for loc in _dressed.keys():
 		_free_region(loc)
 

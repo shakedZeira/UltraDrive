@@ -46,13 +46,16 @@ const LAYER_COUNT := 8
 ## roughness is pushed up on the vegetation/soil layers: natural ground is
 ## near-fully rough, and the scans' own roughness let grazing-angle Fresnel
 ## mirror the sky as white blotches across distant fields (seen in captures).
+## FH6-look pass (2026-10-23): meadow tint toned down and greener (the bright
+## yellow patches read as blocky decals), snow made rough (at +0.1 the flat
+## 2000 m dome top mirrored the dark sky ground colour and read near-black).
 const LAYERS := [
 	{"name": "grass", "uv_scale": 0.24, "detiling_rotation": 0.35, "detiling_shift": 0.35, "normal_depth": 1.0, "ao_strength": 0.5, "roughness": 0.35},
-	{"name": "meadow", "uv_scale": 0.12, "detiling_rotation": 0.35, "detiling_shift": 0.35, "normal_depth": 1.0, "ao_strength": 0.5, "roughness": 0.35, "tint": Color(0.86, 0.92, 0.78)},
+	{"name": "meadow", "uv_scale": 0.12, "detiling_rotation": 0.35, "detiling_shift": 0.35, "normal_depth": 1.0, "ao_strength": 0.5, "roughness": 0.35, "tint": Color(0.7, 0.8, 0.56)},
 	{"name": "dirt", "uv_scale": 0.2, "detiling_rotation": 0.3, "detiling_shift": 0.3, "normal_depth": 1.0, "ao_strength": 0.5, "roughness": 0.25},
 	{"name": "rock", "uv_scale": 0.08, "detiling_rotation": 0.2, "detiling_shift": 0.3, "normal_depth": 1.2, "ao_strength": 0.7, "roughness": 0.15, "tint": Color(1.25, 1.22, 1.18)},
 	{"name": "sand", "uv_scale": 0.16, "detiling_rotation": 0.3, "detiling_shift": 0.3, "normal_depth": 0.8, "ao_strength": 0.3, "roughness": 0.25},
-	{"name": "snow", "uv_scale": 0.12, "detiling_rotation": 0.3, "detiling_shift": 0.3, "normal_depth": 0.7, "ao_strength": 0.3, "roughness": 0.1},
+	{"name": "snow", "uv_scale": 0.12, "detiling_rotation": 0.3, "detiling_shift": 0.3, "normal_depth": 0.7, "ao_strength": 0.3, "roughness": 0.55},
 	{"name": "gravel", "uv_scale": 0.3, "detiling_rotation": 0.4, "detiling_shift": 0.4, "normal_depth": 1.0, "ao_strength": 0.6, "roughness": 0.2},
 	{"name": "forest", "uv_scale": 0.24, "detiling_rotation": 0.35, "detiling_shift": 0.35, "normal_depth": 1.0, "ao_strength": 0.5, "roughness": 0.35},
 ]
@@ -63,7 +66,9 @@ const LAYERS := [
 const SHADER_PARAMS := {
 	# Height-blend sharpness: 0.8 gave stair-stepped 1 m texel edges along
 	# diagonal road shoulders; ~0.5 keeps a natural height-blend, softer edge.
-	"blend_sharpness": 0.5,
+	# FH6-look pass: 0.35 so meadow / forest patches feather into the grass
+	# instead of ending on the 2 m classification blocks (captures 2026-10-23).
+	"blend_sharpness": 0.35,
 	"enable_projection": true,
 	"projection_threshold": 0.8,
 	"enable_macro_variation": true,

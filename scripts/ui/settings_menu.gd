@@ -102,6 +102,9 @@ const QUALITY_PRESETS: Dictionary = {
 		"shadow_fade_start": 0.25,
 		"shadow_opacity": 0.75,
 		"decals_enabled": false,
+		# Open-world vegetation / cloud detail (WorldAtmosphere, RegionDresser
+		# Flora): 0 thin small plants + no clouds, 1 full, 2 denser grass.
+		"world_detail": 0,
 	},
 	1: {
 		"ssao_enabled": true,
@@ -127,6 +130,9 @@ const QUALITY_PRESETS: Dictionary = {
 		"shadow_fade_start": 0.6,
 		"shadow_opacity": 0.9,
 		"decals_enabled": true,
+		# Open-world vegetation / cloud detail (WorldAtmosphere, RegionDresser
+		# Flora): 0 thin small plants + no clouds, 1 full, 2 denser grass.
+		"world_detail": 1,
 	},
 	2: {
 		"ssao_enabled": true,
@@ -181,6 +187,9 @@ const QUALITY_PRESETS: Dictionary = {
 		"shadow_fade_start": 1.0,
 		"shadow_opacity": 1.0,
 		"decals_enabled": true,
+		# Open-world vegetation / cloud detail (WorldAtmosphere, RegionDresser
+		# Flora): 0 thin small plants + no clouds, 1 full, 2 denser grass.
+		"world_detail": 2,
 	},
 }
 
@@ -352,6 +361,7 @@ static func apply_quality_preset(env: Environment, viewport: Viewport, preset: D
 	# because this function is static — see the doc comment above.
 	if scene_root != null:
 		_apply_decals_preset(scene_root, preset)
+		apply_world_detail(scene_root, int(preset.get("world_detail", 1)))
 
 ## fh5_optimization_plan.md item 3 — the DirectionalLight3D shadow-cascade
 ## ladder. This is the ONLY writer of these four knobs in the project, which is
@@ -417,6 +427,21 @@ static func _set_shadow_resolution_if_supported(light: DirectionalLight3D, resol
 ## Decal is a VisualInstance3D, so `visible` is the render switch. The search
 ## is by class ("Decal"), which also catches subclasses; owned=false so decals
 ## parented under a non-owned container are found too.
+## FH6-look world detail hook: every node in group "world_detail" under the
+## scene (WorldAtmosphere, RegionDresser) gets set_world_detail(level).
+static func apply_world_detail(root: Node, level: int) -> void:
+	if root == null:
+		return
+	# Collect first: set_world_detail may free child batches that are still in
+	# the find_children list.
+	var targets: Array[Node] = []
+	for node: Node in root.find_children("*", "", true, false):
+		if node.is_in_group("world_detail") and node.has_method("set_world_detail"):
+			targets.append(node)
+	for node in targets:
+		if is_instance_valid(node):
+			node.call("set_world_detail", level)
+
 static func _apply_decals_preset(root: Node, preset: Dictionary) -> void:
 	if root == null:
 		return

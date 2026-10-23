@@ -137,6 +137,12 @@ const CTRL_HIGH_TOP := 320.0
 const CTRL_ALPINE_START := 620.0
 const CTRL_ALPINE_FULL := 820.0
 const CTRL_FOREST_LOW := 60.0  # forest floor begins to mix into lowland grass
+## FH6-look pass (2026-10-23): meadow never fully replaces grass, and beaches are
+## the strip just above the water (was everything under 8 m in the coast biome,
+## a sand desert across the whole coastal plain).
+const MEADOW_MAX_SHARE := 0.62
+const BEACH_TOP := 3.4
+const BEACH_FULL := 1.4
 
 var _bake_scale := 1.0
 var _bake_region := Vector2i.ZERO
@@ -748,7 +754,9 @@ static func classify_ground(height: float, slope: float, patch: float, detail: f
 	var w_forest := 0.0
 	var w_dirt := 0.0
 	if low > 0.0:
-		var meadow_share := smoothstep(-0.15, 0.45, patch)
+		# Capped below 1 so a meadow patch is a grass/meadow MIX (the shader's
+		# height blend mottles it) instead of a hard-edged yellow decal.
+		var meadow_share := smoothstep(-0.15, 0.45, patch) * MEADOW_MAX_SHARE
 		var forest_low := 0.0
 		if height > CTRL_FOREST_LOW and patch < 0.1:
 			forest_low = smoothstep(CTRL_FOREST_LOW, CTRL_LOW_TOP, height) * smoothstep(0.1, -0.5, patch)
@@ -758,7 +766,7 @@ static func classify_ground(height: float, slope: float, patch: float, detail: f
 		if detail > 0.6:
 			w_dirt = low * smoothstep(0.6, 0.95, detail) * 0.75
 	if high > 0.0:
-		var high_meadow := smoothstep(0.0, 0.6, patch)
+		var high_meadow := smoothstep(0.0, 0.6, patch) * MEADOW_MAX_SHARE
 		w_meadow += high * high_meadow
 		w_forest += high * (1.0 - high_meadow)
 	var w_rock := 0.0
@@ -771,8 +779,8 @@ static func classify_ground(height: float, slope: float, patch: float, detail: f
 	# Beaches: only near the coast/sea biomes and near sea level, so a low
 	# inland dip (the spawn plains sit at ~2 m) never turns to sand.
 	var sand := 0.0
-	if coast > 0.0 and height < 8.0:
-		sand = coast * smoothstep(8.0, 3.0, height)
+	if coast > 0.0 and height < BEACH_TOP:
+		sand = coast * smoothstep(BEACH_TOP, BEACH_FULL, height)
 	# Steep faces are bare rock whatever the biome; snow and sand slide off.
 	var steep := 0.0
 	if slope > CTRL_ROCK_SLOPE_START:

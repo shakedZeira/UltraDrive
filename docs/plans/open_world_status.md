@@ -11,6 +11,10 @@
 > +-4096 m (thousands of "out of bounds" errors per second gone); the vista carries collision there.
 > See section 8.
 >
+> **Update 2026-10-24 (FH6-look pass):** biome vegetation (broadleaf woods, bushes, grass clumps, flowers, rocks),
+> roadside furniture, landmarks, atmosphere (grade, lighter haze, clouds, sea, time-of-day sun) and softer terrain
+> tones. See section 12.
+>
 > **Update 2026-10-23 (open-world stage 2, item 2):** road meshes and collision stream per 256 m cell
 > around the car, with a far-LOD mesh for the horizon; the road topology build at load went from 21 s to
 > 36 ms. See section 10.
@@ -550,3 +554,85 @@ off): the transient terrain-over-road at the `highway-ring` overpass is pre-exis
 - Cells are sized for today's 95 km network; the hub cell is the worst (3.8 ms worker build, ~1.5 ms add).
 - Not done here: the `MountainPassZone` scene keeps its own always-live `TrackBuilder` road; Low/High presets and VRAM
   on High not measured; not driven by hand.
+
+## 12. FH6-look pass (2026-10-24): vegetation, atmosphere, terrain tones, roadside, landmarks
+
+**Goal** (user): "make the map look more like Forza Horizon 6". Scope here is the 3D look of the driveable world, inside
+the GTX 970 Medium budget. All new nodes are created at runtime by `WorldDriver._bootstrap_world_look()`; the scene
+file is unchanged (other agents edit it), so its authored Environment / PhysicalSkyMaterial stay the fallback that
+`test_environment_lighting` parses.
+
+**What changed**
+- **Flora** (`scripts/world/flora.gd`, `flora_meshes.gd`, `shaders/flora.gdshader`, `flora_grass.gdshader`): a third
+  child per LIVE-ring dressed region (`RegionDresser.flora_enabled`, off by default so the dresser's unit-test contract
+  of one Props + one Foliage child is unchanged). Procedural low-poly meshes built in code (no imported assets, no
+  licence question): broadleaf oak / maple (with autumn tints) / birch / poplar, bush, shrub, standing grass clumps
+  (blades, not flat quads), wild flowers (5 petal colours), dune grass, grey boulder / slab / crag (flat-based), and
+  roadside furniture (delineator posts where a road has no rail, chevron boards on the outside of bends > 16 deg per
+  30 m, blue route signs every 700 m on highway / arterial, wooden fences along lowland country roads). Placement is a
+  jittered grid per kit entry decided by an integer hash of (region seed, entry, cell): deterministic, order- and
+  slice-size-independent. Ground rules read the region's baked control map (`TerrainSeeder.baked_region_maps`, new
+  read-only accessor): plants only on their texture (grass / meadow / forest / sand / rock), nothing on the gravel
+  road + shoulder, trees test 9 points at their road clearance. World-space grove noise makes woods and open fields.
+  Per-zone kits (`Flora.kit_for`): lowlands mixed broadleaf woods + bushes + grass + flowers in meadows; highlands
+  birch/oak with conifers, more rocks; coast low shrubs, dune grass on sand, few trees; alpine shrubs, boulders,
+  crags on rock, nothing on snow. Conifers per zone scaled (`ZONE_CONIFER_SCALE`: lowlands 0.3, highlands 0.75,
+  coast 0.9). Time-sliced on idle dresser drains (`flora_budget_usec` 1.5 ms): a lowland region takes ~68 ms in ~31
+  slices (headless probe). MultiMesh buffers written in one call; positions kept in side arrays (4.7.2 read-back bug).
+  Grass / flowers are batched per 64 m patch (draw distance 130 m, shrink-to-ground fade 55..95 m in the shader);
+  trees 900 m, bushes 320 m, rocks 650 m, crags 1400 m. Shadows: trees + crags from Medium, rocks/props on High.
+- **Conifer shader** (`foliage_wind.gdshader`, shared with the circuits): back faces flip their normal (whole pines
+  read black from the shaded side), wrap diffuse, darker low canopy / lighter tips, per-tree hue/value variation.
+- **Terrain tones** (`terrain_texturing.gd`, `terrain_baker.gd`): meadow tint (0.86, 0.92, 0.78) -> (0.7, 0.8, 0.56) and
+  meadow share capped at 0.62 (`MEADOW_MAX_SHARE`) so patches are a mottled grass/meadow mix, `blend_sharpness`
+  0.5 -> 0.35 (softer patch edges); snow roughness +0.1 -> +0.55; beaches only below 3.4 m (`BEACH_TOP`, was 8 m: the
+  whole coastal plain was sand). Hub static `Foliage` drops its 700 flat-quad grass tufts at runtime.
+- **Atmosphere** (`scripts/world/world_atmosphere.gd`, `shaders/cloud_layer.gdshader`, `sea_water.gdshader`): colour
+  grade via Environment adjustments (contrast 1.07, saturation 1.16, brightness 1.02); aerial fog 0.0012 -> 0.00026
+  (x1.6 near the coast, x0.55 high up; `haze_for`) so the 24 km vista keeps relief instead of flat blue silhouettes;
+  clearer PhysicalSky (turbidity 3.2, Mie 0.005, brighter ground bounce); time-of-day sun colour/energy (`sun_grade`:
+  warm low sun, 1.3 at noon, faint blue at night; re-applied only when the hour moves > 0.05 h); an opaque sea plane
+  at y = 0 over the sea biome (there was no water); a cumulus layer on a camera-following inverted hemisphere
+  (not baked into the sky radiance; off on Low).
+- **Landmarks** (`scripts/world/world_landmarks.gd`): shrine gate near the hub, farm (barn + silo), red/white radio
+  mast, 5 wind turbines with spinning rotors on the highland shelf, lighthouse on the coast, observatory on the alpine
+  shoulder. Primitive meshes, nudged clear of every road (`resolve_site`, 40 m), visible to 9 km. Visual only.
+- **Quality hook**: `SettingsMenu.QUALITY_PRESETS[*]["world_detail"]` 0/1/2 -> `apply_world_detail()` calls
+  `set_world_detail` on group `world_detail` (RegionDresser rebuilds Flora; atmosphere toggles clouds). Low thins
+  small plants to 0.35x and bushes to 0.7x, no clouds, no tree shadows; High 1.4x grass.
+
+**Measured** (GTX 970, 1080p, Medium, vsync off, noon, same tree before/after; probe `fh_probe.gd` in the session
+scratchpad, poses a-f as in sections 6/10 plus biome stations reached by teleport), ms/frame avg:
+
+| pose | before | after | | pose | before | after |
+|---|---|---|---|---|---|---|
+| a eye field | 14.08 | 14.21 | | roll road | 15.12 | 16.59 |
+| b high hub | 19.92 | 20.48 | | high road | 14.10 | 15.37 |
+| c eye road | 13.52 | 15.20 | | high side | 14.83 | 16.60 |
+| d high out | 15.54 | 16.07 | | high over | 17.41 | 18.67 |
+| f horizon NE | 16.92 | 17.65 | | alp road | 13.32 | 14.39 |
+| low road | 15.24 | 16.35 | | alp over | 17.12 | 18.09 |
+| low side | 14.17 | 15.08 | | coast road | 13.52 | 14.47 |
+| low over | 22.85 | 23.57 | | coast over | 17.29 | 18.29 |
+
++0.1..+1.8 ms (worst: hub road pose c +1.7, highland side +1.8); prims +50..+300k (max ~1.02 M at the rolling
+overview, under the 1.2 M gate); draws +60..+100 (max 289); VRAM 1363 -> 1375 MB; static RAM 502 -> 526 MB. The
+40-45 m overview poses were already over 16.6 ms before. Low and High presets not measured.
+
+**Captures reviewed** (Claude, Read tool), `D:\Temp\claude\d--AI-Projects-UltraDrive\f2a7efd1-cbf7-4d57-b7e5-4b678469a6f0\scratchpad\cap\`:
+`base_*` (before) vs `a1_*` / `a2_*` (after) for every pose. Lowlands now mixed broadleaf woods with autumn accents,
+bushes, grass clumps, flowers, fences and route signs under a cloudy blue sky; meadow patches no longer read as
+bright yellow decals; the alpine massif shows rock and snow through light haze (was a flat blue-grey silhouette);
+the coast has a sea on the horizon and grass/sand mix instead of a sand desert; chevrons line the touge hairpins.
+
+**Findings / not fixed**
+- Known issue 3c (white flat patches NE of the hub): not visible at its pose (e_3c_ne) in the baseline of this tree. A
+  white box seen near pose a was identified by a screen-ray pick as the pre-existing `PropsFestival` grandstand.
+- Alpine dome top (5780, 6500): the "very dark" read was the snow's low roughness mirroring the dark sky ground colour
+  (fixed by the roughness change), but the summit there is the flat 2000 m `HEIGHT_MAX` clamp and the vista draws it
+  as green ground well below where the dressing stands (pre-existing; the old orange rocks floated the same way).
+  Rocks placed there float. Root cause in the vista bake at the clamp not investigated.
+- The fog density change is a runtime override of the scene's authored 0.0012 (still inside the environment test
+  band in the file). Grass clumps still read a little spiky up close; groves cluster only mildly. Coast sand/grass
+  patches have stair-stepped edges (2 m classification). Not driven by hand; no drive-through hitch probe for the
+  Flora slices; Low/High not measured; night/dusk grade only checked by unit test, not captured.
