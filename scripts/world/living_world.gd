@@ -84,9 +84,20 @@ func _ground_provider(origin: Vector3) -> Callable:
     return func(local_pos: Vector2) -> float:
         return _height_at(origin.x + local_pos.x, origin.z + local_pos.y)
 
+var _far_baker: TerrainBaker
+
 func _height_at(world_x: float, world_z: float) -> float:
     if _terrain == null:
         return 0.0
+    # Past +-4096 m the live ring cannot hold a Terrain3D region (see
+    # TerrainSeeder.LOC_MIN), so PropsCoast / PropsAlpine would sit at y = 0
+    # inside the far ground. Use the canonical field there (the vista is that
+    # field, within the 0..0.5 m bias fade).
+    var cell := Vector2i(floori(world_x / TerrainSeeder.REGION_SIZE), floori(world_z / TerrainSeeder.REGION_SIZE))
+    if not TerrainSeeder.loc_in_terrain_bounds(cell):
+        if _far_baker == null:
+            _far_baker = TerrainBaker.new()
+        return _far_baker.natural_height_at(world_x, world_z)
     var h := _terrain.data.get_height(Vector3(world_x, 0.0, world_z))
     if not is_finite(h):
         return 0.0

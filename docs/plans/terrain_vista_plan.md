@@ -472,11 +472,7 @@ vista a quality-ladder option, or do the colour-only shader first) is the user's
 - **GPU cost +0.5..+2.4 ms at the hub (+3 ms at the pass).** Cheapest next step: a colour-only
   vista (bake per-layer average albedo x tint into the vista colour map, use a minimal shader);
   measured potential ~1-2 ms, needs a seam colour-match check.
-- **Pre-existing, found here: the live ring cannot exist beyond +-4096 m.** Terrain3D's region
-  map allows locations -16..15 and the live ring uses 256 m regions, so every region past
-  4096 m fails (`Location (24, 20) out of bounds`, thousands of errors per second when the car
-  is there). The drivable world reaches x 9702 / z 8605. The vista now shows terrain there,
-  but there is still no live ground or collision except the road meshes.
+- ~~Pre-existing, found here: the live ring cannot exist beyond +-4096 m.~~ FIXED the same day, see 9.6.
 - **Pre-existing, found here: roads far below the heightfield in the east.** `touge-a` and
   `touge-b` (y ~31 m under ~2000 m domes, cut 1969 m), `highway-ring` (cut 1586 m at
   (6160, 5530)), `touge-highway-ramp` (1378 m). The ring's carve rule turns these into
@@ -485,3 +481,26 @@ vista a quality-ladder option, or do the colour-only shader first) is the user's
 - Vista ground layers are classified per 16 m (2x2 texel blocks) without road shoulders.
 - Not measured: High preset, a drive-through hitch probe while driving, RAM (the bake holds
   ~40 MB per region transiently).
+
+### 9.6 Bug 3d: collision and a bias fade past the live ring's window (2026-10-23)
+
+Terrain3D holds locations -16..15, so the 256 m live ring exists only inside x/z [-4096, 4096). Past it the
+seeder now keeps the ring's locations *virtual* (baked and dressed, never added to Terrain3D; no more
+"out of bounds" errors), and **the vista is the ground there**. Consequences for the vista, all in
+`terrain_vista.gd` / `terrain_vista_baker.gd` (full write-up: `open_world_status.md` section 8):
+
+- **Collision.** `TerrainVista.sync_player_pos()` switches the vista Terrain3D to DYNAMIC collision (shapes
+  around the active camera, built from the drawn height maps; probed accurate to the 8 m mesh at 300 m
+  range) while the player is within 512 m of the window edge or beyond it, once the vista region under the
+  player is applied. Off elsewhere, so the area under the ring pays nothing. The earlier "no collision"
+  design note (section 2) stays true inside the window.
+- **Bias fade.** `BIAS` -1 m hides the vista under the ring, which only matters where the ring can exist.
+  `TerrainVistaBaker.bias_at()`: -1 m until 128 m inside the window, -0.3 m at the edge, 0 from 128 m past it.
+  A flat -1 m would have made the drivable far ground sit 1 m under the field the dresser/props use and left
+  a 1 m wall at the window edge. The canonical field mapping (+0.5 m sample offset, seam minima, erosion,
+  road sag) is unchanged; inside the window the heights are identical to before.
+- **Tests.** The z-fight clearance rule (vista under the ring, > 0.1 m) now applies to quads inside the
+  window only; the ring does not exist outside, so the old far-region cases (dome, clamp, sea) keep their
+  *tracking* assertion (vertex error against `ring + bias_at`) and lose the clearance one. A new test covers
+  the last 128 m inside the window, where the bias is smallest.
+- **Cost.** None measured on the GPU (same mesh). Dynamic collision only runs near/after the window edge.

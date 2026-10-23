@@ -42,6 +42,17 @@ const REGION_PX := 1024
 const STEP := 8.0
 const REGION_WORLD := 8192.0
 const BIAS := -1.0
+## The live ring can only exist inside [-LIVE_LIMIT, LIVE_LIMIT) on both axes
+## (Terrain3D region locations -16..15 at 256 m, TerrainSeeder.LOC_MIN). Past
+## that the vista is the only ground (and the one with collision, see
+## TerrainVista.sync_player_pos), so there is nothing to hide under and a flat
+## -1 m would be a 1 m curb for a car crossing the window edge. The bias fades
+## from BIAS to BIAS_EDGE over the last BIAS_TAPER_IN metres inside the window
+## (still under the ring) and from BIAS_EDGE to 0 over the next BIAS_TAPER_OUT.
+const LIVE_LIMIT := 4096.0
+const BIAS_EDGE := -0.3
+const BIAS_TAPER_IN := 128.0
+const BIAS_TAPER_OUT := 128.0
 const ROAD_SAG_BIAS := 0.05
 const SAMPLE_OFFSET := 0.5
 const LOC_MIN := -1
@@ -58,6 +69,20 @@ const SAG_TAPER_END := 56.0
 const CONTROL_BLOCK := 2
 const EDGE_TOTAL := 0.0006
 const RING_COARSE_HALF := 2.0
+
+## Signed distance in metres from (wx, wz) to the edge of the square the live
+## ring can occupy: negative inside it, positive outside (Chebyshev, so it is
+## the distance to the nearest edge line on each axis).
+static func window_distance(wx: float, wz: float) -> float:
+	return maxf(maxf(wx - LIVE_LIMIT, -LIVE_LIMIT - wx), maxf(wz - LIVE_LIMIT, -LIVE_LIMIT - wz))
+
+## Height offset of the vista against the canonical field at world (wx, wz):
+## BIAS wherever the live ring can exist, easing to 0 past the ring's window.
+static func bias_at(wx: float, wz: float) -> float:
+	var d := window_distance(wx, wz)
+	if d < 0.0:
+		return lerpf(BIAS, BIAS_EDGE, smoothstep(-BIAS_TAPER_IN, 0.0, d))
+	return BIAS_EDGE * (1.0 - smoothstep(0.0, BIAS_TAPER_OUT, d))
 
 ## The nine region locations, always the same, in no particular order.
 static func all_region_locs() -> Array[Vector2i]:
@@ -280,7 +305,7 @@ func bake_band(loc: Vector2i, band: int, chains: Array[PackedVector3Array]) -> D
 			color[b + 2] = clampi(int(col.b * 255.0), 0, 255)
 			color[b + 3] = clampi(int(col.a * 255.0), 0, 255)
 			var extra := sag[i] if not sag.is_empty() else 0.0
-			heights[i] = h + BIAS - extra
+			heights[i] = h + bias_at(sx - SAMPLE_OFFSET, sz - SAMPLE_OFFSET) - extra
 	return {"height": heights, "color": color, "edge": edge}
 
 ## Exact natural height minimised over the ring's own samples for vertex
@@ -475,7 +500,7 @@ func _control_rows(loc: Vector2i, band: int, heights: PackedFloat32Array) -> Pac
 			var gz := (heights[zp * REGION_PX + bx] - heights[zm * REGION_PX + bx]) * inv
 			var sx := o.x + float(bx) * STEP + SAMPLE_OFFSET
 			var coast := TerrainBaker.coast_weight(sx, sz) if coast_near else 0.0
-			var bits := TerrainBaker.classify_ground(heights[row + bx] - BIAS, sqrt(gx * gx + gz * gz), tb._ctrl_patch.get_noise_2d(sx, sz), tb._ctrl_detail.get_noise_2d(sx, sz), coast, INF)
+			var bits := TerrainBaker.classify_ground(heights[row + bx] - bias_at(sx - SAMPLE_OFFSET, sz - SAMPLE_OFFSET), sqrt(gx * gx + gz * gz), tb._ctrl_patch.get_noise_2d(sx, sz), tb._ctrl_detail.get_noise_2d(sx, sz), coast, INF)
 			for dj in CONTROL_BLOCK:
 				var ob := (bj + dj) * REGION_PX
 				for di in CONTROL_BLOCK:

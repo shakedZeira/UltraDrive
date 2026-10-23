@@ -57,6 +57,7 @@ const PARKED_REVEAL_INTERVAL := 0.5
 
 var _streamer: ChunkStreamer
 var _terrain_seeder: TerrainSeeder
+var _vista: TerrainVista
 var _player: Node3D
 var _discovery: WorldDiscovery
 var _weather_audio: WeatherAudio
@@ -78,6 +79,7 @@ func _ready() -> void:
 	# region is ever baked, leaving the world with no ground and no chunks.
 	_streamer = get_node_or_null("ChunkStreamer") as ChunkStreamer
 	_terrain_seeder = get_node_or_null("TerrainSeeder") as TerrainSeeder
+	_vista = get_node_or_null("TerrainVista") as TerrainVista
 	_player = get_node_or_null("%PlayerCar") as Node3D
 	_loading_steps = 8
 	_current_step = 0
@@ -170,6 +172,8 @@ func _push_player_position() -> void:
 	_streamer.set_player_position(player_pos)
 	if _terrain_seeder != null:
 		_terrain_seeder.sync_player_pos(player_pos)
+	if _vista != null:
+		_vista.sync_player_pos(player_pos)
 
 ## P5 discovery bridge: creates (or reuses) the off-limits-autoload
 ## WorldDiscovery state node, configures it with the seeded road defs so it can

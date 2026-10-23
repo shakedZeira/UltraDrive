@@ -6,6 +6,10 @@
 >
 > **Update 2026-10-23 (open-world stage 2, item 1):** the far-terrain vista is built; the
 > 384 m cliff is gone. See section 7, and two pre-existing world bugs it exposed (3d, 3e).
+>
+> **Update 2026-10-23 (bug 3d fixed):** the live ring no longer asks Terrain3D for regions past
+> +-4096 m (thousands of "out of bounds" errors per second gone); the vista carries collision there.
+> See section 8.
 
 Scope: what the free-roam world actually is today, measured or known sizes, what is
 done / partial / missing, perf budget and known bugs. Companion docs:
@@ -186,11 +190,11 @@ Medium (3.5 GB card, ~1.26 GB measured at Medium today).
 3c. Pre-existing: irregular white flat patches beyond the highway north-east of the hub (~(700-900, 600-700)),
    visible in the untextured baseline too; source object not identified. The hub's static `Foliage` grass tufts are
    flat `PlaneMesh` quads that read as bright green squares (region grass is disabled for that reason).
-3d. Pre-existing, found 2026-10-23, NOT fixed: the live ring cannot exist beyond +-4096 m. Terrain3D's region map
-   allows locations -16..15 and `TerrainSeeder` uses 256 m regions, so any region past 4096 m fails
-   (`Terrain3DRegion set_location: Location (24, 20) out of bounds`, thousands of errors per second while the car
-   is there). The drivable world reaches x 9702 / z 8605, so the alpine and coast areas have no live ground or
-   terrain collision (road meshes keep their own collision). The vista now draws terrain there.
+3d. ~~The live ring cannot exist beyond +-4096 m~~ FIXED 2026-10-23 (section 8). Terrain3D's region map allows
+   locations -16..15 and `TerrainSeeder` uses 256 m regions, so every ring region past 4096 m used to fail
+   (`Terrain3DRegion set_location: Location (24, 20) out of bounds`, 238 errors in 60 frames in a headless probe,
+   thousands per second in game) and the alpine and coast areas had no ground collision. Now the ring's far
+   locations are virtual (baked + dressed, never sent to Terrain3D) and the vista is the collision-bearing ground there.
 3e. Pre-existing, found 2026-10-23, NOT fixed: some planned roads lie far below the heightfield. Measured
    (natural height minus road y): `touge-a` / `touge-b` 1969 m, `highway-ring` 1586 m at (6160, 5530),
    `touge-highway-ramp` 1378 m, `pass-highway-ramp` 116 m; everything inside +-4096 m is <= 63 m. The ring's carve
@@ -328,3 +332,82 @@ Full as-built notes, deviations from the plan and the z-fight proof: `terrain_vi
   From inside the alpine area the 3e road canyons show as blade-like walls.
 - **Open**: GPU cost (a colour-only vista shader measured ~1-2 ms cheaper but needs a colour-match
   pass); bugs 3d and 3e; High preset and a driven hitch probe not measured.
+
+## 8. Bug 3d fixed (2026-10-23): ground and collision beyond +-4096 m
+
+**Root cause.** Terrain3D keeps its regions in a 32 x 32 location map (locations -16..15). With the
+seeder's 256 m regions that is world x/z [-4096, 4096). The drivable world reaches x 9702 / z 8605, so
+every ring region the car needed past 4096 m made `add_region_blankp()` log `Location (x, y) out of
+bounds. Max: -16 to 15` twice (`Terrain3DRegion.set_location` and `Terrain3DData.add_region`, the second
+with location (2147483647, 2147483647)) and return null, every physics tick. Reproduced two ways: the
+fixed-pose probe at the alpine pose logged 4290 errors; a headless seeder probe at (6200, 5200) logged
+238 in 60 frames. With no region there was no live ground, no terrain collision and no dresser output.
+
+**Options considered.**
+1. Bigger live regions (SIZE_512 / 1024). A 1024 m region at 1 m is 16x the bake, the sync bake of the
+   player's region, the VRAM and the Jolt heightfield per region; SIZE_512 only reaches +-8192, not 9.7 km.
+   Rejected.
+2. Origin shift / node offset. Probed: Terrain3D 1.0.2 ignores the node's transform for region
+   locations (a node at (8192, 0, 8192) still maps world 9000 to location (35, 35)). Re-centring would
+   mean removing and rewriting every region, plus every height query in the project. Rejected.
+3. vertex_spacing 2..4 on the live node. Visible loss of resolution at the car and a new bake path.
+   Rejected.
+4. **Chosen: virtual regions + collision on the vista.** The vista already draws the same canonical
+   field everywhere, so it only needs collision, and the ring only needs to stop talking to Terrain3D
+   where Terrain3D cannot hold a region.
+
+**Fix.**
+- `terrain_seeder.gd`: `LOC_MIN/LOC_MAX` (-16/15) and `loc_in_terrain_bounds()`. A ring location outside
+  the window is *virtual*: baked on the worker and cached like any other, announced through
+  `region_entered` / `region_left` at the same moments a real region would be, but never added to
+  Terrain3D (`_ensure_virtual_region`, a virtual branch in `_apply_record`, virtual eviction in
+  `_remove_far_regions`, bounds checks in `_ring_region_settled`, `_region_work_pending`,
+  `force_player_region_color_bake`). The RegionDresser only needs `has_baked_region` and the signals,
+  so trees, rocks and poles now appear in the alpine and coast areas too, standing on the canonical
+  field. No sync bake happens for a far player region, so crossing the edge has no hitch.
+- `terrain_vista.gd`: `sync_player_pos()` (called from `WorldDriver._push_player_position`) turns on
+  Terrain3D's DYNAMIC collision (shapes around the active camera, built from the very height maps that
+  are drawn) when the player is within 512 m of the window edge or beyond it and the vista region under
+  the player has been written; off again 768 m inside. It hands the viewport camera to Terrain3D
+  explicitly (Terrain3D stops its physics process for good if it finds no camera when it starts).
+- `terrain_vista_baker.gd`: the seam. `BIAS` (-1 m) only exists to hide the vista under the ring, and
+  past the window there is no ring, so a flat -1 m would put the visible and drivable ground 1 m under
+  the canonical field and leave a 1 m wall for a car crossing the edge. `bias_at()` keeps -1 m up to 128 m
+  inside the window, eases to -0.3 m at the edge and to 0 over the next 128 m. Everything inside the window
+  is as before (the ring still wins the depth test, tests prove it incl. the new fade strip); the
+  canonical heightfield mapping is untouched. The control bake recovers the natural height with the same
+  `bias_at`.
+- `living_world.gd`: `PropsCoast` (5888, 1536) and `PropsAlpine` (5632, 5632) asked Terrain3D for
+  ground height past the window and got NaN -> 0; they now use the canonical field there.
+
+**Tests.** `tests/suites/test_far_ground.gd` (6): window constants; the alpine ring logs no "out of
+bounds" error (a `Logger` counts them) and still announces all 9 locations; a ring straddling the edge
+mixes 4 real + 5 virtual regions and evicts both kinds on leaving; `bias_at` shape; baked far band sits on
+the field past the fade and 1 m under it inside; the vista has collision under the car in the alpine area.
+`test_terrain_vista_baker.gd`: the old tests compared the far vista to a ring that cannot exist there; the
+clearance rule now only applies inside the window, the tracking rule uses `bias_at`, plus a fade-strip
+test.
+
+**Measured.** Before: 238 bounds errors in 60 frames (headless seeder probe at (6200, 100, 5200),
+9 ring locations never announced). After: 0 errors, 9 of 9 announced, 0 Terrain3D regions. In game (windowed,
+car frozen until the vista is complete, then released): 0 "out of bounds" lines; the car stays on the
+surface. Seam drive (20 m/s across x = 4096, car origin above the canonical field): -0.07 m on the ring,
+-0.35 m for a moment after the edge (the 0.3 m curb, vertical speed -1.0 m/s), back to -0.05 m 120 m later;
+with a first -0.5 m edge value it was 0.47 m / -2.9 m/s, hence -0.3. Alpine (6094, 1024, 5033, a ~45 degree
+slope) and the 2000 m dome top (5780, 6500): the car stays 0.8 m / -0.06 m from the field for 420 frames.
+Coast (8000, -1500): see weakness below. Captures `seam_f600.png` (driving on grass past the window edge,
+trees standing on the ground, no visible seam), `alpine2_f400.png`, `coast_f400.png` in the scratchpad `cap\`.
+
+**Remaining weaknesses.**
+- The far ground is the vista's 8 m mesh: collision is as coarse as what is drawn (chords of up to ~0.6 m
+  from the 1 m field in rough terrain), road carving is 8 m, the road meshes keep their own collision.
+- Dynamic collision follows the *active camera*: any camera that is not near the car (cinematic, photo
+  mode) moves the collision away from it.
+- Collision exists only once the vista region under the player is applied (~6 s for the first region, ~30 s
+  for all nine after load). Fast travel into the far area within that time drops the car.
+- Dressing in the far area stands on the canonical field; within the 256 m fade (0..0.5 m) it can float
+  that much.
+- `FallbackGround` (a y = 0 slab under the world) is older than this fix and still exists: a car that is
+  *spawned* (not driven) over sea-level far terrain releases its ground latch on it, ends up 1 m under the vista
+  surface and stays there (the heightfield is one-sided). Driving in from the ring never does this.
+- 3e (roads far below the heightfield) is not touched; neither is float precision beyond ~8 km.

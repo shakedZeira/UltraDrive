@@ -84,6 +84,8 @@ func _compare(live_loc: Vector2i, roads: Array) -> Dictionary:
 	var n: int = patch["n"]
 	var vals: PackedFloat32Array = patch["vals"]
 	var k := int(STEP)
+	var ox := float(live_loc.x) * RING_SIZE
+	var oz := float(live_loc.y) * RING_SIZE
 	var clearance := INF
 	var track := 0.0
 	var track_sum := 0.0
@@ -94,16 +96,20 @@ func _compare(live_loc: Vector2i, roads: Array) -> Dictionary:
 			var h10 := vals[j * n + i + 1]
 			var h01 := vals[(j + 1) * n + i]
 			var h11 := vals[(j + 1) * n + i + 1]
+			# The live ring cannot exist past +-4096 m, so there is nothing to stay
+			# under out there (the vista bias fades to 0); only quads inside the
+			# window count towards the clearance.
+			var inside := TerrainVistaBaker.window_distance(ox + float(i * k + k), oz + float(j * k + k)) < 0.0
 			for dz in k + 1:
 				for dx in k + 1:
 					var lx := i * k + dx
 					var lz := j * k + dz
-					if lx >= RING_PX or lz >= RING_PX:
+					if lx >= RING_PX or lz >= RING_PX or not inside:
 						continue
 					var live := ring[lz * RING_PX + lx]
 					var vista := _quad_max(h00, h10, h01, h11, float(dx) / float(k), float(dz) / float(k))
 					clearance = minf(clearance, live - vista)
-			var dev := absf(h00 - (ring[j * k * RING_PX + i * k] + TerrainVistaBaker.BIAS))
+			var dev := absf(h00 - (ring[j * k * RING_PX + i * k] + TerrainVistaBaker.bias_at(ox + float(i * k), oz + float(j * k))))
 			if roads.is_empty() and i > 0 and j > 0:
 				track = maxf(track, dev)
 				track_sum += dev
@@ -150,6 +156,15 @@ func test_vista_stays_below_and_tracks_the_ring_in_open_country() -> void:
 		assert_that(r["clearance"]).override_failure_message("clearance at %s = %s" % [loc, r["clearance"]]).is_greater(MIN_CLEARANCE)
 		assert_that(r["track"]).override_failure_message("track at %s = %s" % [loc, r["track"]]).is_less(MAX_TRACK_ERROR)
 		assert_that(r["mean_track"]).is_less(0.15)
+
+## Last 128 m inside the ring's window, where the bias fades from BIAS to
+## BIAS_EDGE so a car crossing the window edge meets a small curb, not a 1 m
+## wall: the vista must still stay under the ring there.
+func test_vista_stays_below_the_ring_in_the_bias_fade_strip() -> void:
+	for loc in [Vector2i(15, 8), Vector2i(15, 3), Vector2i(6, 15), Vector2i(14, 14), Vector2i(15, 12), Vector2i(-16, 4)]:
+		var r := _compare(loc, [])
+		assert_that(r["clearance"]).override_failure_message("clearance at %s = %s" % [loc, r["clearance"]]).is_greater(MIN_CLEARANCE)
+		assert_that(r["track"]).override_failure_message("track at %s = %s" % [loc, r["track"]]).is_less(MAX_TRACK_ERROR)
 
 func test_vista_stays_below_the_ring_on_dome_slopes_and_peaks() -> void:
 	for loc in [Vector2i(30, 13), Vector2i(25, 30), Vector2i(19, 22)]:

@@ -46,6 +46,17 @@ const CORRIDOR_BUDGET_FLOOR := 48
 ## figure: a 100 km ring touches ~190 regions.
 const CORRIDOR_BUDGET_KM_FACTOR := 1.9
 const SPAWN_REGION := Vector2i(0, 0)  # region under the (128, 128) spawn
+## Terrain3D only allows region locations -16..15 (a 32 x 32 region map), so
+## with 256 m regions a live Terrain3D region can exist only inside
+## [-4096, 4096) on both axes. add_region_blankp() past that logs "Location
+## (x, y) out of bounds" and returns null, thousands of errors per second while
+## the car is there. The drivable world reaches ~9.7 km. A ring location outside
+## this window is therefore a *virtual* region: baked and cached like any other
+## (dressing reads the cache), announced through region_entered/region_left,
+## but never added to Terrain3D. Its ground is the collision-bearing far
+## terrain (TerrainVista, docs/plans/open_world_status.md section 8).
+const LOC_MIN := -16
+const LOC_MAX := 15
 
 @export var terrain: Terrain3D
 @export var bake_scale: float = 1.0
@@ -68,6 +79,10 @@ const SPAWN_REGION := Vector2i(0, 0)  # region under the (128, 128) spawn
 ## guessing the sync/async difference.
 signal region_entered(loc: Vector2i)
 signal region_left(loc: Vector2i)
+
+## True when Terrain3D can hold a region at this location (see LOC_MIN).
+static func loc_in_terrain_bounds(loc: Vector2i) -> bool:
+	return loc.x >= LOC_MIN and loc.x <= LOC_MAX and loc.y >= LOC_MIN and loc.y <= LOC_MAX
 
 ## Key Vector2i (region location) -> {"image": Image (FORMAT_RF),
 ## "color": Image (FORMAT_RGBA8), "control": Image (FORMAT_RF control bits),
@@ -397,8 +412,7 @@ func _ensure_ring_regions(data: Terrain3DData, max_regions: int) -> bool:
 	)
 	for off: Vector2i in offsets:
 		var loc := _player_region + off
-		var center := _region_center(loc)
-		if data.has_regionp(center) and (_applied.has(loc) or _queued_get(loc) != -1):
+		if _ring_region_settled(data, loc):
 			continue
 		if count >= max_regions:
 			_hm("ring_ensure", _t_start)
@@ -429,6 +443,14 @@ func _remove_far_regions(data: Terrain3DData, player_region: Vector2i, max_remov
 			count += 1
 			if count >= max_removals:
 				break
+	# Virtual regions (outside Terrain3D's location window) have no Terrain3D
+	# state to remove; evict them the moment they leave the ring.
+	for loc: Vector2i in _applied.keys():
+		if loc_in_terrain_bounds(loc):
+			continue
+		if abs(loc.x - player_region.x) > RING_RADIUS or abs(loc.y - player_region.y) > RING_RADIUS:
+			_applied.erase(loc)
+			region_left.emit(loc)
 	_hm("ring_remove", _t_start)
 	return removed
 
@@ -439,17 +461,26 @@ func _region_work_pending(data: Terrain3DData) -> bool:
 	for loc in active:
 		if abs(loc.x - _player_region.x) > RING_RADIUS or abs(loc.y - _player_region.y) > RING_RADIUS:
 			return true
+	for loc: Vector2i in _applied.keys():
+		if not loc_in_terrain_bounds(loc) and (abs(loc.x - _player_region.x) > RING_RADIUS or abs(loc.y - _player_region.y) > RING_RADIUS):
+			return true
 	for dx in range(-RING_RADIUS, RING_RADIUS + 1):
 		for dz in range(-RING_RADIUS, RING_RADIUS + 1):
 			var loc := _player_region + Vector2i(dx, dz)
 			if loc == _player_region:
 				continue
-			var center := _region_center(loc)
-			if not data.has_regionp(center):
+			if loc_in_terrain_bounds(loc) and not data.has_regionp(_region_center(loc)):
 				return true
 			if not _applied.has(loc) and _queued_get(loc) == -1:
 				return true
 	return false
+
+## True when the ring has nothing left to do for loc: a real region that exists
+## and is applied or queued, or a virtual region that is applied or queued.
+func _ring_region_settled(data: Terrain3DData, loc: Vector2i) -> bool:
+	if loc_in_terrain_bounds(loc) and not data.has_regionp(_region_center(loc)):
+		return false
+	return _applied.has(loc) or _queued_get(loc) != -1
 
 ## Adds + bakes a region on first entry; on re-entry a cached image is written
 ## straight into the freshly re-added blank region. The player's own region is
@@ -462,6 +493,8 @@ func _region_work_pending(data: Terrain3DData) -> bool:
 ## added or image written) so the pass can skip a redundant rebuild.
 func _ensure_region(data: Terrain3DData, loc: Vector2i, with_update: bool = true) -> bool:
 	var _t_start := _ht()
+	if not loc_in_terrain_bounds(loc):
+		return _ensure_virtual_region(loc)
 	var center := _region_center(loc)
 	var is_player := loc == _player_region
 	var region: Terrain3DRegion = data.get_regionp(center) if data.has_regionp(center) else null
@@ -502,6 +535,23 @@ func _ensure_region(data: Terrain3DData, loc: Vector2i, with_update: bool = true
 	_queue_bake(loc, _map_width(region), PRIORITY_LIVE)
 	_hm("ensure_blank", _t_start)
 	return true
+
+## Ring bookkeeping for a location Terrain3D cannot hold (see LOC_MIN): serve
+## it from the bake cache when it is ready, else queue the bake at live
+## priority; _apply_record announces it when the worker lands it. Nothing is
+## written to Terrain3D and nothing is rebuilt, so this never reports a change.
+func _ensure_virtual_region(loc: Vector2i) -> bool:
+	if _applied.has(loc):
+		return false
+	if _baked.has(loc):
+		_applied[loc] = true
+		region_entered.emit(loc)
+		return false
+	if _queued_get(loc) == -1:
+		_queue_bake(loc, int(REGION_SIZE), PRIORITY_LIVE)
+	else:
+		_promote_live(loc)
+	return false
 
 ## Player-region entry: prefer the cached image (fast write, no stall). If the
 ## bake is already queued or in flight, the crossing writes the nearest cached
@@ -785,7 +835,13 @@ func _apply_record(record: Dictionary, data: Terrain3DData) -> void:
 		"height_min": record["height_min"],
 		"height_max": record["height_max"],
 	}
-	if not already_cached and data != null and _ring_contains(loc):
+	if not already_cached and not loc_in_terrain_bounds(loc):
+		# Virtual region: nothing to write, just announce it to the dresser.
+		if _ring_contains(loc) and not _applied.has(loc):
+			_applied[loc] = true
+			async_apply_count += 1
+			region_entered.emit(loc)
+	elif not already_cached and data != null and _ring_contains(loc):
 		var region: Terrain3DRegion = data.get_regionp(center) if data.has_regionp(center) else null
 		if region != null:
 			_write_region(data, region, loc, image, record["height_min"], record["height_max"], false, color, control)
@@ -889,6 +945,8 @@ func force_player_region_color_bake() -> void:
 		return
 	var data: Terrain3DData = terrain.data
 	if data == null:
+		return
+	if not loc_in_terrain_bounds(_player_region):
 		return
 	var center := _region_center(_player_region)
 	var region: Terrain3DRegion = data.get_regionp(center) if data.has_regionp(center) else null

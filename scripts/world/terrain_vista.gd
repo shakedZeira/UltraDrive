@@ -26,12 +26,26 @@ extends Node3D
 ##
 ## Vista heights sit TerrainVistaBaker.BIAS below the live field, so wherever
 ## the ring is loaded the ring wins the depth test.
+##
+## Collision: the vista is the ground wherever the live ring cannot exist (past
+## +-4096 m, see TerrainSeeder.LOC_MIN). sync_player_pos() turns on Terrain3D's
+## dynamic collision (shapes around the active camera, built from the same
+## height maps that are drawn, so the car drives on exactly what it sees) once
+## the player is near or past the ring's window and the vista region under the
+## player has been written; it is off everywhere else.
 
 const MAX_STEPS_PER_FRAME := 1
 const STEP_HEIGHT := 0
 const STEP_COLOR := 1
 const STEP_CONTROL := 2
 const VERTEX_SPACING := 8.0
+## Terrain3D.CollisionMode values (the enum is not exported to GDScript by name).
+const COLLISION_OFF := 0
+const COLLISION_DYNAMIC := 1
+## Vista collision switches on this close to the live window's edge (m, inside)
+## and off again HYSTERESIS metres further in.
+const COLLISION_MARGIN := 512.0
+const COLLISION_HYSTERESIS := 256.0
 
 @export var live_terrain: Terrain3D
 @export var pool_tasks: int = 3
@@ -69,6 +83,7 @@ var _job_bands: Array = []
 var _job_controls: Array = []
 var _start_ms := 0
 var _done_ms := -1
+var collision_active := false
 
 func _ready() -> void:
 	if live_terrain == null:
@@ -106,6 +121,30 @@ func start(roads: Array, player_pos: Vector3, locs: Array[Vector2i] = []) -> boo
 ## All requested regions are applied.
 func is_complete() -> bool:
 	return _started and applied_count >= _expected
+
+## Per-physics-tick hook (WorldDriver): keeps the vista's collision on only
+## where it is the ground. Cheap; touches Terrain3D only when the state flips.
+func sync_player_pos(player_pos: Vector3) -> void:
+	if terrain == null:
+		return
+	var d := TerrainVistaBaker.window_distance(player_pos.x, player_pos.z)
+	var threshold := -(COLLISION_MARGIN + COLLISION_HYSTERESIS) if collision_active else -COLLISION_MARGIN
+	var want := d > threshold and apply_order.has(vista_loc_at(player_pos.x, player_pos.z))
+	if want:
+		# Dynamic collision follows the active camera. Terrain3D grabs it once and
+		# gives up (stops its physics process) if there is none, so hand it the
+		# current one explicitly and track camera switches (chase / hood / cockpit).
+		var cam := get_viewport().get_camera_3d() if is_inside_tree() else null
+		if cam != null and terrain.get_camera() != cam:
+			terrain.set_camera(cam)
+	if want == collision_active:
+		return
+	collision_active = want
+	terrain.collision_mode = COLLISION_DYNAMIC if want else COLLISION_OFF
+
+## Vista region location holding a world position.
+static func vista_loc_at(wx: float, wz: float) -> Vector2i:
+	return Vector2i(floori(wx / TerrainVistaBaker.REGION_WORLD), floori(wz / TerrainVistaBaker.REGION_WORLD))
 
 func stats() -> Dictionary:
 	return {"applied": applied_count, "expected": _expected, "order": apply_order, "bake_ms": bake_ms, "apply_ms": apply_ms, "max_step_ms": max_step_ms, "step_max_ms": step_max_ms, "setup_ms": setup_ms, "total_ms": _done_ms}
