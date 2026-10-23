@@ -1,17 +1,17 @@
 # Graph Report - UltraDrive  (2026-10-23)
 
 ## Corpus Check
-- 179 files · ~2,567,607 words
+- 179 files · ~2,569,756 words
 - Verdict: corpus is large enough that graph structure adds value.
-- Unclassified: 1117 file(s) not represented in the graph (top: .gd 613, .import 179, .glb 90)
+- Unclassified: 1121 file(s) not represented in the graph (top: .gd 617, .import 179, .glb 90)
 
 ## Summary
-- 3279 nodes · 4050 edges · 268 communities (198 shown, 70 thin omitted)
-- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 216 edges (avg confidence: 0.86)
+- 3281 nodes · 4053 edges · 270 communities (198 shown, 72 thin omitted)
+- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 217 edges (avg confidence: 0.86)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `e054eb75`
+- Built from commit: `97116782`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -250,7 +250,7 @@
 - numpy
 - Audio Polish Implementation Plan
 - AI Opponents Implementation Plan
-- 2026-09-13-career-economy.md
+- urllib_request
 - make_gtr_beds.py
 - 2026-09-13-ai-opponents.md
 - check_gtr_flutter.py
@@ -258,12 +258,14 @@
 - os
 - make_wrx_turbo_loop.py
 - Handoff — 2026-10-22 (session 2): GT-R audio, brakes, backfire, music, Le Mans barriers, open-world plans
-- 2026-09-12-content-pipeline-plan.md
+- 2026-09-13-career-economy.md
 - assets/ui/brands — logo sources & provenance
-- 2026-09-13-audio-polish.md
-- r35_prepare_dash_texture.py
-- check_gtr_turbo.py
+- le_mans_fetch_elevation.py
 - terrain/SOURCES.md
+- _dl_wiki2.py
+- _dl_vs.py
+- _dl_car.py
+- _dl_pk.py
 
 ## God Nodes (most connected - your core abstractions)
 1. `Forza Horizon 6` - 94 edges
@@ -321,7 +323,7 @@
 - **Vehicle Physics Subsystem** — docs_superpowers_plans_2026_09_10_ultradrive_master_plan_vehicle_physics, docs_superpowers_plans_2026_09_10_ultradrive_master_plan_wheel_physics, docs_superpowers_plans_2026_09_10_ultradrive_master_plan_drivetrain, docs_superpowers_plans_2026_09_10_ultradrive_master_plan_pacejika_tire_model, docs_superpowers_plans_2026_09_10_ultradrive_master_plan_car_config [INFERRED 0.85]
 - **Weather + Day/Night Runtime Flow** — docs_superpowers_plans_2026_09_13_weather_and_day_night_weathermanager, docs_superpowers_plans_2026_09_13_weather_and_day_night_daynightdriver, docs_superpowers_plans_2026_09_13_weather_and_day_night_sun_driver, docs_superpowers_plans_2026_09_13_weather_and_day_night_weatherlabel, docs_superpowers_plans_2026_09_13_weather_and_day_night_get_computed_sun_position, docs_superpowers_plans_2026_09_13_weather_and_day_night_road_grip_factor [INFERRED 0.85]
 
-## Communities (268 total, 70 thin omitted)
+## Communities (270 total, 72 thin omitted)
 
 ### Community 0 - "FH6 Car Manufacturers"
 Cohesion: 0.02
@@ -329,19 +331,19 @@ Nodes (94): Abarth, Acura, Add-on & bonus cars, Alfa Romeo, Alumicraft, AMG Tran
 
 ### Community 1 - "GDUnit4 Parallel Runner"
 Cohesion: 0.07
-Nodes (52): P1 — Medium (2 weeks): CI Integration & Optimization, AbortRegistry, apply_measured_weights(), _as_text(), build_shard_command(), build_shard_env(), build_shards(), build_summary() (+44 more)
+Nodes (51): AbortRegistry, apply_measured_weights(), _as_text(), build_shard_command(), build_shard_env(), build_shards(), build_summary(), build_weights_payload() (+43 more)
 
 ### Community 2 - "GT7 Car Manufacturers"
 Cohesion: 0.03
 Nodes (80): Abarth, Additional wiki-only cars (3), AFEELA, Alfa Romeo, Alpine, AMG, Amuse, Aston Martin (+72 more)
 
 ### Community 3 - "json"
-Cohesion: 0.12
-Nodes (14): main(), run(), dl(), get_bytes(), dl(), get(), get_json(), get_json() (+6 more)
+Cohesion: 0.21
+Nodes (6): main(), run(), ensure_server(), generate(), is_up(), generate()
 
 ### Community 4 - "wave"
-Cohesion: 0.20
-Nodes (12): read(), gain_stage(), main(), rms_of(), synth_bov(), verify(), write_wav(), decode_mp3() (+4 more)
+Cohesion: 0.16
+Nodes (14): read(), check(), read(), gain_stage(), main(), rms_of(), synth_bov(), verify() (+6 more)
 
 ### Community 6 - "Procedural Car Builder"
 Cohesion: 0.06
@@ -408,16 +410,16 @@ Cohesion: 0.08
 Nodes (23): 1. Research findings summary, 2. Map vision for UltraDrive, 3.1 Control flow / where the logic lives, 3.2 Heightfield storage & runtime baking, 3.3 Terrain baking passes (in `terrain_baker.gd`, ordered), 3.4 Caching & streaming coordination, 3. Terrain3D ground pipeline, 4. Seeding phases (ordered; game stays playable, suite stays green) (+15 more)
 
 ### Community 23 - "Gdunit Parallel Execution Plan"
-Cohesion: 0.09
-Nodes (22): Bucketing Strategy, Commands Reference, Dynamic Weights (P1+), Executive Summary, GDUnit4 Parallel Test Execution Plan, Implementation Checklist, Option A: External Orchestrator (Recommended), Option B: GDUnit4 Core Modification (Long-term) (+14 more)
+Cohesion: 0.08
+Nodes (23): Bucketing Strategy, Commands Reference, Dynamic Weights (P1+), Executive Summary, GDUnit4 Parallel Test Execution Plan, Implementation Checklist, Option A: External Orchestrator (Recommended), Option B: GDUnit4 Core Modification (Long-term) (+15 more)
 
 ### Community 24 - "2026 09 13 Weather And Day Night"
 Cohesion: 0.11
 Nodes (18): DayNightDriver (autoload), Final / What NOT to do, get_computed_sun_position(), Global Constraints, Self-Review, Sun Driver (sun_driver.gd), Task 0 — Baseline sanity (no code), Task 1 — D9: lock WeatherManager semantics (grip mapping, setter/emit behavior, sun math) (+10 more)
 
 ### Community 25 - "2026 09 12 Content Pipeline Plan"
-Cohesion: 0.13
-Nodes (15): Design constraints (from master plan + project rulings), Goal, Paths (D-drive only, actual as of 2026-09-12), Phase D1 — Model a real car, retire the primitive box (SUBa: car-model), Phase D2 — More cars for the Garage (SUBa: cars), Phase D3 — Track-selection menu + a second circuit (SUBa: tracks), Phase D4 — Make the open world reachable & drivable (SUBa: open-world), Phase D5 — Roadside props & scenery via MCP (SUBa: assets) (+7 more)
+Cohesion: 0.10
+Nodes (19): Blender-MCP (AI-driven Blender, free), Design constraints (from master plan + project rulings), glTF 2.0 (.glb) Export Workflow, Goal, Paths (D-drive only, actual as of 2026-09-12), Phase D1 — Model a real car, retire the primitive box (SUBa: car-model), Phase D2 — More cars for the Garage (SUBa: cars), Phase D3 — Track-selection menu + a second circuit (SUBa: tracks) (+11 more)
 
 ### Community 26 - "Vision Bridge"
 Cohesion: 0.09
@@ -932,8 +934,8 @@ Cohesion: 0.42
 Nodes (8): ident(), load(), main(), node_mat(), walk(), mm(), trs(), xform_point()
 
 ### Community 220 - "_dl_brands.py"
-Cohesion: 0.18
-Nodes (9): api(), chosen_titles(), discover(), fetch(), imageinfo(), sources(), main(), query() (+1 more)
+Cohesion: 0.31
+Nodes (6): api(), chosen_titles(), discover(), fetch(), imageinfo(), sources()
 
 ### Community 221 - "Parallel gate (`tools/gdunit_parallel.py`)"
 Cohesion: 0.25
@@ -964,16 +966,16 @@ Cohesion: 0.08
 Nodes (25): 10. STATUS — PHASES 1–4 DONE (targeted gate green); phase 5 partial, 1. Goal + acceptance criteria, 2.1 The audio node this feature plugs into, 2.2 What already occupies the "lift-off" space — MUST NOT be broken, 2.3 Existing conventions the new layer should copy, 2.4 Asset / synthesis reality (what a pop could be made of), 2.5 Test style to mirror, 2. Current state — VERIFIED (file:line) (+17 more)
 
 ### Community 228 - "re"
-Cohesion: 0.11
-Nodes (11): dl(), get_bytes(), dl(), get_bytes(), dl(), get(), fetch_netcarshow(), fetch_vehiclesizes() (+3 more)
+Cohesion: 0.22
+Nodes (4): fetch_netcarshow(), fetch_vehiclesizes(), get(), save()
 
 ### Community 229 - "Le Mans No-Chicane — Visual Realism Plan (GT7-grade trackside)"
 Cohesion: 0.12
 Nodes (16): 1. Why, 2. Current state (audited 2026-10-20), 3. Target look (research: the five concrete tells → our Gaps), 4. Workstreams, 5. Phasing, 6. Gates & verification, 7. Constraints / honesty, 8. Implementation status (2026-10-21, uncommitted working tree) (+8 more)
 
 ### Community 230 - "HANDOFF — 2026-10-18: HUD dead-readouts investigation"
-Cohesion: 0.25
-Nodes (7): HANDOFF — 2026-10-18: HUD dead-readouts investigation, Key files to inspect, Next steps (for a subagent), Proven facts, Shell notes, Status, Strong hypothesis (root cause)
+Cohesion: 0.22
+Nodes (8): HANDOFF — 2026-10-18: HUD dead-readouts investigation, Key files to inspect, Next steps (for a subagent), Proven facts, Shell notes, Status, Strong hypothesis (root cause), call()
 
 ### Community 231 - "Making the UltraDrive open world feel like Forza Horizon 6 - gap analysis and phased plan"
 Cohesion: 0.11
@@ -984,8 +986,8 @@ Cohesion: 0.22
 Nodes (8): 1. What has actually landed (verified on disk 2026-10-18), 2. Half-done / inconsistent state (check before touching), 3. What remains — execute in this order, 4. Standing decision — the −0.32 root transform: KEEP (do not re-derive), 5. Hard constraints (Phase 1 — do not violate), 6. Gemini image-size rule (user addition 2026-10-18) — APPLY, and the AGENTS.md bullet is still TODO, 7. Gotchas hit this session (would otherwise be rediscovered the hard way), HANDOFF 2026-10-18 — GT-R R35 cockpit Phase 1 (texture-based dash)
 
 ### Community 233 - "music_convert.py"
-Cohesion: 0.15
-Nodes (11): extract_cover(), find_ffmpeg(), is_partial(), Job, main(), pending(), plan(), run_job() (+3 more)
+Cohesion: 0.12
+Nodes (12): 9. Bug 3e fixed (2026-10-23): roads agree with the heightfield, extract_cover(), find_ffmpeg(), is_partial(), Job, main(), pending(), plan() (+4 more)
 
 ### Community 234 - "r35_common.py"
 Cohesion: 0.08
@@ -1032,8 +1034,8 @@ Cohesion: 0.22
 Nodes (8): Handoff — 2026-10-23: Le Mans barriers done, open-world stage 1 done, all pushed, Known weaknesses / unverified, Next steps (open-world stage 2, user has not picked yet), Performance (GTX 970, 1080p, Medium, vsync off), Standing rules (unchanged), Test status, Uncommitted leftovers (intentionally excluded), What was done this session
 
 ### Community 245 - "1. What the world is"
-Cohesion: 0.09
-Nodes (22): 0. Doc drift to be aware of (do not trust these claims), 1.1 Scene composition (`scenes/world/open_world_root.tscn`), 1.2 Size and extents, 1.3 Terrain (Terrain3D 1.0.2 + custom bake), 1.4 Roads, 1.5 Biomes, dressing, density, 1.6 Lighting, weather, time, 1.7 Map, discovery, events (+14 more)
+Cohesion: 0.08
+Nodes (23): 0. Doc drift to be aware of (do not trust these claims), 10. Stage 2 item 2 (2026-10-23): road meshes and collision stream per cell, 1.1 Scene composition (`scenes/world/open_world_root.tscn`), 1.2 Size and extents, 1.3 Terrain (Terrain3D 1.0.2 + custom bake), 1.4 Roads, 1.5 Biomes, dressing, density, 1.6 Lighting, weather, time (+15 more)
 
 ### Community 246 - "subprocess"
 Cohesion: 0.19
@@ -1056,20 +1058,20 @@ Cohesion: 0.20
 Nodes (10): 1. Layers and files, 2. Eye position (decide this FIRST), 3. Cabin GLB authoring (Blender), 4. Contracts (tests pin these), 5. Gotchas (all hit during R35), 6. Tests, 7. Capture / critique loop, 8. Checklist (+2 more)
 
 ### Community 251 - "numpy"
-Cohesion: 0.22
-Nodes (9): load(), order_mag(), band_noise(), main(), pulse_env(), resonator(), synth_bov(), synth_flutter() (+1 more)
+Cohesion: 0.17
+Nodes (12): load(), order_mag(), band_noise(), main(), pulse_env(), resonator(), synth_bov(), synth_flutter() (+4 more)
 
 ### Community 252 - "Audio Polish Implementation Plan"
-Cohesion: 0.18
-Nodes (11): Audio Polish Implementation Plan, Final Verification (gate), Global Constraints, Self-Review: inventory → task mapping + placeholder scan, Task 1 — Extract engine mapping into typed statics (D7 lock base), Task 2 — Lock seeded-loop determinism + profile selection (D7), Task 3 — `AudioSynth.noise_loop`: deterministic runtime noise (C8 foundation), Task 4 — Skid + wind mapping statics (C8 behavior logic) (+3 more)
+Cohesion: 0.13
+Nodes (16): Audio Polish Implementation Plan, AudioRouting Autoload (Music/Ambience/SFX buses + WindBed), AudioSynth.noise_loop Runtime Generator, CarAudio Typed Mapping Statics, Final Verification (gate), Global Constraints, Self-Review: inventory → task mapping + placeholder scan, Skid + Wind Intensity/Volume Mapping (+8 more)
 
 ### Community 253 - "AI Opponents Implementation Plan"
 Cohesion: 0.20
 Nodes (10): AI Opponents Implementation Plan, Global Constraints, Self-Review, Task 1 — VehiclePhysics explicit input-override flag (C3: un-dangle the input path), Task 2 — AIController lane offset, progress, and rubber-banding hook (C3), Task 3 — `scenes/vehicle/ai_car.tscn` (C3: AI cars exist as spawnable scenes), Task 4 — `OpponentFleet` spawn factory (C3: roads → waypoints → spawned grid), Task 5 — Synthetic ring scene + driving-tests ground (D4: steer/throttle, progression, ≥2 waypoints) (+2 more)
 
-### Community 254 - "2026-09-13-career-economy.md"
-Cohesion: 0.46
-Nodes (7): CarShop Catalog, Career Hub UI Scene, CareerManager Autoload, CareerProfile Economy Model, ChampionshipRegistry Event Catalog, LicenseSystem Promotion + Persistence, Shop UI Scene
+### Community 254 - "urllib_request"
+Cohesion: 0.14
+Nodes (6): dl(), get_bytes(), dl(), get_bytes(), get_json(), body()
 
 ### Community 255 - "make_gtr_beds.py"
 Cohesion: 0.23
@@ -1080,16 +1082,16 @@ Cohesion: 0.53
 Nodes (5): ai_car.tscn (AIController-powered vehicle scene), AIController Lane Offset, Progress & Rubber-Banding Hook, VehiclePhysics input_override_active Flag, OpponentFleet Spawn Factory, Synthetic Ring Scene + AI Driving Tests
 
 ### Community 257 - "check_gtr_flutter.py"
-Cohesion: 0.25
+Cohesion: 0.24
 Nodes (12): bandpass(), bov_gates(), centroid(), detect_pulses(), envelope(), flatness(), flutter_metrics(), gates() (+4 more)
 
 ### Community 258 - "pathlib"
-Cohesion: 0.28
+Cohesion: 0.60
 Nodes (3): centroid_track(), drift(), main()
 
 ### Community 259 - "os"
-Cohesion: 0.13
-Nodes (6): dl(), get_bytes(), _load(), main(), _map(), pack_layer()
+Cohesion: 0.23
+Nodes (4): _load(), main(), _map(), pack_layer()
 
 ### Community 260 - "make_wrx_turbo_loop.py"
 Cohesion: 0.42
@@ -1099,41 +1101,41 @@ Nodes (8): crossfade_loop(), decode_mp3(), gain_stage(), main(), pick_window(), 
 Cohesion: 0.22
 Nodes (8): Agent status: ALL THREE WERE STOPPED MID-TASK at ~94% usage (user request). Work is on disk, UNVERIFIED., FINAL gate (98% usage, everything included): 1643 tests, 3 failures, no false greens, Handoff — 2026-10-22 (session 2): GT-R audio, brakes, backfire, music, Le Mans barriers, open-world plans, Next steps, Older test status (gate before the later agent edits: 1464 tests), Standing rules (also in CLAUDE.md / memory), Test status — earlier gate (after all agents stopped): 1483 tests, 4 failures, music suites NOT included, User requests this session and where each stands
 
-### Community 262 - "2026-09-12-content-pipeline-plan.md"
-Cohesion: 0.38
-Nodes (4): Blender-MCP (AI-driven Blender, free), glTF 2.0 (.glb) Export Workflow, Track-Selection Menu + TrackRegistry, uv Package Runner Toolchain
+### Community 262 - "2026-09-13-career-economy.md"
+Cohesion: 0.46
+Nodes (7): CarShop Catalog, Career Hub UI Scene, CareerManager Autoload, CareerProfile Economy Model, ChampionshipRegistry Event Catalog, LicenseSystem Promotion + Persistence, Shop UI Scene
 
 ### Community 263 - "assets/ui/brands — logo sources & provenance"
 Cohesion: 0.29
 Nodes (6): assets/ui/brands — logo sources & provenance, Car → brand mapping, Files, How the UI uses these files (`scripts/ui/garage_ui.gd`), Trademark & copyright caveat, Variant / era notes (why *these* files)
 
-### Community 264 - "2026-09-13-audio-polish.md"
+### Community 268 - "le_mans_fetch_elevation.py"
 Cohesion: 0.43
-Nodes (5): AudioRouting Autoload (Music/Ambience/SFX buses + WindBed), AudioSynth.noise_loop Runtime Generator, CarAudio Typed Mapping Statics, Skid + Wind Intensity/Volume Mapping, A10 Stale engine_loop Asset Probe Fix
+Nodes (3): main(), query(), to_latlon()
 
-### Community 265 - "r35_prepare_dash_texture.py"
-Cohesion: 0.53
-Nodes (3): grade(), main(), stats()
+### Community 270 - "_dl_wiki2.py"
+Cohesion: 0.33
+Nodes (4): dl(), get(), get_json(), get_json()
 
 ## Knowledge Gaps
 - **193 isolated node(s):** `uvx`, `blender-mcp`, `BLENDER_HOST`, `BLENDER_PORT`, `Terrain3D MIT license` (+188 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 2191 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **70 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 2192 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **72 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `save()` connect `re` to `Procedural Car Builder`, `Career Economy Implementation Plan`?**
-  _High betweenness centrality (0.024) - this node is a cross-community bridge._
+  _High betweenness centrality (0.027) - this node is a cross-community bridge._
 - **What connects `uvx`, `blender-mcp`, `BLENDER_HOST` to the rest of the system?**
   _193 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `FH6 Car Manufacturers` be split into smaller, more focused modules?**
   _Cohesion score 0.02127659574468085 - nodes in this community are weakly interconnected._
 - **Why does `Career Economy Implementation Plan` connect `Career Economy Implementation Plan` to `2026-09-13-career-economy.md`?**
-  _High betweenness centrality (0.023) - this node is a cross-community bridge._
+  _High betweenness centrality (0.026) - this node is a cross-community bridge._
 - **Should `GDUnit4 Parallel Runner` be split into smaller, more focused modules?**
-  _Cohesion score 0.07335280753002273 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.07468354430379746 - nodes in this community are weakly interconnected._
 - **Why does `CareerManager Autoload` connect `2026-09-13-career-economy.md` to `2026-09-10-ultradrive-master-plan.md`?**
-  _High betweenness centrality (0.022) - this node is a cross-community bridge._
+  _High betweenness centrality (0.023) - this node is a cross-community bridge._
 - **Should `GT7 Car Manufacturers` be split into smaller, more focused modules?**
   _Cohesion score 0.025 - nodes in this community are weakly interconnected._
