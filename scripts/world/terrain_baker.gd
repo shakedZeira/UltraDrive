@@ -94,6 +94,10 @@ const HEIGHT_MAX := 2000.0
 const ROAD_WIDTH := 11.0
 const ROAD_TOPPING := 0.15
 const BLEND_END_DISTANCE := 40.0
+## Height separation (m) above which two crossing roads are an over/under pair
+## rather than an at-grade junction: the lower one then keeps its carriageway
+## core clear of the upper one's embankment (_conform_roads, bug 3f).
+const UNDERPASS_MIN_DY := 2.0
 const FIELD_STEP := 4.0
 const FIELD_MARGIN := 16.0
 const SAMPLE_SPACING := 2.0
@@ -993,6 +997,7 @@ func _conform_roads(buf: PackedFloat32Array, chains: Array[PackedVector3Array], 
 		return
 	var core := ROAD_WIDTH * 0.5 + 0.3
 	var blend2 := BLEND_END_DISTANCE * BLEND_END_DISTANCE
+	var core2 := core * core
 	var band := 12.0 * step * step
 	var stride := int(round(sqrt(float(buf.size()))))
 	var d2_map := PackedFloat32Array()
@@ -1081,7 +1086,15 @@ func _conform_roads(buf: PackedFloat32Array, chains: Array[PackedVector3Array], 
 					var gap := elev_map[i] - elev
 					var owned := d2_map[i] < blend2
 					var too_high := owned and elev - elev_map[i] > 9.0
-					if (d2 < d2_map[i] - band and not too_high) or (owned and d2 <= d2_map[i] + band and gap > 0.5 and owner_chain[i] != ri):
+					# Over/under crossings (bug 3f): inside a road's own carriageway
+					# core the LOWER road always owns the ground, so the upper road's
+					# embankment can never be raised across the lower road's surface
+					# (it becomes a bridge deck over a cut). Only for a clear height
+					# separation, so at-grade junctions keep the nearest-road rule.
+					var other := owned and owner_chain[i] != ri
+					var underpass := other and d2 <= core2 and gap > UNDERPASS_MIN_DY
+					var over_lower_core := other and d2_map[i] <= core2 and -gap > UNDERPASS_MIN_DY
+					if underpass or (not over_lower_core and ((d2 < d2_map[i] - band and not too_high) or (owned and d2 <= d2_map[i] + band and gap > 0.5 and owner_chain[i] != ri))):
 						d2_map[i] = d2
 						elev_map[i] = elev
 						owner_chain[i] = ri

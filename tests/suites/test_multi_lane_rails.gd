@@ -537,18 +537,26 @@ func test_access_ramps_open_the_ring_facing_side_every_alongside_index() -> void
 			# ...and the FIELD side must survive: a merge lane with no rail at all
 			# would let a car off the 24 m roadbed, so exactly one side remains.
 			var remaining := def.rail_sides_mask_at(i)
+			# Exception: a ramp whose final leg runs UNDER the highway surface (the
+			# spawn on-ramp lands on the centreline after its taper) has no field
+			# side there -- both of its edges lie on the 24 m roadbed, where a rail
+			# would stand across the highway's own lanes -- so both rails are open.
+			var ring_half := 12.0
+			if float(st["d"]) + def.width * 0.5 <= ring_half + 0.05:
+				continue
 			assert_int(remaining).append_failure_message(
 				"%s idx %d dropped both rails" % [def.id, i]).is_equal(
 					RoadDef.RailSide.BOTH & ~open_side)
 		assert_int(alongside).append_failure_message(def.id).is_greater_equal(1)
 	assert_int(ramps).is_equal(ACCESS_RAMP_IDS.size())
 
-## The spawn ramp is the case that motivates per-index suppression: its open side
-## FLIPS part-way (LEFT across the approach, RIGHT on the merge lane). A static
-## mask cannot express that, so assert the flip exists and is measured from
-## geometry, which also pins the specific regression: the approach used to keep
-## LEFT -- the ring-facing side -- and was walled along its entire length.
-func test_spawn_ramp_merge_open_side_flips_between_approach_and_lane() -> void:
+## The spawn on-ramp meets the ring from ONE side only: it arrives tangent to the
+## ring's outside edge and stays there through the lane, taper and landing. (The
+## old ramp wrapped round the ring, so its open side flipped LEFT -> RIGHT half
+## way; that flip was a symptom of the 179.7 deg hairpin it used to turn.) So
+## the alongside indices form exactly one contiguous run, open on one side, that
+## reaches the landing -- no rail stub across the merge.
+func test_spawn_ramp_merge_open_side_is_one_run_to_the_landing() -> void:
 	var defs := CorridorPlanner.plan(CorridorPlanner.MASTER_SEED)
 	var ring := _ring_points(defs)
 	var spawn := _def_by_id(defs, "spawn-highway-ramp")
@@ -556,50 +564,22 @@ func test_spawn_ramp_merge_open_side_flips_between_approach_and_lane() -> void:
 	if spawn == null or ring.is_empty():
 		return
 	var n := spawn.points.size()
-	var sides: Array[int] = []
-	for i in n:
-		sides.append(CorridorPlanner._open_rail_side_at(spawn.points, i, ring))
-	# Alongside indices collapse into at most two contiguous runs. Assert the run
-	# STRUCTURE rather than bucketing indices into guessed windows: the flip sits
-	# at the merge-lane boundary, and any window that guesses that boundary wrong
-	# silently reads whichever side happens to be written last.
-	var first := -1
-	var last := -1
 	var runs: Array[Dictionary] = []
 	for i in n:
-		if sides[i] == RoadDef.RailSide.NONE:
+		var side := CorridorPlanner._open_rail_side_at(spawn.points, i, ring)
+		if side == RoadDef.RailSide.NONE:
 			continue
-		if first < 0:
-			first = i
-		last = i
-		if runs.is_empty() or int(runs[runs.size() - 1]["side"]) != sides[i]:
-			runs.append({"side": sides[i], "from": i, "to": i})
+		if runs.is_empty() or int(runs[runs.size() - 1]["side"]) != side 				or int(runs[runs.size() - 1]["to"]) != i - 1:
+			runs.append({"side": side, "from": i, "to": i})
 		else:
 			runs[runs.size() - 1]["to"] = i
 	assert_int(runs.size()).override_failure_message(
-		"expected exactly one approach run and one merge-lane run, got %d: %s"
-		% [runs.size(), str(runs)]).is_equal(2)
-	if runs.size() != 2:
+		"expected one alongside run, got %d: %s" % [runs.size(), str(runs)]).is_equal(1)
+	if runs.size() != 1:
 		return
-	assert_int(int(runs[0]["side"])).override_failure_message(
-		"the whole approach meets the carriageway on the ramp's %s, so that is the side that must be open"
-		% ("RIGHT" if int(runs[0]["side"]) == RoadDef.RailSide.RIGHT else "LEFT")
-	).is_equal(RoadDef.RailSide.LEFT)
-	assert_int(int(runs[1]["side"])).override_failure_message(
-		"the merge lane must open the opposite side from the approach"
-	).is_equal(RoadDef.RailSide.RIGHT)
-	# The runs must tile the alongside stretch with no gap: any index left railed
-	# between them is a segment of barrier across the merge.
-	assert_int(int(runs[1]["from"])).is_equal(int(runs[0]["to"]) + 1)
-	assert_int(int(runs[0]["from"])).is_equal(first)
-	# The merge-lane run has to reach the final point. The landing sits exactly ON
-	# a ring vertex, so its direction to the carriageway is undefined and the side
-	# is inherited from behind; if that inheritance failed, the run would stop one
-	# point short and leave a rail stub across the merge itself.
-	assert_int(int(runs[1]["to"])).override_failure_message(
-		"merge-lane open range stops at %d of %d, leaving the landing railed"
-		% [int(runs[1]["to"]), n - 1]).is_equal(n - 1)
-	assert_int(last).is_equal(n - 1)
+	assert_int(int(runs[0]["to"])).override_failure_message(
+		"open range stops at %d of %d, leaving the landing railed" % [int(runs[0]["to"]), n - 1]
+	).is_equal(n - 1)
 
 ## Suppression has to remove actual RAIL GEOMETRY, not just flip a mask the
 ## builder ignores. Build the same square with and without an open range and
@@ -679,11 +659,7 @@ func test_spawn_ramp_keeps_its_rail_at_highway_grade() -> void:
 	assert_int(ring.size()).is_greater(0)
 	if ramp == null or ring.is_empty():
 		return
-	# This ramp no longer collapses to one static side: it keeps rail_sides BOTH
-	# and suppresses the carriageway-facing side per index, so the merge is open
-	# while the field side stays walled. A one-rail mask cannot express a side
-	# that flips mid-chain, and the grade assertions below only describe a lane
-	# that is actually reachable.
+	# Both rails are kept as a mask; the carriageway side is suppressed per index.
 	assert_int(ramp.rail_side_count()).is_equal(2)
 	var suppressed := 0
 	for i in ramp.points.size():
@@ -691,28 +667,39 @@ func test_spawn_ramp_keeps_its_rail_at_highway_grade() -> void:
 			suppressed += 1
 	assert_int(suppressed).override_failure_message(
 		"no chain index has a rail suppressed, so the merge is still walled").is_greater(0)
-	# The lane is the tail of the chain by contract: 14 tapering ring vertices +
-	# the landing + the extra constant-offset run this change added. The approach
-	# ahead of it climbs from the hub basin, so it is deliberately excluded.
-	# 0.5 m is the project's ramp at-grade tolerance: the extra run interpolates
-	# ring Y BETWEEN vertices, and the ring is banked, so its grade matches the
-	# nearest ring VERTEX only to within that.
-	const GRADE_TOL := 0.5
-	const LANE_POINTS := 17
-	var lane_start := ramp.points.size() - LANE_POINTS
-	assert_int(lane_start).is_greater_equal(0)
-	for i in range(lane_start, ramp.points.size()):
-		var nearest := _nearest_ring_y(ring, ramp.points[i])
-		assert_float(absf(ramp.points[i].y - nearest)).is_less_equal(GRADE_TOL)
-	# The lane runs at a constant ring offset through its extra run, so it is
-	# parallel to the highway rather than drifting toward or away from it.
-	var first_off := _ring_signed_offset(Vector2(ramp.points[lane_start].x, ramp.points[lane_start].z))
-	var last_off := _ring_signed_offset(Vector2(ramp.points[lane_start + 1].x, ramp.points[lane_start + 1].z))
-	assert_float(absf(absf(first_off) - absf(last_off))).is_less_equal(GRADE_TOL)
+	# The lane is every point within the edge-to-edge offset of the ring. On it the
+	# ramp is at highway grade: within 0.5 m (the project's ramp at-grade
+	# tolerance) of the ring centreline Y interpolated at the point's projection.
+	var lane_points := 0
+	for i in ramp.points.size():
+		var st := CorridorPlanner._ring_station(ring, ramp.points[i])
+		if float(st["d"]) > CorridorPlanner.SPAWN_LANE_OFFSET + 0.05:
+			continue
+		lane_points += 1
+		var y_ring := _ring_y_at(ring, ramp.points[i])
+		assert_float(absf(ramp.points[i].y - y_ring)).append_failure_message("idx %d" % i) 			.is_less_equal(0.5)
+	assert_int(lane_points).is_greater_equal(8)
 	# And the lane lands ON the ring vertex, so the kept rail has the ring to
 	# merge into rather than ending in the field next to it.
 	var end: Vector3 = ramp.points[ramp.points.size() - 1]
-	assert_int(_index_of_point(ring, end)).is_equal(96)
+	assert_int(_index_of_point(ring, end)).is_equal(CorridorPlanner.SPAWN_LANDING_IDX)
+
+## Ring centreline Y at the XZ projection of `p` (linear along the segment).
+func _ring_y_at(ring: Array[Vector3], p: Vector3) -> float:
+	var best := INF
+	var y := 0.0
+	for i in ring.size():
+		var a := ring[i]
+		var b := ring[(i + 1) % ring.size()]
+		var ab := Vector2(b.x - a.x, b.z - a.z)
+		var l2 := ab.length_squared()
+		var t := 0.0 if l2 <= 0.0 else clampf(Vector2(p.x - a.x, p.z - a.z).dot(ab) / l2, 0.0, 1.0)
+		var q := a.lerp(b, t)
+		var d := Vector2(q.x - p.x, q.z - p.z).length()
+		if d < best:
+			best = d
+			y = q.y
+	return y
 
 ## The extra run is a real LENGTH gain, not a reshuffle. Measured differentially:
 ## the same ramp built with and without the extra, so the difference is exactly
@@ -722,6 +709,9 @@ func test_spawn_ramp_keeps_its_rail_at_highway_grade() -> void:
 ## "Roughly 200 m" is a design target: the extra run follows the ring's curved
 ## segments and its last step is a partial one, so it lands slightly over.
 func test_spawn_merge_run_adds_its_length_and_nothing_else() -> void:
+	# The spawn ramp no longer uses _access_ramp (see CorridorPlanner._spawn_on_ramp);
+	# the extra-run feature stays generic, so it is exercised with its old value.
+	const EXTRA_RUN_M := 200.0
 	var defs := CorridorPlanner.plan(CorridorPlanner.MASTER_SEED)
 	var ring: Array[Vector3] = []
 	for def in defs:
@@ -734,7 +724,7 @@ func test_spawn_merge_run_adds_its_length_and_nothing_else() -> void:
 	var bulge := Vector2(60.0, -16.0)
 	var plain: Array[Vector3] = CorridorPlanner._access_ramp(source, ring, 96, bulge)
 	var extended: Array[Vector3] = CorridorPlanner._access_ramp(source, ring, 96, bulge,
-		CorridorPlanner.SPAWN_MERGE_RUN_M)
+		EXTRA_RUN_M)
 	# The base lane is the tapering run plus the landing; the extended lane is
 	# that same run with the extra constant-offset points prepended to it. Both
 	# are tails of their chain, so the two lanes are compared tail-to-tail.
@@ -758,9 +748,9 @@ func test_spawn_merge_run_adds_its_length_and_nothing_else() -> void:
 	var plain_outer: Vector3 = plain[plain.size() - BASE_LANE]
 	var ext_outer := _lane_outer(extended)
 	assert_float(_xz_distance(ext_outer, plain_outer)).append_failure_message("extra run length") \
-		.is_greater_equal(CorridorPlanner.SPAWN_MERGE_RUN_M * 0.9)
+		.is_greater_equal(EXTRA_RUN_M * 0.9)
 	assert_float(_xz_distance(ext_outer, plain_outer)).append_failure_message("extra run length") \
-		.is_less_equal(CorridorPlanner.SPAWN_MERGE_RUN_M * 1.1)
+		.is_less_equal(EXTRA_RUN_M * 1.1)
 	# The landing is untouched: still the ring vertex verbatim.
 	var end: Vector3 = extended[extended.size() - 1]
 	assert_that(end).is_equal_approx(ring[96], Vector3(0.001, 0.001, 0.001))

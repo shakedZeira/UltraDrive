@@ -369,6 +369,7 @@ func _carve_roads(buf: PackedFloat32Array, natural: PackedFloat32Array, chains: 
 	var sag := PackedFloat32Array()
 	var reach := SAG_TAPER_END
 	var reach2 := reach * reach
+	var core2 := pow(TerrainBaker.ROAD_WIDTH * 0.5 + 0.3, 2.0)
 	var z_lo := o.y + float(row0) * STEP + SAMPLE_OFFSET
 	var z_hi := z_lo + float(rows - 1) * STEP
 	var x_lo := o.x + SAMPLE_OFFSET
@@ -420,7 +421,13 @@ func _carve_roads(buf: PackedFloat32Array, natural: PackedFloat32Array, chains: 
 					var cur := d2_map[i]
 					var owned := cur < reach2
 					var too_high := owned and elev - elev_map[i] > ROAD_TOO_HIGH
-					if (d2 < cur - ROAD_BAND and not too_high) or (owned and d2 <= cur + ROAD_BAND and elev_map[i] - elev > ROAD_GAP and owner[i] != ri):
+					# Over/under crossings: same rule as TerrainBaker._conform_roads
+					# (bug 3f) -- the lower road keeps its own carriageway core.
+					var gap := elev_map[i] - elev
+					var other := owned and owner[i] != ri
+					var underpass := other and d2 <= core2 and gap > TerrainBaker.UNDERPASS_MIN_DY
+					var over_lower_core := other and cur <= core2 and -gap > TerrainBaker.UNDERPASS_MIN_DY
+					if underpass or (not over_lower_core and ((d2 < cur - ROAD_BAND and not too_high) or (owned and d2 <= cur + ROAD_BAND and elev_map[i] - elev > ROAD_GAP and owner[i] != ri))):
 						d2_map[i] = d2
 						elev_map[i] = elev
 						owner[i] = ri

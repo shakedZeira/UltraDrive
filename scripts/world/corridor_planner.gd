@@ -31,11 +31,42 @@ const HIGHWAY_BANKING := 0.35
 ## pass ring formula so the whole 3-road bootstrap is reproducible headless.
 const PASS_ZONE_POS := Vector3(3800.0, 14.0, 3200.0)
 
-## Extra metres of ring-parallel merge lane the spawn ramp runs before its
-## taper starts. Every access ramp gets the standard 14-vertex (~1.5 km) taper;
-## the spawn ramp comes off the hub basin at a crawl, so it needs a longer
-## constant-offset run to reach highway speed on ring grade.
-const SPAWN_MERGE_RUN_M := 200.0
+## -- Spawn on-ramp (spawn-highway-ramp) -------------------------------------
+## The spawn sits ~440 m outside the highway ring, whose nearest stretch runs
+## NNW past the hub (ring vertices ~104..112). The ramp used to be built by the
+## generic _access_ramp against ring vertex 96, 2.1 km away and BEHIND the
+## direction of travel: its approach was shoved onto the ring's outside by the
+## keep-out, rode beside the highway for ~3.8 km to z~4000, turned a 179.7 deg
+## hairpin and came back down on top of itself, so in game it was a road that
+## ran next to the highway and never joined it.
+##
+## Now: anchor -> straight north through hub-ring point 24 (flat at hub grade) ->
+## one cubic curve that arrives TANGENT to the ring's outside edge at vertex
+## SPAWN_LANE_START_IDX -> an acceleration lane edge-to-edge with the highway
+## (centre SPAWN_LANE_OFFSET out = both half-widths, no grass gap) -> a taper to
+## SPAWN_TAPER_END_OFFSET (the ramp's outer edge meets the highway's outer edge)
+## -> a short leg hidden under the highway surface that lands on ring vertex
+## SPAWN_LANDING_IDX verbatim (zero-distance RoadGraph junction). The lane
+## travels in DECREASING ring index (north-west bound). Every lane point is ON
+## the highway's own banked surface plane (TrackBuilder.frame_at), sunk
+## SPAWN_LANE_SINK where the roadbeds overlap so the highway draws on top; the
+## ramp's per-point bank matches the highway's, so the join has no step.
+## The ramp is an ordinary two-way road: driven backwards it is the exit back to
+## the spawn (diverge from the highway, south-east bound).
+const SPAWN_ANCHOR := Vector3(128.0, 2.2, 128.0)
+const SPAWN_LANE_START_IDX := 107     ## first lane station (ramp arrives tangent here)
+const SPAWN_TAPER_START_IDX := 105    ## last full-offset station (lane = 107..105, ~270 m)
+const SPAWN_LANDING_IDX := 103        ## landing vertex (junction node); taper on 105->104, hidden leg 104->103
+const SPAWN_LANE_OFFSET := 17.0       ## highway half (12) + ramp half (5): edges touching
+const SPAWN_TAPER_END_OFFSET := 7.0   ## highway half - ramp half: ramp fully on the highway
+const SPAWN_TAPER_SUBSTEPS := 5       ## smooth (smoothstep) taper samples per ring segment
+const SPAWN_PRE_LANDING_M := 3.0      ## hidden point this far before the landing
+const SPAWN_PRE_LANDING_OFFSET := 0.15
+const SPAWN_LANE_SINK := 0.04         ## m below the highway plane where they overlap
+const SPAWN_FLAT_R := 118.0           ## hub-grade radius around the anchor (hub ring r110 + half-width)
+const SPAWN_GRADE_HOLD_M := 120.0     ## final approach run at the lane's own grade
+const SPAWN_EASE_M := 90.0            ## vertical-curve length at each end of the climb
+const SPAWN_STEP_M := 12.0
 
 ## The canonical player-facing name of EVERY corridor, keyed by id. This is the
 ## single source of truth: the pause map labels roads from RoadDef.name (via
@@ -215,13 +246,16 @@ static func plan(master_seed: int, height_provider: Callable = Callable(), tier_
 	defs.append(_with_merge_rail_open(RoadDef.make(RoadDef.Tier.TOUGE,
 		_conform_access_ramp(_access_ramp(touge_a[0], ring, TOUGE_RAMP_RING_IDX, TOUGE_RAMP_BULGE), terrain),
 		"touge-highway-ramp", false, _width_for(RoadDef.Tier.TOUGE, tier_defaults)), ring))
-	# The spawn ramp runs the LONGEST merge lane: it comes off the hub basin and
-	# then parallels the ring for an extra SPAWN_MERGE_RUN_M before its taper
-	# starts, so the player gets a full on-ramp's worth of ring grade to build
-	# speed on instead of dropping straight into a 1.5 km taper.
-	defs.append(_with_merge_rail_open(RoadDef.make(RoadDef.Tier.ARTERIAL,
-		_access_ramp(Vector3(128.0, 2.2, 128.0), ring, 96, Vector2(60.0, -16.0), SPAWN_MERGE_RUN_M),
-		"spawn-highway-ramp", false, _width_for(RoadDef.Tier.ARTERIAL, tier_defaults)), ring))
+	# The spawn ramp is a real interchange on-ramp (see _spawn_on_ramp): straight
+	# out of the hub, one gentle curve onto the ring's nearest stretch, an
+	# edge-to-edge acceleration lane, a taper, and a landing on a ring vertex.
+	var spawn_ramp := _spawn_on_ramp(ring)
+	var spawn_def := _with_merge_rail_open(RoadDef.make(RoadDef.Tier.ARTERIAL,
+		spawn_ramp["points"], "spawn-highway-ramp", false,
+		_width_for(RoadDef.Tier.ARTERIAL, tier_defaults)), ring)
+	spawn_def.bank_angles = spawn_ramp["bank"]
+	spawn_def.rail_open_ranges.append_array(spawn_ramp["hidden_rail_open"])
+	defs.append(spawn_def)
 
 	# -- HUB ACCESS RAMP: climbs out of the spawn basin at a low crown Y (-0.1),
 	# 46 m out from the hub centre (clear of the r40 spawn plateau), and lands
@@ -1007,17 +1041,232 @@ static func _access_ramp(source: Vector3, ring: Array[Vector3], ring_idx: int, b
 	final_chain[final_chain.size() - 1] = ring_end
 	return final_chain
 
+## A point ON the highway ring's rendered surface: ring segment `seg` (vertex
+## seg -> seg+1, closed), fraction `t` along it, `offset` metres out along the
+## banked cross-section toward the ring's OUTSIDE. Mirrors TrackBuilder exactly
+## (the strip between two vertices is the linear blend of their frames), so a
+## point built here lies on the highway mesh plane extended sideways.
+static func _ring_surface_point(ring: Array[Vector3], seg: int, t: float, offset: float) -> Vector3:
+	var n := ring.size()
+	var i := posmod(seg, n)
+	var j := (i + 1) % n
+	var fa := TrackBuilder.frame_at(ring, i, true, HIGHWAY_BANKING, PackedFloat32Array())
+	var fb := TrackBuilder.frame_at(ring, j, true, HIGHWAY_BANKING, PackedFloat32Array())
+	var centre: Vector3 = (fa["center"] as Vector3).lerp(fb["center"], t)
+	var cross: Vector3 = (fa["cross"] as Vector3).lerp(fb["cross"], t)
+	var out2 := _ring_outward(ring, i)
+	if cross.x * out2.x + cross.z * out2.y < 0.0:
+		cross = -cross
+	return centre + cross * offset
+
+## Highway bank angle at ring vertex `i` (TrackBuilder's legacy curvature path).
+static func _ring_bank_at(ring: Array[Vector3], i: int) -> float:
+	var f := TrackBuilder.frame_at(ring, posmod(i, ring.size()), true, HIGHWAY_BANKING, PackedFloat32Array())
+	var cross: Vector3 = f["cross"]
+	return -asin(clampf(cross.y, -1.0, 1.0))
+
+## Spawn on-ramp (see the SPAWN_* constants for the layout). Returns
+## {"points": Array[Vector3], "bank": PackedFloat32Array (one per point),
+##  "lane_first": index of the first lane station,
+##  "hidden_rail_open": rail_open_ranges entries opening BOTH rails over the leg
+##  that runs under the highway surface (its rails would otherwise stand across
+##  the highway's outer lanes)}.
+static func _spawn_on_ramp(ring: Array[Vector3]) -> Dictionary:
+	var n_ring := ring.size()
+	# -- Lane samples, travelling in DECREASING ring index. Each is (ring segment,
+	# fraction along it, offset): whole vertices on the edge-to-edge run, then
+	# SPAWN_TAPER_SUBSTEPS samples per segment on the taper (offset 17 -> 7) and
+	# on the hidden leg (7 -> 0), both smoothstepped so the ramp's own curvature
+	# is continuous instead of a polyline kink at each end of the taper. ---------
+	var samples: Array[Vector3] = []   # x = segment, y = t, z = offset
+	for idx in range(SPAWN_LANE_START_IDX, SPAWN_TAPER_START_IDX - 1, -1):
+		samples.append(Vector3(idx, 0.0, SPAWN_LANE_OFFSET))
+	for k in range(1, SPAWN_TAPER_SUBSTEPS + 1):
+		var f := float(k) / float(SPAWN_TAPER_SUBSTEPS)
+		samples.append(Vector3(SPAWN_TAPER_START_IDX - 1, 1.0 - f,
+			lerpf(SPAWN_LANE_OFFSET, SPAWN_TAPER_END_OFFSET, smoothstep(0.0, 1.0, f))))
+	var land_seg := SPAWN_LANDING_IDX
+	var seg_len := Vector2(ring[(land_seg + 1) % n_ring].x - ring[land_seg].x,
+		ring[(land_seg + 1) % n_ring].z - ring[land_seg].z).length()
+	var t_pre := SPAWN_PRE_LANDING_M / seg_len
+	for k in range(1, SPAWN_TAPER_SUBSTEPS):
+		var f := float(k) / float(SPAWN_TAPER_SUBSTEPS)
+		var t := 1.0 - f
+		if t <= t_pre:
+			break
+		samples.append(Vector3(land_seg, t,
+			maxf(SPAWN_TAPER_END_OFFSET * (1.0 - smoothstep(0.0, 1.0, f)), SPAWN_PRE_LANDING_OFFSET)))
+	samples.append(Vector3(land_seg, t_pre, SPAWN_PRE_LANDING_OFFSET))
+	var lane: Array[Vector3] = []
+	var lane_bank_src: Array[float] = []
+	var lane_seg: Array[int] = []
+	for smp in samples:
+		var seg := int(smp.x)
+		lane_seg.append(seg)
+		var p := _ring_surface_point(ring, seg, smp.y, smp.z)
+		# The edge-to-edge run does not overlap the highway; everything nearer
+		# lies (partly) on it and sinks so the highway surface draws and drives on top.
+		if smp.z < SPAWN_LANE_OFFSET - 0.001:
+			p.y -= SPAWN_LANE_SINK
+		lane.append(p)
+		lane_bank_src.append(lerpf(_ring_bank_at(ring, seg), _ring_bank_at(ring, seg + 1), smp.y))
+	lane.append(ring[land_seg])
+	lane_bank_src.append(_ring_bank_at(ring, land_seg))
+	lane_seg.append(land_seg)
+
+	# -- Approach XZ: straight north out of the hub (through hub-ring point 24, at
+	# hub grade), then ONE left-hand corner arriving tangent to the lane at its
+	# first station. The corner is a cubic whose handles both point at the
+	# intersection of the two tangent lines, with equal tangent lengths, i.e. a
+	# near-circular arc (no S-bend). ----------------------------------------------
+	var l0 := lane[0]
+	var l1 := lane[1]
+	var t_end := Vector2(l1.x - l0.x, l1.z - l0.z).normalized()
+	var a0 := Vector2(SPAWN_ANCHOR.x, SPAWN_ANCHOR.z)
+	var b3 := Vector2(l0.x, l0.z)
+	var north := Vector2(0.0, 1.0)
+	# Back along the lane tangent from b3 until x == anchor x: the corner vertex.
+	var u_back := (a0.x - b3.x) / -t_end.x if absf(t_end.x) > 0.001 else -1.0
+	var corner := b3 - t_end * u_back
+	var a1: Vector2
+	var b1: Vector2
+	var b2: Vector2
+	if u_back > 0.0 and corner.y - u_back > a0.y + SPAWN_FLAT_R:
+		a1 = corner - north * u_back
+		b1 = a1 + north * u_back * 0.55
+		b2 = b3 - t_end * u_back * 0.55
+	else:
+		# Geometry this layout never produces; keep a sane fallback.
+		a1 = a0 + north * SPAWN_FLAT_R * 1.5
+		var chord := a1.distance_to(b3)
+		b1 = a1 + north * chord * 0.4
+		b2 = b3 - t_end * chord * 0.4
+	var dense: Array[Vector2] = [a0]
+	const STRAIGHT_N := 64
+	for k in range(1, STRAIGHT_N + 1):
+		dense.append(a0.lerp(a1, float(k) / float(STRAIGHT_N)))
+	const CURVE_N := 240
+	for k in range(1, CURVE_N + 1):
+		var u := float(k) / float(CURVE_N)
+		var v := 1.0 - u
+		dense.append(a1 * (v * v * v) + b1 * (3.0 * v * v * u) + b2 * (3.0 * v * u * u) + b3 * (u * u * u))
+	var arc := PackedFloat32Array()
+	arc.resize(dense.size())
+	for k in range(1, dense.size()):
+		arc[k] = arc[k - 1] + dense[k].distance_to(dense[k - 1])
+	var total := arc[dense.size() - 1]
+	var steps := maxi(int(round(total / SPAWN_STEP_M)), 2)
+	var approach_xz: Array[Vector2] = []
+	var approach_s: Array[float] = []
+	var cursor := 0
+	for k in steps + 1:
+		var s := total * float(k) / float(steps)
+		while cursor < dense.size() - 2 and arc[cursor + 1] < s:
+			cursor += 1
+		var span := arc[cursor + 1] - arc[cursor]
+		var f := 0.0 if span <= 0.0 else clampf((s - arc[cursor]) / span, 0.0, 1.0)
+		approach_xz.append(dense[cursor].lerp(dense[cursor + 1], f))
+		approach_s.append(s)
+	approach_xz[steps] = b3
+
+	# -- Approach Y: hub grade inside the hub ring, then a climb with vertical
+	# curves at both ends, then the last SPAWN_GRADE_HOLD_M at the lane's own grade
+	# so the ramp is already on the highway's profile where it comes alongside. ---
+	var lane_grade := (l1.y - l0.y) / Vector2(l1.x - l0.x, l1.z - l0.z).length()
+	var s_flat := SPAWN_FLAT_R
+	var s_hold := total - SPAWN_GRADE_HOLD_M
+	var y_hold := l0.y - lane_grade * SPAWN_GRADE_HOLD_M
+	var points: Array[Vector3] = []
+	for k in approach_xz.size():
+		var s: float = approach_s[k]
+		var y := SPAWN_ANCHOR.y
+		if s >= s_hold:
+			y = l0.y - lane_grade * (total - s)
+		elif s > s_flat:
+			y = SPAWN_ANCHOR.y + (y_hold - SPAWN_ANCHOR.y) * _eased_ramp(s - s_flat, s_hold - s_flat, SPAWN_EASE_M, lane_grade * (s_hold - s_flat) / maxf(y_hold - SPAWN_ANCHOR.y, 0.001))
+		points.append(Vector3(approach_xz[k].x, y, approach_xz[k].y))
+	points[points.size() - 1] = l0
+	var lane_first := points.size() - 1
+	for k in range(1, lane.size()):
+		points.append(lane[k])
+
+	# -- Per-point bank: flat on the approach, the highway's own cross-slope on the
+	# lane, so the two roadbeds share one plane. The ramp travels the other way
+	# round the ring, so the angle is re-expressed in the ramp's own frame. ------
+	var bank := PackedFloat32Array()
+	bank.resize(points.size())
+	for k in range(lane_first, points.size()):
+		var rf := TrackBuilder.frame_at(ring, posmod(lane_seg[k - lane_first], ring.size()), true, HIGHWAY_BANKING, PackedFloat32Array())
+		var ring_right := (rf["forward"] as Vector3).cross(Vector3.UP).normalized()
+		var ramp_fwd := (points[mini(k + 1, points.size() - 1)] - points[maxi(k - 1, 0)]).normalized()
+		var ramp_right := ramp_fwd.cross(Vector3.UP).normalized()
+		bank[k] = atan(tan(float(lane_bank_src[k - lane_first])) * ramp_right.dot(ring_right))
+	# First sample of the leg under the highway (offset below the taper end): the
+	# segment that reaches it already lies inside the highway's outer edge.
+	var hidden_from := points.size() - 1
+	for k in samples.size():
+		if samples[k].z < SPAWN_TAPER_END_OFFSET - 0.001:
+			hidden_from = lane_first + k
+			break
+	var hidden: Array[Dictionary] = [
+		{"from": hidden_from, "to": points.size() - 1, "side": RoadDef.RailSide.RIGHT},
+		{"from": hidden_from, "to": points.size() - 1, "side": RoadDef.RailSide.LEFT},
+	]
+	return {"points": points, "bank": bank, "lane_first": lane_first, "hidden_rail_open": hidden}
+
+## 0..1 climb profile over `length`: parabolic vertical curves of `ease` metres at
+## both ends joined by a constant grade, so the grade changes smoothly (no kink)
+## and the peak grade is as low as the ease allows. `end_slope_frac` lets the top
+## curve end at a non-zero relative slope (the lane's own grade) -- in units of
+## (rise / length); 0 is a level finish.
+static func _eased_ramp(x: float, length: float, ease: float, end_slope_frac: float) -> float:
+	if length <= 0.0:
+		return 1.0
+	var e := minf(ease, length * 0.5)
+	# Unit-rise profile with slope m in the middle: rise = m*(L - e) - correction
+	# for the end slope. Solve for m with the top curve easing m -> g (relative).
+	var g := end_slope_frac / length
+	# rise: bottom curve e*m/2, middle m*(L-2e), top curve e*(m+g)/2 => 1
+	var m := (1.0 - e * g * 0.5) / (length - e)
+	if x <= 0.0:
+		return 0.0
+	if x >= length:
+		return 1.0
+	if x < e:
+		return m * x * x / (2.0 * e)
+	var y_bottom := m * e * 0.5
+	if x <= length - e:
+		return y_bottom + m * (x - e)
+	var y_mid := y_bottom + m * (length - 2.0 * e)
+	var d := x - (length - e)
+	return y_mid + m * d + (g - m) * d * d / (2.0 * e)
+
 ## Return connector: highway ring -> hub ring (reverse of spawn-highway-ramp).
 ## Starts at ring[ring_idx] and runs straight to hub center (128, 128) at Y 2.2.
+## Y: hub grade within SPAWN_FLAT_R of the spawn anchor (it crosses the hub ring
+## there, at grade), then eased vertical curves up to the ring -- the same profile
+## family as the spawn on-ramp it shares the anchor with, instead of a straight
+## 3.8% line that the anchor flush (_align_shared_spawn_anchor) then had to bend.
 static func _highway_to_hub_ramp(ring: Array[Vector3], ring_idx: int) -> Array[Vector3]:
 	var start := ring[ring_idx]
-	var end := Vector3(128.0, 2.2, 128.0)
+	var end := SPAWN_ANCHOR
 	var mid := Vector3(
 		(start.x + end.x) * 0.5,
 		(start.y + end.y) * 0.5,
 		(start.z + end.z) * 0.5)
 	var control: Array[Vector3] = [start, mid, end]
-	return _open_chain(control)
+	var pts := _open_chain(control)
+	var from_end := _arc_from_anchor(pts, true)
+	var climb_len := float(from_end[0]) - SPAWN_FLAT_R
+	for i in pts.size():
+		var s := float(from_end[i])
+		var y := end.y
+		if s > SPAWN_FLAT_R:
+			y = end.y + (start.y - end.y) * _eased_ramp(s - SPAWN_FLAT_R, climb_len, SPAWN_EASE_M, 0.0)
+		pts[i] = Vector3(pts[i].x, y, pts[i].z)
+	pts[0] = start
+	pts[pts.size() - 1] = end
+	return pts
 
 ## Return connector: highway ring -> pass loop (reverse of pass-highway-ramp).
 ## Starts at ring[ring_idx] and runs to pass_start (on pass loop).

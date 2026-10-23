@@ -313,14 +313,10 @@ func test_access_ramp_merge_lane_geometry() -> void:
 			var p := pts[i]
 			var p2d := Vector2(p.x, p.z)
 			
-			# Find nearest ring vertex
-			var min_ring_dist := INF
-			var nearest_ring_y := 0.0
-			for rp in ring:
-				var dist := p2d.distance_to(Vector2(rp.x, rp.z))
-				if dist < min_ring_dist:
-					min_ring_dist = dist
-					nearest_ring_y = rp.y
+			# Projection onto the ring centreline polyline (distance, Y there).
+			var proj := _ring_projection(ring, p)
+			var min_ring_dist := proj.x
+			var nearest_ring_y := proj.y
 			var offset := side * _ring_signed_offset(p2d)
 			
 			# On the ramp's side of the ring locus (the landing is on it)
@@ -355,13 +351,7 @@ func test_access_ramp_merge_lane_geometry() -> void:
 		assert_int(window_first).is_less_equal(runner_start_idx)
 		for i in range(window_first, runner_start_idx):
 			var p := pts[i]
-			var nearest_ring_y := 0.0
-			var min_d := INF
-			for rp in ring:
-				var d := Vector2(p.x, p.z).distance_to(Vector2(rp.x, rp.z))
-				if d < min_d:
-					min_d = d
-					nearest_ring_y = rp.y
+			var nearest_ring_y := _ring_projection(ring, p).y
 			# At grade before the merge: never under the highway roadbed.
 			assert_float(p.y).is_greater_equal(nearest_ring_y - 0.5)
 
@@ -592,3 +582,23 @@ func _segments_intersect_xz(a1: Vector3, a2: Vector3, b1: Vector3, b2: Vector3) 
 	var u := qpxs / rxs
 	
 	return t > 0.0 and t < 1.0 and u > 0.0 and u < 1.0
+
+## Projection of `p` onto the ring centreline polyline (XZ): x = distance to it,
+## y = the centreline Y interpolated there. Unlike "the nearest ring VERTEX" this
+## is meaningful for lane points sampled between vertices (the spawn on-ramp's
+## taper), and identical to it for points that sit beside a vertex.
+func _ring_projection(ring: Array[Vector3], p: Vector3) -> Vector2:
+	var best := INF
+	var y := 0.0
+	for i in ring.size():
+		var a := ring[i]
+		var b := ring[(i + 1) % ring.size()]
+		var ab := Vector2(b.x - a.x, b.z - a.z)
+		var l2 := ab.length_squared()
+		var t := 0.0 if l2 <= 0.0 else clampf(Vector2(p.x - a.x, p.z - a.z).dot(ab) / l2, 0.0, 1.0)
+		var q := a.lerp(b, t)
+		var d := Vector2(q.x - p.x, q.z - p.z).length()
+		if d < best:
+			best = d
+			y = q.y
+	return Vector2(best, y)

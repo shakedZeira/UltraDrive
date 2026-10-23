@@ -214,11 +214,11 @@ Medium (3.5 GB card, ~1.26 GB measured at Medium today).
    `pass-highway-ramp` 116 m; the carve turned these into km-deep 40 m-wide canyons through the alpine massifs, in
    the live ring and the vista alike. Root cause: the planner's Ys were free-floating design values, never tied to the
    field, and the P1 massifs (1100 / 850 m) sat on top of the touge loops and across the ring's south-east quarter.
-3f. Pre-existing, found 2026-10-23 (section 10), NOT fixed: on `hub-coast` about 1.79 km from its start (x ~1790,
-   z 256..512), where `highway-ring` passes overhead, the live terrain covers the right half of the road for a few
-   frames while the camera moves (rock/grass drawn over asphalt); held still, the road is clear. Same with road
-   streaming off, and gone with the terrain hidden, so it is terrain (carve or clipmap LOD near the overpass), not
-   road geometry.
+3f. Found 2026-10-23 (section 10), carve part FIXED 2026-10-23 (section 11): on `hub-coast` about 1.79 km from its
+   start (x ~1790, z 256..512) the live terrain covered the right half of the road. The road overhead there is
+   `hub-pass` (8.4 m, crossing at (1796, 334)), not `highway-ring` (which crosses `hub-coast` at (683, 159)). Cause:
+   the carve gave each texel to the nearest road, so the upper road's embankment was raised across the lower road.
+   A transient at coarse terrain LOD (the cut is ~12 m wide) is not excluded; see section 11.
 4. ~~Roads/collision are all live~~ FIXED 2026-10-23 (section 10): geometry and collision stream per cell; the
    topology (junction search) at load is 36 ms instead of 21 s.
 5. Traffic: unpooled spawn/free, single car model, no lane model, spawn ring is a square around the player including
@@ -558,6 +558,60 @@ off): the transient terrain-over-road at the `highway-ring` overpass is pre-exis
 - Cells are sized for today's 95 km network; the hub cell is the worst (3.8 ms worker build, ~1.5 ms add).
 - Not done here: the `MountainPassZone` scene keeps its own always-live `TrackBuilder` road; Low/High presets and VRAM
   on High not measured; not driven by hand.
+
+## 11. Spawn on-ramp merges into the highway; bug 3f carve (2026-10-23)
+
+**Problem.** "The road from the spawn point makes the road near the highway and never merges." `spawn-highway-ramp`
+was built by the generic `CorridorPlanner._access_ramp` against ring vertex 96 (-200, 2250), 2.1 km away and behind
+the direction of travel. The approach's straight line crossed the ring ellipse, so the keep-out pushed it onto the
+ring's outside, where it rode beside the highway for ~3.8 km to z ~4000, turned a 179.7 deg hairpin and came back
+south on top of itself to land at vertex 96. Measured (probe, MASTER_SEED): 5934 m long, 317 deg total turning,
+179.7 deg single-vertex turn, 1476 m of roadbed overlapping its own approach. The spawn is only 441 m from the ring.
+
+**Fix** (`CorridorPlanner._spawn_on_ramp`, constants `SPAWN_*`):
+- Straight north from the spawn anchor (128, 2.2, 128) through hub-ring point 24 at hub grade, then one left
+  corner (cubic, tangent lengths equal, so no S-bend) that arrives tangent to the ring's outside at vertex 107.
+- Acceleration lane 107 -> 105 edge-to-edge with the highway (centre 17 m out = 12 + 5 half-widths), ~242 m;
+  smoothstep taper 17 -> 7 m over 105 -> 104; a leg hidden under the highway surface lands on vertex 103 verbatim
+  (one shared RoadGraph junction node, distance 0).
+- Every lane point sits on the highway's own banked surface plane (`TrackBuilder.frame_at`, blended between vertices
+  like the strip mesh), sunk 0.04 m where the roadbeds overlap so the highway draws and drives on top; the ramp gets a
+  per-point `bank_angles` profile that matches the highway's cross-slope. Both rails are open on the hidden leg.
+- Y: hub grade to r 118 m, then eased vertical curves, the last 120 m at the lane's own grade.
+- The lane travels in decreasing ring index (north-west bound). The ramp is an ordinary two-way road, so driven
+  backwards it is the exit to the spawn (diverge, south-east bound).
+- `RoadNetwork.recompute_rails` now gaps the receiving road's rails FORWARD of the junction when the other road runs
+  alongside only on that side (`_forward_merge_span`); all other junctions keep the old 14-vertex backward gap. Before,
+  this lane would have kept the highway rail between it and the carriageway.
+- `highway-hub-ramp` (return) uses the same flat-then-eased profile; the anchor flush had bent it to 9.7 %.
+
+**After** (same probe): 1352 m, 51 deg total turning, min radius 344 m, max grade 4.3 % (return ramp 6.0 %), lane
+heading at the landing 0.5 deg off the ring tangent, ramp surface 0..0.04 m below the highway plane across its
+width on the whole lane, worst cut 0.8 m vs canonical ground. Tests: new `tests/suites/test_spawn_merge.gd`;
+`test_highway_access`, `test_corridor_seeding` and `test_multi_lane_rails` now measure merge lanes against the
+ring polyline (projection), not the nearest ring vertex. The two spawn tests that described the hairpin (open side
+flips LEFT -> RIGHT, landing on vertex 96) were replaced.
+
+**Not done:** `highway-hub-ramp` still T-joins the ring CENTRELINE at ring 110 at 46 deg (no diverge lane); now
+redundant with the two-way on-ramp but kept (names, map, tests). The receiving highway's junction gaps still cut both
+of its rails (inner rail too, pre-existing for every ramp), and its outer rail is missing for ~130 m past the taper.
+Driving side is still undecided (traffic plan question); this merge suits right-hand traffic on the outer lanes, the
+older coast/touge ramps merge the other way round the ring. Nobody has driven the new ramp by hand.
+
+**Bug 3f (carve part).** The crossing at x ~1796 is `hub-pass` (8.4 m) over `hub-coast` (2.3 m), dy 6.1 m. The carve
+(`TerrainBaker._conform_roads`, mirrored in `TerrainVistaBaker`) gave each texel to the nearest road; the existing
+`too_high` guard only stops a road more than 9 m higher from stealing texels. Now, when two roads differ by more than
+`UNDERPASS_MIN_DY` (2 m), the LOWER road always owns texels inside its own carriageway core (5.8 m), so the upper road
+becomes a deck over a cut instead of an embankment across the lower road. Measured on the baked region (1 m texels,
+hub-coast carriageway +-4 m, +-15 m along from the crossing): ground up to 3.95 m above hub-coast before, < 0.6 m
+after (3x3 blur). The road's centreline itself was never covered, which is why the eye-level view looked clear. Other over/under crossings near the hub
+(highway-ring over hub-pass 12.3 m, over hub-coast 16.1 m, over hub-highway-ramp 15.5 m, over dirt-a 11.1 m; dirt-b
+over hub-coast 12.1 m) were already covered by the 9 m rule and are unchanged. Pinned by
+`test_spawn_merge.gd::test_underpass_bake_keeps_the_lower_road_clear` (fails at 3.95 m with the rule disabled). Not verified: whether Terrain3D's coarse LODs
+(vertex spacing > the 12 m cut) still draw terrain over the lower road at distance; the upper road has no piers.
+
+Gate on this change (with other agents' concurrent work in the tree): 1816 tests, 1 failure (the pre-existing
+`test_post_race_cinematic.gd:239`), 0 false greens.
 
 ## 12. FH6-look pass (2026-10-24): vegetation, atmosphere, terrain tones, roadside, landmarks
 

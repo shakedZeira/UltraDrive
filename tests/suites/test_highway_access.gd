@@ -296,19 +296,16 @@ func test_ramp_merge_lane_runs_parallel_and_at_grade() -> void:
 			if i == runner_start_idx:
 				assert_float(absf(offset)).is_greater_equal(ring_half - GEOM_EPS)
 			
-			# Y should be at ring grade (within 0.5 m of nearest ring vertex Y)
-			var nearest_ring_y := 0.0
-			var min_ring_dist := INF
-			for rp in ring:
-				var dist := p2d.distance_to(Vector2(rp.x, rp.z))
-				if dist < min_ring_dist:
-					min_ring_dist = dist
-					nearest_ring_y = rp.y
-			assert_float(absf(p.y - nearest_ring_y)).is_less_equal(0.5)
+			# Y should be at ring grade (within 0.5 m of the ring centreline Y at
+			# the point's projection), and the offset is the distance to the ring
+			# centreline polyline.
+			var proj := _ring_projection(ring, p)
+			var min_ring_dist := proj.x
+			assert_float(absf(p.y - proj.y)).append_failure_message("%s idx %d" % [ramp.id, i]).is_less_equal(0.5)
 			
 			# Offset should shrink monotonically (allow small noise at start)
 			if prev_offset >= 0.0 and i > runner_start_idx + 1:
-				assert_float(min_ring_dist).is_less_equal(prev_offset + 0.1)
+				assert_float(min_ring_dist).append_failure_message("%s idx %d" % [ramp.id, i]).is_less_equal(prev_offset + 0.1)
 			prev_offset = min_ring_dist
 			
 			# Accumulate merge lane length (sum of segment lengths in runner)
@@ -533,67 +530,43 @@ func test_hub_access_ramp_rail_gapped_on_receiving_hub_ring() -> void:
 	assert_int(ramp_rails_after).is_equal(0)
 	assert_int(ramp_builder._rail_gaps.size()).is_equal(0)
 
-## Highway outer rail is gapped across the full merge lane extent for the spawn ramp.
-## The gap segment should cover from ring_idx - 14 to ring_idx (15 points = ~168 m).
-## Verifies TrackBuilder.configure_rails suppresses rails for the entire segment,
-## not just at the single junction vertex.
+## The highway's rails are gapped across the spawn on-ramp's merge lane, which
+## lies AHEAD of the landing vertex in ring index (the ramp travels the ring in
+## decreasing index). RoadNetwork.recompute_rails used to cut every ramp's gap
+## from landing-14 to the landing, i.e. behind it, which for this ramp would have
+## left the highway rail standing between the lane and the carriageway.
 func test_highway_rail_gapped_across_merge_lane() -> void:
 	var defs := CorridorPlanner.plan(CorridorPlanner.MASTER_SEED)
 	var ring_def := _def_by_id(defs, "highway-ring")
+	var ramp := _def_by_id(defs, "spawn-highway-ramp")
 	assert_that(ring_def).is_not_null()
-	if ring_def == null:
+	assert_that(ramp).is_not_null()
+	if ring_def == null or ramp == null:
 		return
 	var ring_pts: Array[Vector3] = ring_def.points
-	var N := ring_pts.size()
-	assert_int(N).is_greater_equal(15)
-	# The merge lane belongs to spawn-highway-ramp, so its landing vertex is
-	# derived from the ramp's endpoint instead of a hard-coded ring index.
-	var ring_idx := _ring_landing_index(ring_pts, _def_by_id(defs, "spawn-highway-ramp"))
-	assert_int(ring_idx).is_greater_equal(0)
-	if ring_idx < 0:
+	var ring_idx := _ring_landing_index(ring_pts, ramp)
+	assert_int(ring_idx).is_equal(CorridorPlanner.SPAWN_LANDING_IDX)
+	var network := RoadNetwork.new()
+	add_child(network)
+	_track(network)
+	network.add_road_def(ring_def)
+	network.add_road_def(ramp)
+	network.recompute_rails()
+	var builder := network.get_children()[0] as TrackBuilder
+	assert_int(builder._rail_gaps.size()).is_equal(1)
+	if builder._rail_gaps.size() != 1:
 		return
-	
-	# Build a TrackBuilder for the highway ring with the gap segment. It builds
-	# meshes AND collision bodies, so it has to be parented and tracked like the
-	# other stub builders in the suite: an unparented, untracked Node3D is never
-	# freed, and its StaticBody3D/CollisionShape3D children are reported as
-	# orphans with leaked P11/P12 instances when the suite ends.
-	var builder := TrackBuilder.new()
-	add_child(builder)
-	_track(builder)
-	builder.build_track(ring_pts, true, ring_def)
-	
-	# Simulate what RoadNetwork.recompute_rails does: gap segment from ring_idx-14 to ring_idx
-	var start_idx := (ring_idx - 14) % N
-	if start_idx < 0:
-		start_idx += N
-	var start_point := ring_pts[start_idx]
-	var end_point := ring_pts[ring_idx]
-	builder.configure_rails([{"start": start_point, "end": end_point}])
-	
-	# Check that rail children exist but the mesh has no triangles in the gap zone
-	var right_rail := builder.get_node_or_null("RoadRailRight")
-	var left_rail := builder.get_node_or_null("RoadRailLeft")
-	assert_that(right_rail).is_not_null()
-	assert_that(left_rail).is_not_null()
-	
-	# The highway ring has rails on BOTH sides (HIGHWAY tier).
-	# The merge lane is on the OUTSIDE of the ring (offset outward).
-	# So the RIGHT rail (outer side for CCW ring) should be gapped.
-	# Verify the rail mesh has a hole in the gap zone by checking vertex count.
-	# We can't easily inspect mesh triangles from GDScript, so we verify
-	# the builder's internal gap logic by checking the rail_gaps were stored.
-	assert_that(builder._rail_gaps.size()).is_equal(1)
-	assert_that(builder._rail_gaps[0] != null).is_true()
-	assert_that(typeof(builder._rail_gaps[0]) == TYPE_DICTIONARY).is_true()
-	assert_that(builder._rail_gaps[0].has("start")).is_true()
-	assert_that(builder._rail_gaps[0].has("end")).is_true()
-	
-	# Verify the gap covers the correct ring indices
 	var gap_start: Vector3 = builder._rail_gaps[0]["start"]
 	var gap_end: Vector3 = builder._rail_gaps[0]["end"]
-	assert_float(gap_start.distance_to(start_point)).is_less_equal(0.001)
-	assert_float(gap_end.distance_to(end_point)).is_less_equal(0.001)
+	# Starts at the landing and runs forward over the whole lane (the ramp's first
+	# lane station is SPAWN_LANE_START_IDX), not backward from the landing.
+	assert_float(gap_start.distance_to(ring_pts[ring_idx])).is_less_equal(0.001)
+	var end_idx := -1
+	for i in ring_pts.size():
+		if ring_pts[i].distance_to(gap_end) < 0.001:
+			end_idx = i
+	assert_int(end_idx).is_greater_equal(CorridorPlanner.SPAWN_LANE_START_IDX)
+	assert_int(end_idx).is_less_equal(CorridorPlanner.SPAWN_LANE_START_IDX + 2)
 
 ## Access road approach XZ stays clear of the highway carriageway until the
 ## The spawn on-ramp and the highway return connector share the anchor
@@ -786,3 +759,23 @@ func test_access_ramp_junction_is_at_the_merge_landing() -> void:
 		assert_int(found).append_failure_message("%s ring junctions" % ramp.id).is_equal(1)
 		# The junction IS the landing: zero-distance, exactly like the hub on-ramp.
 		assert_float(off_landing).append_failure_message("%s junction is off its landing" % ramp.id).is_less(0.001)
+
+## Projection of `p` onto the ring centreline polyline (XZ): x = distance to it,
+## y = the centreline Y interpolated there. Unlike "the nearest ring VERTEX" this
+## is meaningful for lane points sampled between vertices (the spawn on-ramp's
+## taper), and identical to it for points that sit beside a vertex.
+func _ring_projection(ring: Array[Vector3], p: Vector3) -> Vector2:
+	var best := INF
+	var y := 0.0
+	for i in ring.size():
+		var a := ring[i]
+		var b := ring[(i + 1) % ring.size()]
+		var ab := Vector2(b.x - a.x, b.z - a.z)
+		var l2 := ab.length_squared()
+		var t := 0.0 if l2 <= 0.0 else clampf(Vector2(p.x - a.x, p.z - a.z).dot(ab) / l2, 0.0, 1.0)
+		var q := a.lerp(b, t)
+		var d := Vector2(q.x - p.x, q.z - p.z).length()
+		if d < best:
+			best = d
+			y = q.y
+	return Vector2(best, y)

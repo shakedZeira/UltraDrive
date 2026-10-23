@@ -204,6 +204,16 @@ func recompute_rails() -> void:
                         # RoadDef.rails_enabled() is merge-gated, so the loop above
                         # already skipped it and it has no rail to clear.
                         const MERGE_POINTS := 14
+                        # A merge lane that runs alongside on the FORWARD side of
+                        # the junction (higher indices, e.g. the spawn on-ramp,
+                        # which travels the ring in decreasing index) gets its gap
+                        # there instead, spanning exactly the stretch it runs beside.
+                        var ahead := _forward_merge_span(pts, _roads[other_id], idx_a, def.closed,
+                            (def.width + other_def.width) * 0.5 + 1.0)
+                        if ahead > 0:
+                            var end_idx := (idx_a + ahead) % N if def.closed else mini(idx_a + ahead, N - 1)
+                            gaps.append({"start": pts[idx_a], "end": pts[end_idx]})
+                            continue
                         var start_idx := (idx_a - MERGE_POINTS) % N
                         if start_idx < 0:
                             start_idx += N
@@ -216,6 +226,49 @@ func recompute_rails() -> void:
                 _stream_dirty = true
         else:
             _builders[road_id].configure_rails(gaps)
+
+## How many of THIS road's vertices past `idx_a` (the junction vertex) the other
+## road runs alongside, i.e. with its centreline within `band` of this road's
+## centreline. Returns 0 unless the other road is alongside ONLY on the forward
+## side (no point alongside behind the junction) for at least two segments:
+## crossings, T-joins, radial joins and every
+## backward merge keep the legacy 14-point backward gap. Only points within
+## 800 m of the junction and vertices within +-20 of it are examined.
+func _forward_merge_span(pts: Array[Vector3], other: Array[Vector3], idx_a: int, closed: bool, band: float) -> int:
+    var n := pts.size()
+    if n < 2 or other.is_empty():
+        return 0
+    const WINDOW := 20
+    var junction := pts[idx_a]
+    var max_ahead := 0
+    var behind := false
+    for q in other:
+        var r2 := Vector2(q.x - junction.x, q.z - junction.z).length_squared()
+        # The landing itself sits on the junction vertex: it has no side.
+        if r2 > 640000.0 or r2 < 1.0:
+            continue
+        var best_d := INF
+        var best_k := 0
+        for k in range(-WINDOW, WINDOW):
+            var ia := idx_a + k
+            var ib := ia + 1
+            if not closed and (ia < 0 or ib >= n):
+                continue
+            var a := pts[posmod(ia, n)]
+            var b := pts[posmod(ib, n)]
+            var d := point_to_segment_xz(q, a, b)
+            if d < best_d:
+                best_d = d
+                # The segment's far end in the direction away from the junction.
+                best_k = k + 1 if k >= 0 else k
+        if best_d >= band:
+            continue
+        if best_k > 0:
+            max_ahead = maxi(max_ahead, best_k)
+        elif best_k < 0:
+            behind = true
+    # A single segment is a perpendicular join seen from one side, not a lane.
+    return 0 if behind or max_ahead < 2 else max_ahead
 
 ## Whether road `road_id` has (or will stream) geometry that rails can be cut on.
 func _has_geometry(road_id: int) -> bool:
