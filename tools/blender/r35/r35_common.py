@@ -244,11 +244,11 @@ def _plane_frame(direction):
 
 
 def decal(name, poly, target, material, plane='front', direction=None, offset=0.003, step=0.02,
-          origin3d=None, mirror_name=None, extra_mats=None, strip=None, uv_scale=None):
+          origin3d=None, mirror_name=None, extra_mats=None, strip=None, uv_scale=None, smooth_iter=0):
     """Project a 2D polygon onto `target` with a shrinkwrap (project mode).
     plane: 'front' (x,z) looking +Y; 'rear' (x,z) looking -Y; 'side' (y,z) looking -X (car left, +X);
     'top' (x,y) looking -Z; 'custom': poly given as 3D points, projected along `direction`."""
-    if plane == 'front':
+    if plane in ('front', 'front2'):
         to3 = lambda p: Vector((p[0], -4.0, p[1])); d = Vector((0, 1, 0))
     elif plane == 'rear':
         to3 = lambda p: Vector((p[0], 4.0, p[1])); d = Vector((0, -1, 0))
@@ -306,7 +306,7 @@ def decal(name, poly, target, material, plane='front', direction=None, offset=0.
     # vertex normals point against d, so project in the NEGATIVE normal direction
     sw.use_negative_direction = True
     sw.use_positive_direction = False
-    sw.project_limit = {'front': 2.0, 'rear': 2.0, 'side': 3.25, 'top': 3.2}.get(plane, 2.75)
+    sw.project_limit = {'front': 2.0, 'front2': 2.9, 'rear': 2.0, 'side': 3.25, 'top': 3.2}.get(plane, 2.75)
     bake_modifiers(ob)
     # drop verts that missed the target (still far away)
     me = ob.data
@@ -314,6 +314,12 @@ def decal(name, poly, target, material, plane='front', direction=None, offset=0.
     far = [v for v in bm.verts if (v.co - to3((0, 0))).dot(d) < 0.3]
     if far:
         bmesh.ops.delete(bm, geom=far, context='VERTS')
+    if smooth_iter:
+        # relax interior vertices only (boundary stays on the surface): kills facet ripple in lamp lenses
+        bm.verts.ensure_lookup_table()
+        inner = [v for v in bm.verts if not v.is_boundary]
+        for _ in range(smooth_iter):
+            bmesh.ops.smooth_vert(bm, verts=inner, factor=0.6, use_axis_x=True, use_axis_y=True, use_axis_z=True)
     bm.to_mesh(me); bm.free()
     for p in me.polygons:
         p.use_smooth = True

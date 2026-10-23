@@ -51,66 +51,244 @@ def lamp(bm_map, center, axis, R, kind='tail'):
     rev(bm_map['inner'], [(0.004, R * 0.46), (-0.008, R * 0.40), (-0.012, R * 0.28), (-0.006, R * 0.20), (0.000, R * 0.12), (0.002, 0.0005)])
 
 
+
+class LensField:
+    """Smooth quadratic y = f(x, z) fitted to the body over an outline (front view), pushed out so
+    it clears every bump. Lamp lenses/DRL/amber layers are built on it => clean glass, no facet ripple."""
+
+    def __init__(self, poly, bvh, margin=0.004, grid=0.012):
+        import numpy as np
+        self.np = np
+        xs = [p[0] for p in poly]; zs = [p[1] for p in poly]
+        pts = []
+        x = min(xs)
+        while x <= max(xs):
+            z = min(zs)
+            while z <= max(zs):
+                if C.point_in_poly((x, z), poly):
+                    loc, n = hit(bvh, (x, -4.0, z), (0, 1, 0))
+                    if loc is not None:
+                        pts.append((x, z, loc.y))
+                z += grid
+            x += grid
+        for q in C.resample(poly, grid):
+            loc, n = hit(bvh, (q.x, -4.0, q.y), (0, 1, 0))
+            if loc is not None:
+                pts.append((q.x, q.y, loc.y))
+        A = np.array([[1, x, z, x * x, x * z, z * z] for (x, z, y) in pts])
+        Y = np.array([y for (x, z, y) in pts])
+        self.coef = np.linalg.lstsq(A, Y, rcond=None)[0]
+        res = Y - A @ self.coef
+        self.shift = float(res.min()) - margin
+        print("LensField samples", len(pts), "rms", float(np.sqrt((res ** 2).mean())), "shift", self.shift)
+
+    def y(self, x, z):
+        c = self.coef
+        return float(c[0] + c[1] * x + c[2] * z + c[3] * x * x + c[4] * x * z + c[5] * z * z + self.shift)
+
+    def normal(self, x, z):
+        c = self.coef
+        fx = c[1] + 2 * c[3] * x + c[4] * z
+        fz = c[2] + c[4] * x + 2 * c[5] * z
+        return Vector((fx, -1.0, fz)).normalized()
+
+    bulge = None
+
+    def layer(self, name, poly, mat, dy=0.0, step=0.012, wall_to=None, wall_mat=None):
+        """Triangulated polygon on the field (offset dy along -y). Optional skirt down to the body."""
+        vs, fs = C.fill_poly_2d(poly, step)
+        bm = bmesh.new()
+        bg = self.bulge or (lambda x, z: 0.0)
+        bv = [bm.verts.new((x, self.y(x, z) + dy + bg(x, z), z)) for (x, z) in vs]
+        for f in fs:
+            try:
+                bm.faces.new([bv[i] for i in f])
+            except ValueError:
+                pass
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        if bm.faces and bm.faces[0].normal.y > 0:
+            for f in bm.faces:
+                f.normal_flip()
+        mats = [mat]
+        if wall_to is not None:
+            wi = len(mats); mats.append(wall_mat)
+            ring = C.resample(poly, 0.02)
+            top_v, bot_v = [], []
+            for q in ring:
+                loc, n = hit(wall_to, (q.x, -4.0, q.y), (0, 1, 0))
+                yt = self.y(q.x, q.y) + dy + bg(q.x, q.y)
+                yb = loc.y if loc is not None else yt + 0.012
+                if yb < yt:
+                    yb = yt
+                top_v.append(bm.verts.new((q.x, yt, q.y))); bot_v.append(bm.verts.new((q.x, yb + 0.004, q.y)))
+            nr = len(ring)
+            for k in range(nr):
+                f = bm.faces.new((top_v[k], bot_v[k], bot_v[(k + 1) % nr], top_v[(k + 1) % nr]))
+                f.material_index = wi
+        ob = C.new_obj(name, bm, mats)
+        return ob
+
+
 def build_details(M, body):
     out = []
     bvh = _bvh(body)
     # ---------------------------------------------------------------- underbody dark
     me = body.data
+    import r35_body as _B
     for p in me.polygons:
         if p.normal.z < -0.55 and p.center.z < 0.30:
             p.material_index = 1  # DarkTrim
+        elif p.center.y < -1.9 and p.center.z < _B.param('zb', p.center.y) + 0.062:
+            p.material_index = 1  # carbon lower lip band (clean, row-aligned)
     me.update()
     bvh = _bvh(body)
 
     # ---------------------------------------------------------------- FRONT
-    out.append(D("GrilleChrome", [(-0.405, 0.70), (-0.282, 0.563), (0.282, 0.563), (0.405, 0.70)], bpy.data.objects.get("UpperGrille") or body, M['Chrome'], 'front', offset=0.040, step=0.012, strip=0.020))
-    out.append(D("BadgeFront", [(-0.038, 0.64), (0.038, 0.64), (0.038, 0.672), (-0.038, 0.672)], bpy.data.objects.get("UpperGrille") or body, M['Chrome'], 'front', offset=0.043, step=0.01))
-    l, r = D("DRL_L", [(0.738, 0.468), (0.852, 0.474), (0.852, 0.506), (0.742, 0.500)], bpy.data.objects.get("IntakeCorner_L") or body, M['LampDRL'], 'front', offset=0.008, step=0.01, mirror_name="DRL_R")
-    out += [l, r]
-    # headlights: boomerang outline on the front-left corner, projected obliquely
-    hd = Vector((-0.55, 0.80, -0.28))
-    outline = [(0.585, -2.262, 0.700), (0.690, -2.255, 0.655), (0.800, -2.215, 0.640), (0.875, -2.120, 0.665), (0.910, -1.960, 0.730),
-               (0.920, -1.790, 0.800), (0.915, -1.660, 0.860), (0.900, -1.630, 0.890), (0.870, -1.680, 0.905), (0.845, -1.840, 0.892),
-               (0.815, -2.000, 0.862), (0.760, -2.140, 0.818), (0.680, -2.225, 0.785), (0.600, -2.258, 0.755)]
-    hl, hr = D("HeadlightHousing_L", outline, body, M['LampHousing'], 'custom', direction=hd, offset=0.004, step=0.012, mirror_name="HeadlightHousing_R")
-    out += [hl, hr]
-    drl = [(0.600, -2.262, 0.712), (0.695, -2.255, 0.670), (0.800, -2.214, 0.656), (0.870, -2.120, 0.680), (0.902, -1.960, 0.740), (0.910, -1.800, 0.806), (0.905, -1.680, 0.858)]
-    lens_parts = [D("HL_DRL", drl, body, M['Headlight'], 'custom', direction=hd, offset=0.007, step=0.006, strip=0.016)]
-    # three projector eyes
-    proj_c = [(0.680, -2.232, 0.728), (0.768, -2.180, 0.740), (0.840, -2.085, 0.768)]
-    dn, du, dv = C._plane_frame(hd)
-    rings = []
-    for c in proj_c:
-        c = Vector(c)
-        circ = [c + (du * math.cos(2 * math.pi * k / 20) + dv * math.sin(2 * math.pi * k / 20)) * 0.036 for k in range(20)]
-        rings.append(D("HL_Ring", circ, body, M['Chrome'], 'custom', direction=hd, offset=0.008, step=0.008))
-        circ2 = [c + (du * math.cos(2 * math.pi * k / 20) + dv * math.sin(2 * math.pi * k / 20)) * 0.024 for k in range(20)]
-        lens_parts.append(D("HL_Lens", circ2, body, M['Headlight'], 'custom', direction=hd, offset=0.011, step=0.007))
-    amb = D("HL_Amber", [(0.905, -1.700, 0.874), (0.880, -1.700, 0.900), (0.862, -1.790, 0.893), (0.895, -1.790, 0.868)], body, M['LampAmber'], 'custom', direction=hd, offset=0.008, step=0.006)
-    pr_extra = [amb]
-    hlL = C.join(lens_parts, "Headlight_L")
-    out += [hlL, C.mirror_copy(hlL, "Headlight_R")]
-    pr = C.join(rings + pr_extra, "HeadlightProj_L")
+    import r35_recess as RC
+    UG = bpy.data.objects.get("UpperGrille") or body
+    FI = bpy.data.objects.get("FrontIntake") or body
+    # V-motion bar: satin chrome V on the lower edge of the black upper opening
+    out.append(D("GrilleChrome", [(-0.386, 0.594), (-0.298, 0.514), (0.298, 0.514), (0.386, 0.594)], UG, M['Chrome'], 'front', offset=0.054, step=0.010, strip=0.030))
+    # graphite bumper bar: a smooth bulged sheet over the cut region (sells the convex bar of the reference)
+    BAR = [(-0.535, 0.500), (0.535, 0.500), (0.568, 0.338), (-0.568, 0.338)]
+    bvh_bar = bvh_multi([body])
+    LB = LensField([(-0.52, 0.476), (0.52, 0.476), (0.55, 0.345), (-0.55, 0.345)], bvh_bar, margin=0.002)
+    LB.bulge = lambda x, z: -0.016 * math.sin(math.pi * min(1.0, max(0.0, (z - 0.338) / 0.162))) * max(0.0, 1.0 - (x / 0.62) ** 4)
+    bar = LB.layer("GraphiteBar", RC.offset_poly(BAR, 0.004), M['BumperBar'], dy=-0.001, step=0.016, wall_to=bvh_bar, wall_mat=M['BumperBar'])
+    flap = [(0.362, 0.462), (0.438, 0.462), (0.448, 0.452), (0.448, 0.385), (0.438, 0.375), (0.362, 0.375), (0.352, 0.385), (0.352, 0.452)]
+    f_out = LB.layer("TowFlapEdge", flap, M['LampBezel'], dy=-0.0035, step=0.012)
+    f_in = LB.layer("TowFlap", RC.offset_poly(flap, 0.0035), M['BumperBar'], dy=-0.0045, step=0.012)
+    circ0 = [(0.497 + 0.0105 * math.cos(2 * math.pi * k / 14), 0.424 + 0.0105 * math.sin(2 * math.pi * k / 14)) for k in range(14)]
+    sens0 = LB.layer("PSensorBar", circ0, M['LampBezel'], dy=-0.0045, step=0.01)
+    barg = C.join([bar, f_out, f_in, sens0], "GraphiteBar_L") if False else None
+    barobj = C.join([bar, f_out, f_in, sens0], "FrontBar")
+    out.append(barobj)
+    # GT-R badge: black plate, chrome "GT" bar, red "R" block
+    bdg = [D("BadgePlate", [(-0.047, 0.538), (0.047, 0.538), (0.047, 0.600), (-0.047, 0.600)], UG, M['LampBezel'], 'front', offset=0.052, step=0.01),
+           D("BadgeGT", [(-0.036, 0.578), (0.036, 0.578), (0.036, 0.592), (-0.036, 0.592)], UG, M['Chrome'], 'front', offset=0.055, step=0.008),
+           D("BadgeR", [(-0.020, 0.546), (0.032, 0.546), (0.032, 0.572), (-0.020, 0.572)], UG, M['LampRed'], 'front', offset=0.055, step=0.008)]
+    out.append(C.join(bdg, "BadgeFront"))
+    # intercooler core + cross bars seen through the lower mouth (depth cue)
+    core = D("IntercoolerCore", [(-0.520, 0.318), (0.520, 0.318), (0.540, 0.214), (-0.540, 0.214)], FI, M['GrilleMesh'], 'front', offset=0.030, step=0.02, uv_scale=0.05)
+    bars = [D("MouthBarH", [(-0.575, 0.268), (0.575, 0.268)], FI, M['DarkTrim'], 'front', offset=0.034, step=0.02, strip=0.014),
+            D("MouthBarV1", [(-0.14, 0.325), (-0.14, 0.205)], FI, M['DarkTrim'], 'front', offset=0.034, step=0.02, strip=0.012),
+            D("MouthBarV2", [(0.14, 0.325), (0.14, 0.205)], FI, M['DarkTrim'], 'front', offset=0.034, step=0.02, strip=0.012)]
+    out.append(C.join([core] + bars, "IntercoolerCore"))
+    # chrome lip along the bottom of the mouth
+    out.append(D("MouthLip", [(-0.588, 0.172), (0.588, 0.172)], body, M['Chrome'], 'front', offset=0.004, step=0.012, strip=0.008))
+    # corner intake DRL (LED bar)
+    segs_ = []
+    for k in range(4):
+        x0 = 0.742 + k * 0.0245; x1 = x0 + 0.0195
+        zb0 = 0.423 + (x0 - 0.742) * 0.07; zb1 = 0.423 + (x1 - 0.742) * 0.07
+        segs_.append(D("DRLseg", [(x0, zb0), (x1, zb1), (x1, zb1 + 0.036), (x0, zb0 + 0.036)], bpy.data.objects.get("IntakeCorner_L") or body, M['LampDRL'], 'front', offset=0.020, step=0.01))
+    drl_c = C.join(segs_, "DRL_L")
+    out += [drl_c, C.mirror_copy(drl_c, "DRL_R")]
+
+    # ---- headlight cluster (front-view coordinates measured on the reference, left lamp = +X)
+    HL = [(0.851, 0.802), (0.789, 0.818), (0.739, 0.812), (0.682, 0.722), (0.625, 0.636), (0.633, 0.587),
+          (0.682, 0.577), (0.808, 0.590), (0.859, 0.603), (0.861, 0.709)]
+    bvh_f = bvh_multi([body])
+    LF = LensField(HL, bvh_f)
+    hl_h = LF.layer("HL_Housing", HL, M['LampHousing'], dy=-0.001, step=0.010, wall_to=bvh_f, wall_mat=M['LampHousing'])
+    reflector = LF.layer("HL_Reflector", RC.offset_poly(HL, 0.009), M['LampReflector'], dy=-0.004, step=0.010)
+
+    def strip_layer(nm, line, width, mat, dy):
+        return LF.layer(nm, C.strip_poly(line, width), mat, dy=dy, step=0.006)
+    # LED guide: arc over the projectors and down the inner edge, plus the lower edge line
+    drl_a = strip_layer("HL_DRL_A", [(0.852, 0.742), (0.795, 0.756), (0.735, 0.750), (0.680, 0.720), (0.644, 0.680), (0.636, 0.632)], 0.011, M['LampDRL'], -0.008)
+    drl_b = strip_layer("HL_DRL_B", [(0.640, 0.603), (0.684, 0.592), (0.808, 0.601), (0.850, 0.614)], 0.008, M['LampDRL'], -0.008)
+    amber = LF.layer("HL_Amber", [(0.812, 0.786), (0.745, 0.800), (0.724, 0.758), (0.800, 0.742)], M['LampAmber'], dy=-0.007, step=0.008)
+    hh = C.join([hl_h, reflector], "HeadlightHousing_L")
+    out += [hh, C.mirror_copy(hh, "HeadlightHousing_R")]
+    drl_l = C.join([drl_a, drl_b], "HeadlightDRL_L")
+    out += [drl_l, C.mirror_copy(drl_l, "HeadlightDRL_R")]
+    # projector cups (3D): chrome ring + dark bore + glassy lens dome, seated on the lens field
+    bm_ring = bmesh.new(); bm_bore = bmesh.new(); bm_lens = bmesh.new(); bm_lens2 = bmesh.new()
+    for (ex, ez, R) in ((0.806, 0.696, 0.027), (0.745, 0.686, 0.027), (0.682, 0.658, 0.037)):
+        o = Vector((ex, LF.y(ex, ez) - 0.003, ez))
+        ax = LF.normal(ex, ez)
+        C.ring_tube(bm_ring, o, ax, [(-0.002, R + 0.008), (0.006, R + 0.008), (0.012, R + 0.005), (0.012, R - 0.002), (0.002, R - 0.008)], segs=24)
+        C.ring_tube(bm_bore, o, ax, [(0.002, R - 0.008), (-0.006, R * 0.80), (-0.010, 0.0005)], segs=24)
+        lp = [(0.001, R * 0.78), (0.007, R * 0.62), (0.010, R * 0.30), (0.011, 0.0005)]
+        C.ring_tube(bm_lens, o, ax, lp, segs=24)
+        C.ring_tube(bm_lens2, o, ax, lp, segs=24)
+    parts = []
+    for nm, b_, mm in (("HL_Ring", bm_ring, 'Chrome'), ("HL_Bore", bm_bore, 'LampBezel'), ("HL_Lens", bm_lens, 'Headlight')):
+        bmesh.ops.recalc_face_normals(b_, faces=b_.faces)
+        parts.append(C.new_obj(nm, b_, [M[mm]]))
+    pr = C.join(parts + [amber], "HeadlightProj_L")
     out += [pr, C.mirror_copy(pr, "HeadlightProj_R")]
-    # front lip splitter from raycasts at z=0.19
+    # Headlight_L/R: the glassy lens node (tests + night-lamp mounts key on the name)
+    bmesh.ops.recalc_face_normals(bm_lens2, faces=bm_lens2.faces)
+    lens_only = C.recenter(C.new_obj("Headlight_L", bm_lens2, [M['Headlight']]))
+    out += [lens_only, C.mirror_copy(lens_only, "Headlight_R")]
+    # fender swept tail: thin dark slot + LED line along the crown
+    hd = Vector((-0.55, 0.80, -0.28))
+    tail_pts = [(0.850, -2.135, 0.800), (0.870, -2.050, 0.815), (0.880, -1.950, 0.820), (0.882, -1.850, 0.822), (0.880, -1.760, 0.818)]
+    tail = D("HL_Tail", tail_pts, body, M['LampHousing'], 'custom', direction=hd, offset=0.003, step=0.010, strip=0.026)
+    tail_l = D("HL_TailLED", [(0.860, -2.120, 0.808), (0.875, -2.050, 0.822), (0.884, -1.950, 0.828), (0.886, -1.860, 0.829)], body, M['LampDRL'], 'custom', direction=hd, offset=0.007, step=0.008, strip=0.008)
+    tl = C.join([tail, tail_l], "HeadlightTail_L")
+    out += [tl, C.mirror_copy(tl, "HeadlightTail_R")]
+    # parking sensors
+    sens = []
+    for (sx, sz) in ((0.720, 0.540),):
+        circ = [(sx + 0.0105 * math.cos(2 * math.pi * k / 14), sz + 0.0105 * math.sin(2 * math.pi * k / 14)) for k in range(14)]
+        sens.append(D("PSensor", circ, body, M['LampBezel'], 'front', offset=0.002, step=0.006))
+    ps = C.join(sens, "ParkSensors_L")
+    out += [ps, C.mirror_copy(ps, "ParkSensors_R")]
+    # front lip splitter (carbon) with corner blades, from raycasts at the lip
     bm = bmesh.new()
-    bvh_f = bvh_multi([body] + [bpy.data.objects.get(n) for n in ("FrontIntake", "IntakeCorner_L", "IntakeCorner_R")])
-    xs = [i / 20 * 0.82 for i in range(-20, 21)]
+    bvh_s = bvh_multi([body] + [bpy.data.objects.get(n) for n in ("FrontIntake", "IntakeCorner_L", "IntakeCorner_R")])
+    xs = [i / 24 * 0.90 for i in range(-24, 25)]
     top, bot = [], []
     for x in xs:
-        loc, n = hit(bvh_f, (x, -4.0, 0.20), (0, 1, 0))
-        yf = loc.y if (loc and loc.y < -2.05) else -2.05
-        o = Vector((x, yf - 0.035, 0.0))
-        i = Vector((x * 0.97, yf + 0.14, 0.0))
-        top.append((bm.verts.new((o.x, o.y, 0.188)), bm.verts.new((i.x, i.y, 0.188))))
-        bot.append((bm.verts.new((o.x, o.y, 0.166)), bm.verts.new((i.x, i.y, 0.170))))
+        loc, n = hit(bvh_s, (x, -4.0, 0.150), (0, 1, 0))
+        yf = loc.y if (loc and loc.y < -2.0) else -2.05
+        o = Vector((x, yf - 0.030, 0.0))
+        i = Vector((x * 0.97, yf + 0.16, 0.0))
+        top.append((bm.verts.new((o.x, o.y, 0.131)), bm.verts.new((i.x, i.y, 0.131))))
+        bot.append((bm.verts.new((o.x, o.y, 0.108)), bm.verts.new((i.x, i.y, 0.112))))
     for k in range(len(xs) - 1):
         bm.faces.new((top[k][0], top[k + 1][0], top[k + 1][1], top[k][1]))
         bm.faces.new((bot[k][1], bot[k + 1][1], bot[k + 1][0], bot[k][0]))
         bm.faces.new((bot[k][0], bot[k + 1][0], top[k + 1][0], top[k][0]))
+    # corner blades: thin carbon fins rising at the outer ends
+    for sgn in (1, -1):
+        cols = []
+        for t in range(0, 9):
+            x = sgn * (0.72 + 0.18 * t / 8)
+            loc, n = hit(bvh_s, (x, -4.0, 0.150), (0, 1, 0))
+            yf = (loc.y if (loc and loc.y < -1.9) else -2.0) - 0.030
+            zt = 0.131 + 0.070 * (t / 8) ** 1.5
+            cols.append((bm.verts.new((x, yf, 0.108)), bm.verts.new((x, yf, zt)),
+                         bm.verts.new((x, yf + 0.014, 0.108)), bm.verts.new((x, yf + 0.014, zt - 0.004))))
+        for k in range(len(cols) - 1):
+            a, b = cols[k], cols[k + 1]
+            for (p0, p1, p2, p3) in ((a[0], b[0], b[1], a[1]), (a[1], b[1], b[3], a[3]), (a[3], b[3], b[2], a[2]), (a[2], b[2], b[0], a[0])):
+                bm.faces.new((p0, p1, p2, p3))
+        e = cols[-1]
+        bm.faces.new((e[0], e[2], e[3], e[1]))
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     sp = C.new_obj("FrontSplitter", bm, [M['DarkTrim']], smooth=False)
     C.recenter(sp); out.append(sp)
+    # brake-cooling ducts: dark hose mouths aimed at the discs, behind the corner intakes
+    bm = bmesh.new()
+    for sgn in (1, -1):
+        C.ring_tube(bm, (sgn * 0.745, -1.800, 0.285), (-sgn * 0.30, 0.95, -0.12), [(0.0, 0.050), (0.16, 0.045)], segs=16, cap_end=True)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    out.append(C.recenter(C.new_obj("BrakeDucts", bm, [M['DarkTrim']], smooth=False)))
+    # hood vents: louver slats over the pocket floor
+    hv_floor = bpy.data.objects.get("HoodVent_L")
+    if hv_floor is not None:
+        slats = []
+        for k in range(4):
+            t = (k + 0.5) / 4
+            p0 = (0.282 + (0.426 - 0.282) * t, -1.100 + (-0.925 + 1.100) * t)
+            p1 = (0.322 + (0.470 - 0.322) * t, -1.150 + (-0.975 + 1.150) * t)
+            slats.append(D("VentSlat", [(p0[0] - 0.004, p0[1] + 0.002), (p1[0] + 0.004, p1[1] - 0.002)], hv_floor, M['Graphite'], 'top', offset=0.004, step=0.008, strip=0.008))
+        vs_ = C.join(slats, "HoodVentSlats_L")
+        out += [vs_, C.mirror_copy(vs_, "HoodVentSlats_R")]
     # hood vents + wipers
     ws = bpy.data.objects.get("Windscreen")
     if ws:

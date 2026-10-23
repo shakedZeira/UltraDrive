@@ -20,17 +20,20 @@ def materials():
     for k in ('GlassW', 'GlassS', 'GlassR'):
         M[k] = C.mat(k, (0.02, 0.03, 0.04), 0.0, 0.05)
     M['DarkTrim'] = C.mat('DarkTrim', (0.025, 0.025, 0.028), 0.2, 0.5)
-    M['Graphite'] = C.mat('Graphite', (0.085, 0.087, 0.095), 0.6, 0.35)
+    M['Graphite'] = C.mat('Graphite', (0.060, 0.062, 0.070), 0.30, 0.40)
+    M['BumperBar'] = C.mat('BumperBar', (0.085, 0.088, 0.096), 0.20, 0.38)
+    M['LampReflector'] = C.mat('LampReflector', (0.70, 0.72, 0.76), 0.55, 0.28)
+    M['Intercooler'] = C.mat('Intercooler', (0.050, 0.054, 0.060), 0.9, 0.38)
     M['GrilleMesh'] = C.textured(C.mat('GrilleMesh', (0.010, 0.010, 0.012), 0.3, 0.55), C.diamond_texture('GrilleDiamond'))
-    M['Chrome'] = C.mat('Chrome', (0.86, 0.86, 0.88), 1.0, 0.08)
-    M['Headlight'] = C.mat('Headlight', (0.80, 0.83, 0.87), 0.1, 0.1, emit=(1.0, 1.0, 0.95), emit_strength=1.2)
+    M['Chrome'] = C.mat('Chrome', (0.88, 0.88, 0.90), 0.80, 0.16)
+    M['Headlight'] = C.mat('Headlight', (0.22, 0.30, 0.42), 0.1, 0.08, emit=(0.80, 0.90, 1.0), emit_strength=0.35)
     M['LampHousing'] = C.mat('LampHousing', (0.06, 0.065, 0.07), 0.85, 0.12)
-    M['LampDRL'] = C.mat('LampDRL', (0.9, 0.92, 0.95), 0.0, 0.2, emit=(0.95, 0.97, 1.0), emit_strength=3.0)
+    M['LampDRL'] = C.mat('LampDRL', (0.85, 0.90, 0.97), 0.0, 0.2, emit=(0.85, 0.92, 1.0), emit_strength=1.8)
     M['Taillight'] = C.mat('Taillight', (0.55, 0.02, 0.02), 0.1, 0.15, emit=(1.0, 0.05, 0.05), emit_strength=1.5)
     M['TailInner'] = C.mat('TailInner', (0.78, 0.78, 0.80), 0.9, 0.15)
     M['LampBezel'] = C.mat('LampBezel', (0.03, 0.03, 0.035), 0.5, 0.3)
     M['LampRed'] = C.mat('LampRed', (0.40, 0.02, 0.02), 0.0, 0.2)
-    M['LampAmber'] = C.mat('LampAmber', (0.85, 0.42, 0.05), 0.0, 0.2)
+    M['LampAmber'] = C.mat('LampAmber', (0.85, 0.42, 0.05), 0.0, 0.2, emit=(1.0, 0.45, 0.05), emit_strength=0.4)
     M['ExhaustTip'] = C.mat('ExhaustTip', (0.50, 0.42, 0.33), 1.0, 0.22)
     M['ExhaustInner'] = C.mat('ExhaustInner', (0.01, 0.01, 0.01), 0.0, 0.9)
     M['Plate'] = C.mat('Plate', (0.90, 0.90, 0.88), 0.0, 0.5)
@@ -136,26 +139,31 @@ def apply_recesses(body):
     n = 0
     # material regions first (depth 0 = cut + recolour only; negative = proud)
     n += RC.recess(bm, [(-0.878, 0.448), (0.878, 0.448), (0.870, 0.05), (-0.870, 0.05)], 'rear', 0.0, 1)
-    n += RC.recess(bm, [(-0.535, 0.538), (0.535, 0.538), (0.568, 0.383), (-0.568, 0.383)], 'front', -0.006, 3)
+    n += RC.recess(bm, [(-0.535, 0.500), (0.535, 0.500), (0.568, 0.338), (-0.568, 0.338)], 'front', -0.006, 3)
     # front openings
-    n += pocket("UpperGrille", [(-0.40, 0.692), (0.40, 0.692), (0.535, 0.540), (-0.535, 0.540)], 'front', 0.045, 0.010)
-    n += pocket("FrontIntake", [(-0.566, 0.380), (0.566, 0.380), (0.588, 0.178), (-0.588, 0.178)], 'front', 0.050, 0.010)
-    ci = [(0.715, 0.555), (0.858, 0.565), (0.878, 0.245), (0.728, 0.225)]
-    n += pocket("IntakeCorner_L", ci, 'front', 0.035, 0.008)
-    n += pocket("IntakeCorner_R", _mx(ci), 'front', 0.035, 0.008)
-    hv = [(0.300, -1.020), (0.425, -1.050), (0.432, -0.930), (0.318, -0.885)]
-    n += pocket("HoodVent_L", hv, 'top', 0.016, 0.005)
-    n += pocket("HoodVent_R", [(-x, y) for (x, y) in hv][::-1], 'top', 0.016, 0.005)
+    n += pocket("UpperGrille", [(-0.425, 0.622), (0.425, 0.622), (0.556, 0.482), (-0.556, 0.482)], 'front', 0.062, 0.010)
+    n += pocket("FrontIntake", [(-0.566, 0.334), (0.566, 0.334), (0.590, 0.190), (-0.590, 0.190)], 'front', 0.085, 0.010)
+    ci = [(0.722, 0.484), (0.852, 0.490), (0.856, 0.215), (0.765, 0.195)]
+    n += pocket("IntakeCorner_L", ci, 'front', 0.060, 0.008)
+    n += pocket("IntakeCorner_R", _mx(ci), 'front', 0.060, 0.008)
+    # tow-hook cover flap on the graphite bar (car left, as the reference)
+    flap = [(0.362, 0.462), (0.438, 0.462), (0.448, 0.452), (0.448, 0.385), (0.438, 0.375), (0.362, 0.375), (0.352, 0.385), (0.352, 0.452)]
+    hv = [(0.282, -1.100), (0.322, -1.150), (0.470, -0.975), (0.426, -0.925)]
+    n += pocket("HoodVent_L", hv, 'top', 0.022, 0.005)
+    n += pocket("HoodVent_R", [(-x, y) for (x, y) in hv][::-1], 'top', 0.022, 0.005)
     hl = [(0.705, -2.165), (0.715, -1.70), (0.70, -1.20), (0.69, -0.80)]
-    for line in (hl, [(-x, y) for (x, y) in hl], [(-0.69, -0.80), (0.69, -0.80)], [(-0.70, -2.17), (0.70, -2.17)]):
+    noselip = [(-0.70, -2.150), (-0.45, -2.172), (0.0, -2.180), (0.45, -2.172), (0.70, -2.150)]
+    for line in (hl, [(-x, y) for (x, y) in hl], [(-0.69, -0.80), (0.69, -0.80)], noselip):
         n += RC.recess(bm, line, 'top', 0.004, 1, groove_width=0.006)
     sv = [(-0.928, 0.786), (-0.872, 0.792), (-0.612, 0.418), (-0.658, 0.400)]
     door = [(-0.700, 1.000), (-0.672, 0.86), (-0.648, 0.62), (-0.630, 0.315), (-0.55, 0.300), (0.40, 0.292),
             (0.452, 0.300), (0.55, 0.55), (0.625, 0.80), (0.662, 1.000)]
     n += pocket("SideVent_L", sv, 'side', 0.025, 0.006)
     n += pocket("SideVent_R", sv, 'sideR', 0.025, 0.006)
+    bumper_gap = [(-1.905, 0.650), (-1.918, 0.520), (-1.925, 0.400), (-1.905, 0.285)]   # fender / bumper-cover shut line
     for pl in ('side', 'sideR'):
         n += RC.recess(bm, door, pl, 0.004, 1, groove_width=0.006)
+        n += RC.recess(bm, bumper_gap, pl, 0.004, 1, groove_width=0.006)
     n += RC.recess(bm, [(-0.60, 1.03), (-0.44, 0.885), (0.44, 0.885), (0.60, 1.03)], 'rear', 0.004, 1, groove_width=0.006)
     n += RC.recess(bm, [(-0.405, 0.665), (-0.325, 0.445), (0.325, 0.445), (0.405, 0.665)], 'rear', 0.018, None, inner=0.006)
     ex = [(0.462, 0.402), (0.858, 0.408), (0.856, 0.198), (0.470, 0.192)]

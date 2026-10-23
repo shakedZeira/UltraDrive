@@ -22,6 +22,21 @@ K = {
     'ztop': [(-2.355, 0.50), (-2.33, 0.585), (-2.28, 0.67), (-2.2, 0.76), (-2.05, 0.83), (-1.9, 0.865), (-1.6, 0.905), (-1.33, 0.932), (-1.0, 0.962), (-0.80, 0.99), (COWL, 1.0), (-0.6, 1.088), (-0.4, 1.20), (-0.2, 1.31), (HEADER, 1.345), (0.0, 1.362), (0.2, 1.37), (0.4, 1.37), (BP1, 1.355), (ROOFBACK, 1.322), (KINK, 1.268), (1.32, 1.20), (DECK, 1.125), (1.71, 1.10), (1.97, 1.065), (2.18, 1.04), (2.25, 1.0), (2.30, 0.94), (2.355, 0.80)],
 }
 
+
+def _nose_drop(y):
+    """Front-end reshape (R35 refs: blunter, lower nose; hood leading edge ~6 cm lower than v5).
+    Offsets applied to the top-surface keys for y < -1.1 so the hood/fender crown falls away
+    toward a nearly vertical fascia."""
+    from r35_common import cr
+    return cr([(-2.355, 0.05), (-2.30, 0.0), (-2.2, -0.06), (-2.05, -0.055), (-1.9, -0.045),
+               (-1.6, -0.025), (-1.33, -0.010), (-1.1, 0.0)], y)
+
+
+for _k in ('zsh', 'zbelt', 'zra', 'zrb', 'ztop'):
+    K[_k] = [(y, z + _nose_drop(y)) if y < -1.1 else (y, z) for (y, z) in K[_k]]
+# lower lip: ~12 cm clearance at the splitter like the real car
+K['zb'] = [(-2.355, 0.175), (-2.33, 0.135), (-2.25, 0.122), (-2.10, 0.138), (-1.6, 0.16), (2.0, 0.165), (2.22, 0.172), (2.30, 0.180), (2.355, 0.195)]
+
 # hood: shallow centre power bulge + valleys at the fender peaks (front stations only)
 def hood_dip(y):
     if y > COWL or y < -2.25:
