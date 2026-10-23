@@ -18,6 +18,10 @@
 > **Update 2026-10-23 (open-world stage 2, item 2):** road meshes and collision stream per 256 m cell
 > around the car, with a far-LOD mesh for the horizon; the road topology build at load went from 21 s to
 > 36 ms. See section 10.
+>
+> **Update 2026-10-24 (open-world stage 2, item 3):** `LaneGraph` (per-direction lanes, junction connectors,
+> U-turns, lane-change adjacency, spatial query) and pooled kinematic lane traffic (v1) replace the 8 full-physics
+> centreline cars in the open world. See section 13.
 
 Scope: what the free-roam world actually is today, measured or known sizes, what is
 done / partial / missing, perf budget and known bugs. Companion docs:
@@ -636,3 +640,98 @@ the coast has a sea on the horizon and grass/sand mix instead of a sand desert; 
   band in the file). Grass clumps still read a little spiky up close; groves cluster only mildly. Coast sand/grass
   patches have stair-stepped edges (2 m classification). Not driven by hand; no drive-through hitch probe for the
   Flora slices; Low/High not measured; night/dusk grade only checked by unit test, not captured.
+
+## 13. Stage 2 item 3 (2026-10-24): LaneGraph + pooled kinematic ambient traffic (v1)
+
+Plan: `open_world_traffic_plan.md` (phases T0-T1, plus the parts of T2-T4 listed below). New files:
+`scripts/world/lane_graph.gd`, `traffic_sim.gd`, `traffic_manager.gd`, `traffic_model_catalog.gd`; facade in
+`traffic_spawner.gd`. No road, seeding or junction code was changed: the graph is derived from whatever
+`RoadNetwork.get_road_defs()` / `get_junctions()` report, so junction changes (e.g. the spawn on-ramp merge)
+flow through on the next build.
+
+**LaneGraph** (pure RefCounted, built on a WorkerThreadPool task at world start, ~150-210 ms off the main thread).
+- Lanes per direction: HIGHWAY 2, every other tier 1; offsets +-w/4 (one lane) or +-w/8 / +-3w/8 (two lanes) in the
+  banked `TrackBuilder.frame_at` frame, so lane points sit on the road surface (Y, bank, camber). Resampled to 4 m;
+  arc length, tangent, surface normal and a speed profile per point (tier limit 110/80/70/60/40 km/h, curve limit
+  `sqrt(3.0 / kappa)` over a +-12 m window, backward braking pass at 2.5 m/s^2).
+- Driving side `LaneGraph.DRIVE_SIDE` = left-hand traffic (Japan theme, plan open question 1; one constant).
+- Connectors are lanes: cubic Bezier through each junction (9 m before/after along each lane), from the outer lane
+  (or any lane whose road ends there) into the other road's outer lanes, max 120 deg turn (179 deg where one road's
+  dead end meets another road's start, e.g. the coast fork). Junctions whose roads are > 3 m apart vertically are
+  overpasses and get none. Open lanes with no exit within 25 m of their end get a U-turn. Lane-change adjacency
+  (`lane_inner` / `lane_outer`), 64 m spatial hash, `nearest_lane(pos, max_dist, heading)` (~60 us).
+- Real network at the time of writing (MASTER_SEED): 19 roads / 89 km, 40 road lanes, 41 junctions of which 5 are
+  overpasses (no connectors) and every other one is connected; ~120-130 connectors incl. 4 U-turns (coast-a has no
+  junction at all); 64k lane points; every lane has a successor; deterministic (checksum).
+
+**Traffic** (`TrafficSim` pure, `TrafficManager` node). Open world only: `TrafficSpawner` switches to lane traffic
+when it sits in a tree with a `WorldDriver` (const `TrafficSpawner.LANE_TRAFFIC_IN_OPEN_WORLD`, export
+`lane_traffic`, master const `TrafficManager.ENABLED`); race-track scenes have neither (a test pins it). A bare
+`TrafficSpawner` (old tests) keeps the legacy physics-car path unchanged. The scene file was not edited (its
+NodePath export is null at runtime, status 3b; the manager finds the RoadNetwork by group).
+- Pool of cap + 4 `AnimatableBody3D` (box shape, one merged Kenney CC0 mesh = 1 draw call) created once; spawn =
+  place + show, despawn = hide. Caps by quality preset: Low 14 / Medium 24 / High 36 live, near tier 4 / 8 / 10.
+- Tiers: near (< 70 m, nearest 8) collision layer 4 Traffic / mask 1 Vehicles; mid (70-250 m) and far (> 250 m,
+  transform every 6th tick) without collision. One manager loop per physics tick, no per-car `_physics_process`.
+  Self-profiling guard halves the spawn rate and near count when p95 stays over budget for 2 s.
+- Spawn ring 140-280 m, only in streamed road cells; never inside the camera cone (horizontal FOV/2 + 12 deg) closer
+  than 230 m; 60/40 ahead/behind; gap >= 14 m + 0.5 s of lane speed on the same lane and >= 8 m to any car; 40 m /
+  0.5 s recent-spawn rule; <= 4 spawns/s swept every 0.25 s; live count = min(cap, tier density x ring lane length),
+  night x0.4, storm x0.6, seasonally closed tiers excluded. Despawn > 330 m, or behind > 200 m while off-screen
+  (4/s), forced > 380 m. A > 400 m player jump (fast travel) clears and ramps back over 3 s. Seeded per
+  (seed, player cell, 10 s bucket, sweep).
+- IDM (s0 2.5 m, T 1.2-1.8 s, a_max per type 1.0-2.6, b 2.5) toward min(v0 = limit x U(0.85, 1.05) x type, lane
+  speed profile, braking allowance into the next connector). Leaders: the car ahead on the lane, through the planned
+  connector into its target lane, and the player (lane projection + a straight 45 m corridor check). TTC < 1.5 s ->
+  8 m/s^2; a hard clamp keeps >= 0.5 m bumper gap. Junctions: 30 % turn chance (the last exit group of an open lane
+  is mandatory); entry waits (<= 4 s, then proceeds) while another car is on a different connector of the same
+  junction or the target lane has no gap (highway 25 / 15 m, else 12 / 8 m).
+- Variety: 9 Kenney CC0 types (sedan, suv, hatchback-sports, truck, van, suv-luxury, taxi, delivery, sedan-sports),
+  tier-weighted per plan section 8, scaled (1.3, 1.4, 1.6) from kit units, nose +Z (checked in captures);
+  5 % slow / 5 % fast drivers.
+
+**Measured** (GTX 970, 1080p, Medium, vsync off, windowed, same tree, traffic off -> on back to back; probe
+`tr_probe.gd` in the scratchpad below, stage-2 hub poses, car frozen at the hub, 30 s warm-up):
+
+| pose | ms off -> on | draws off -> on | prims off -> on |
+|---|---|---|---|
+| a eye, field | 14.10 -> 14.08 | 263 -> 265 | 536k -> 540k |
+| b high, hub | 20.55 -> 20.62 | 271 -> 277 | 944k -> 973k |
+| c eye, road | 15.21 -> 15.13 | 282 -> 282 | 737k -> 737k |
+| d high, outward | 16.16 -> 16.05 | 167 -> 167 | 446k -> 446k |
+
+- Frame time: no change beyond run-to-run noise. Traffic main-thread tick with 14 live cars at the hub: avg
+  0.44-0.48 ms, p95 0.71 ms, max 1.4 ms (Medium budget 1.2 ms p95). A headless drive along the ring with 18 live cars
+  showed p95 up to 1.6 ms before a hot-path pass; not re-measured after it. Physics-process monitor (single samples,
+  includes the traffic tick): +0.1..+1.1 ms. VRAM 1372 -> 1376 MB; nodes +54 (the pool); static RAM within noise.
+- Live count around the hub is density-limited: 7-18 of the 24 cap.
+- Smoke (headless, real scene, 40 s incl. a 30 m/s drive on a ring lane): 0 script errors, car bodies exactly on their
+  lane (0.000 m), 0 same-lane overlaps, min same-lane bumper gap 24 m.
+
+**Tests**: `tests/suites/test_lane_graph.gd` (10: lane count/offsets, driving side + reversed lanes, banked surface,
+T junction, crossing + overpass, dead-end U-turn + hairpin fork, lane-change adjacency, nearest_lane heading, curve
+speed profile + braking pass, real network connected / deterministic / inside the carriageway with every
+non-overpass junction connected). `tests/suites/test_traffic_lanes.gd` (12: spawn ring + view cone, spawn gaps + no
+overlap, despawn while driving away, teleport clear, following distance on a loop for 3 min, stop behind a parked
+player, free-road speed, junction traversal, determinism, manager pool fixed + caps + near tier + on-lane, never on
+race tracks, quality caps).
+
+**Captures reviewed** (Claude, Read tool),
+`D:\Temp\claude\d--AI-Projects-UltraDrive\f2a7efd1-cbf7-4d57-b7e5-4b678469a6f0\scratchpad\cap\`: `t1_car0.png` (a
+sports hatch from behind on asphalt) and `t1_car1.png` (an SUV from the front on the dirt road): both in the left lane
+of their direction, wheels on the surface, nose forward; the low-poly kit matches the world's style. `t0_*` / `t1_*`
+are the fixed poses off/on.
+
+**Not done / risky (v1 scope cuts for the next pass)**
+- Contact feel: cars are placed directly every tick (`sync_to_physics` off: a pooled body switched into physics sync
+  kept a stale transform, hundreds of metres off its lane). The player hitting a near car hits an infinite-mass box
+  resolved by depenetration, with no velocity hand-off. The plan's crash-pool swap (5.3) is not built.
+- Not built: lane changes (MOBIL; the adjacency is ready), oncoming nudge, honk, car lights at night (only density
+  x0.4), traffic audio, paint variation, MultiMesh far tier, debug lane overlay, `clear_area` on fast travel / event
+  start (events still pause and clear all traffic through `set_enabled(false)`).
+- Junction model is per road pair (RoadGraph keeps one junction per pair), so a road crossing another twice is
+  connected once; parallel merge lanes join at a single point; connectors are not drawn (roads still overlap).
+- Not driven by hand; Low/High not measured; no hitch probe while driving; the frozen player sits on the hub's road,
+  so hub traffic queues behind it in the probes.
+
+**Gate** (full, on the final tree, 2026-10-24): 1816 tests, 1 failure (pre-existing `test_post_race_cinematic.gd:239`), 0 false greens.

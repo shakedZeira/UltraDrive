@@ -12,11 +12,20 @@ extends Node
 ## that still count toward the ring and despawn normally.
 @export var parked_ratio: float = 0.0
 @export var road_network: RoadNetwork
+## Lane-following pooled kinematic traffic (TrafficManager + LaneGraph) instead of
+## the legacy full-physics cars below. Forced on inside the open world (a scene
+## with a WorldDriver) while LANE_TRAFFIC_IN_OPEN_WORLD is true; a bare spawner
+## (tests, other scenes) keeps the legacy path unless this is set.
+@export var lane_traffic := false
+const LANE_TRAFFIC_IN_OPEN_WORLD := true
 
 var _traffic: Array[VehiclePhysics] = []
 var _drivers: Dictionary = {}  # VehiclePhysics -> TrafficDriver
 var _lod_state: Dictionary = {}
 var _enabled := true
+var _manager: TrafficManager = null
+var _mode_resolved := false
+var _lane_mode := false
 
 ## Default tick when called outside the live physics loop (existing 1-arg call
 ## sites / tests keep working).
@@ -26,12 +35,19 @@ const DEFAULT_DELTA := 1.0 / 60.0
 ## drives; resume with set_enabled(true).
 func set_enabled(enabled: bool) -> void:
     _enabled = enabled
+    if _manager != null:
+        _manager.set_enabled(enabled)
 
 func is_enabled() -> bool:
     return _enabled
 
 func update(player_pos: Vector3, delta: float = DEFAULT_DELTA) -> void:
     if not _enabled:
+        return
+    if uses_lane_traffic():
+        var manager := lane_manager()
+        if manager != null:
+            manager.update(player_pos, delta)
         return
     # Remove far traffic: drop the driver first so the RefCounted frees itself
     # even if queue_free() is deferred, then queue the vehicle.
@@ -135,6 +151,8 @@ func _spawn_vehicle(player_pos: Vector3) -> void:
 ## Headlights node from the authoritative night flag (defensive -- traffic uses
 ## the same player scene, so rivals get headlights exactly like the player).
 func sync_headlights(night: bool) -> void:
+    if _manager != null:
+        _manager.sync_headlights(night)
     for vehicle in _traffic:
         var lights := vehicle.get_node_or_null("Headlights") as Node
         if lights != null and lights.has_method("set_night"):
@@ -178,3 +196,26 @@ func _random_offset() -> Vector3:
         randf_range(-spawn_radius, spawn_radius),
         0,
         randf_range(-spawn_radius, spawn_radius))
+## True when this spawner drives lane traffic (see lane_traffic). Resolved once,
+## on the first call inside the tree: the open world's WorldDriver registers its
+## group in _ready, before any physics tick reaches update().
+func uses_lane_traffic() -> bool:
+    if not _mode_resolved and is_inside_tree():
+        _mode_resolved = true
+        var open_world := get_tree().get_first_node_in_group(WorldDriver.DRIVER_GROUP) != null
+        _lane_mode = TrafficManager.ENABLED and (lane_traffic or (LANE_TRAFFIC_IN_OPEN_WORLD and open_world))
+    return _lane_mode
+
+## The TrafficManager child (created on demand in lane mode), else null.
+func lane_manager() -> TrafficManager:
+    if _manager == null and uses_lane_traffic():
+        _manager = TrafficManager.new()
+        _manager.name = "LaneTraffic"
+        var net := road_network
+        if net == null:
+            # The scene's bare NodePath export is null at runtime (status doc 3b).
+            net = get_tree().get_first_node_in_group("road_network") as RoadNetwork
+        _manager.road_network = net
+        add_child(_manager)
+        _manager.set_enabled(_enabled)
+    return _manager
