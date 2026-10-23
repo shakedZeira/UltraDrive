@@ -87,6 +87,7 @@ func _ready() -> void:
 	# set_roads() bakes (and caches, and marks applied) the player's own region
 	# with no centrelines, which the conforming pass then never revisits.
 	_bootstrap_roads()
+	_bootstrap_vista()
 	LoadingScreenManager.update_loading("Building roads...", 12.5)
 	await get_tree().process_frame
 	_bootstrap_speed_trap_visuals()
@@ -278,6 +279,18 @@ func _bootstrap_roads() -> void:
 	network.recompute_rails()
 	if _terrain_seeder != null:
 		_terrain_seeder.set_roads(network.get_roads(), network.get_road_defs())
+
+## Starts the static far-terrain build (TerrainVista) with the same road
+## centrelines the seeder carves, nearest region to the player first. Runs
+## right after _bootstrap_roads(); the bake is on worker threads.
+func _bootstrap_vista() -> void:
+	var vista := get_node_or_null("TerrainVista") as TerrainVista
+	var network := get_node_or_null(road_network_path) as RoadNetwork
+	if vista == null:
+		return
+	var roads: Array = network.get_roads() if network != null else []
+	var pos := _player.global_position if _player != null else Vector3.ZERO
+	vista.start(roads, pos)
 
 ## Re-syncs the speed-trap gates now the corridors are registered, so every gantry
 ## is aligned to the LIVE centreline and width the player actually drives rather

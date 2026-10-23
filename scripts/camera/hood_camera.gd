@@ -39,6 +39,10 @@ extends Node3D
 # --- Test/debug hooks (-1 speed means "use the real VehiclePhysics path"). ---
 @export var debug_speed_kmh: float = -1.0
 
+## Camera far plane. 4000 (Godot's default) on the tracks; the open world
+## sets 24000 so the far-terrain vista reaches the horizon.
+@export var far_clip: float = 4000.0
+
 var _camera: Camera3D
 var _bob_offset: Vector3 = Vector3.ZERO
 var _bob_phase: float = 0.0
@@ -49,6 +53,7 @@ var _look_pitch: float = 0.0
 func _ready() -> void:
 	_camera = Camera3D.new()
 	_camera.fov = fov_min
+	_camera.far = far_clip
 	add_child(_camera)
 	_camera.current = false  # chase camera stays the default view
 

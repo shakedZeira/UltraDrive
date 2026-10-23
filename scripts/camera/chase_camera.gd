@@ -30,6 +30,10 @@ extends Node3D
 @export var debug_speed_kmh: float = -1.0
 @export var debug_gear: int = 1
 
+## Camera far plane. 4000 (Godot's default) on the tracks; the open world
+## sets 24000 so the far-terrain vista reaches the horizon.
+@export var far_clip: float = 4000.0
+
 var _camera: Camera3D
 
 # Transient state, reset in _ready.
@@ -43,6 +47,7 @@ var _last_forward: Vector3 = Vector3.ZERO
 func _ready() -> void:
 	_camera = Camera3D.new()
 	_camera.fov = fov_min
+	_camera.far = far_clip
 	add_child(_camera)
 	_camera.current = true
 

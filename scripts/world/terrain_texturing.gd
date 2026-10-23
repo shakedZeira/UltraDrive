@@ -160,11 +160,12 @@ const LITE_SHADER_PATH := "res://addons/terrain_3d/extras/shaders/lightweight.gd
 ## Gives a Terrain3D node the ground texture set and material settings.
 ## Background (outside any region) and blank regions use the autoshader, set
 ## to plain grass, so a not-yet-baked region already reads as ground.
-## Returns false when the terrain or the textures are missing.
-static func apply(terrain: Terrain3D, quality: int = QUALITY_LITE) -> bool:
+## Returns false when the terrain or the textures are missing. shared_assets:
+## an already built set to reuse (the far vista shares the live terrain's).
+static func apply(terrain: Terrain3D, quality: int = QUALITY_LITE, shared_assets: Terrain3DAssets = null) -> bool:
 	if terrain == null:
 		return false
-	var assets := build_assets()
+	var assets := shared_assets if shared_assets != null else build_assets()
 	if assets == null:
 		return false
 	terrain.assets = assets

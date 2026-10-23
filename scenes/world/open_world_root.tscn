@@ -1,4 +1,4 @@
-[gd_scene load_steps=30 format=3]
+[gd_scene load_steps=31 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/world_driver.gd" id="1_driver"]
 [ext_resource type="Script" path="res://scripts/world/chunk_streamer.gd" id="2_cs"]
@@ -26,6 +26,7 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/music_toast.tscn" id="24_musictoast"]
 [ext_resource type="Script" path="res://scripts/music/music_context_host.gd" id="25_musicctx"]
 [ext_resource type="Script" path="res://scripts/world/region_dresser.gd" id="26_dresser"]
+[ext_resource type="Script" path="res://scripts/world/terrain_vista.gd" id="27_vista"]
 
 [sub_resource type="PhysicalSkyMaterial" id="sky_mat"]
 turbidity = 4.0
@@ -99,6 +100,10 @@ cast_shadows = 0
 show_checkered = false
 show_colormap = false
 
+[node name="TerrainVista" type="Node3D" parent="." node_paths=PackedStringArray("live_terrain")]
+script = ExtResource("27_vista")
+live_terrain = NodePath("../Terrain3D")
+
 [node name="FallbackGround" type="StaticBody3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -100, 0)
 
@@ -126,11 +131,13 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 128, 2.2, 128)
 
 [node name="ChaseCamera" type="Node3D" parent="."]
 script = ExtResource("4_chase")
+far_clip = 24000.0
 target = NodePath("%PlayerCar")
 transients_enabled = true
 
 [node name="OrbitCamera" type="Node3D" parent="."]
 script = ExtResource("7_orbit")
+far_clip = 24000.0
 target = NodePath("%PlayerCar")
 chase_camera_path = NodePath("../ChaseCamera")
 hood_camera_path = NodePath("../HoodCamera")
@@ -139,10 +146,12 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 128, 4.7, 134)
 
 [node name="HoodCamera" type="Node3D" parent="."]
 script = ExtResource("18_hood")
+far_clip = 24000.0
 target = NodePath("%PlayerCar")
 
 [node name="CockpitCamera" type="Node3D" parent="."]
 script = ExtResource("19_cockpit")
+far_clip = 24000.0
 target = NodePath("%PlayerCar")
 
 [node name="Sun" type="DirectionalLight3D" parent="." groups=["sun"]]

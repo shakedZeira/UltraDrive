@@ -63,6 +63,10 @@ const LOOK_TURN_LEAN_RATIO: float = 0.3 / 0.7
 @export var debug_throttle: float = 0.0
 @export var debug_brake: float = 0.0
 
+## Camera far plane. 4000 (Godot's default) on the tracks; the open world
+## sets 24000 so the far-terrain vista reaches the horizon.
+@export var far_clip: float = 4000.0
+
 var _camera: Camera3D
 
 # Smoothing state (persistent but derived fresh each frame; never fed back
@@ -83,6 +87,7 @@ var _last_yaw: float = 0.0
 func _ready() -> void:
 	_camera = Camera3D.new()
 	_camera.fov = fov_min
+	_camera.far = far_clip
 	_camera.near = 0.2  # cockpit rig near plane (was the generic 0.05)
 	add_child(_camera)
 	_camera.current = false  # chase camera stays the default view
