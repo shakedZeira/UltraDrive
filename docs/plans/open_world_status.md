@@ -10,6 +10,10 @@
 > **Update 2026-10-23 (bug 3d fixed):** the live ring no longer asks Terrain3D for regions past
 > +-4096 m (thousands of "out of bounds" errors per second gone); the vista carries collision there.
 > See section 8.
+>
+> **Update 2026-10-23 (open-world stage 2, item 2):** road meshes and collision stream per 256 m cell
+> around the car, with a far-LOD mesh for the horizon; the road topology build at load went from 21 s to
+> 36 ms. See section 10.
 
 Scope: what the free-roam world actually is today, measured or known sizes, what is
 done / partial / missing, perf budget and known bugs. Companion docs:
@@ -99,9 +103,11 @@ inside the ring and almost none of it has content. The "6 km x 6 km" footprint i
 - `RoadNetwork`: topology with junctions (link threshold 15 m), adjacency, `route()`, nearest-road
   spatial index (32 m cells), seasonal tier closure (`set_closed_tiers`), `is_on_road`.
   Roads are flat-strip meshes with trimesh collision (`TrackBuilder`), edge lines and dashed dividers.
-- **All roads are instantiated at load** (`add_road_def` builds one `TrackBuilder` child per road,
-  `road_network.gd:53-65`). Nothing streams road meshes or collision. Perf attribution
-  `e8fbf15`: roads were ~2.8 ms and 83% of attributed prims in the probe scene.
+- ~~All roads are instantiated at load~~ Since 2026-10-23 (section 10) the open world streams road geometry:
+  `RoadNetwork.stream_geometry` (set in `open_world_root.tscn` only) makes `add_road_def` register the def and
+  `RoadChunkMesher` build 256 m cells around the car (radius 2, freed past 3) plus one far-LOD mesh of the whole
+  network. The circuits (Le Mans, Barcelona RX, Northern Isle) keep one `TrackBuilder` per road. (Old perf
+  attribution `e8fbf15`: roads were ~2.8 ms and 83% of attributed prims in the probe scene.)
 - Missing: intersections as geometry (roads just overlap at junction points), rural/residential
   tier, town street grids, lane-accurate two-way model, road signs/lights, tunnels, bridges, stacked roads.
 - Visual: road reads OK (captures show asphalt, red/white edge lines, dashes), but flat and untextured.
@@ -161,7 +167,7 @@ car culture, collectible dots, speed-trap gantries + HUD. Partial: braking-line 
 | Today's capture log (`PERF track=openworld`, preset 1 = Medium, near the hub) | eye view 12.6-14.7 ms avg (p95 13.6-15.6), 295-544k prims, 174-237 draws; elevated view 19.6-20.5 ms |
 | Traffic cost | 15 full-physics cars were 42% of per-tick physics; shelving far cars cut physics 22.9 -> 15.3 ms |
 | Terrain | ~187k of 618k prims, ~1.7 ms; hiding dressing did not change FPS (CPU-bound) |
-| Roads | 91 draws / ~90k prims, ~2.8 ms in the probe scene; grows with network because nothing streams |
+| Roads | Before streaming: 88 mesh instances / ~90k triangles drawn everywhere, 43.6k collision triangles live. Streamed (2026-10-23, section 10): -54..-96 draws, -140..-190k prims at the hub poses, 1.8k collision triangles live; frame time unchanged (GPU-bound on terrain/vista) |
 | Bake hitch | first-time region bakes run on a worker; cold start ~3.3 s |
 
 Working budget for the user's rig (use these as gates in the plan): frame <= 16.6 ms at Medium, <= 12 ms at Low;
@@ -200,7 +206,13 @@ Medium (3.5 GB card, ~1.26 GB measured at Medium today).
    `pass-highway-ramp` 116 m; the carve turned these into km-deep 40 m-wide canyons through the alpine massifs, in
    the live ring and the vista alike. Root cause: the planner's Ys were free-floating design values, never tied to the
    field, and the P1 massifs (1100 / 850 m) sat on top of the touge loops and across the ring's south-east quarter.
-4. Roads/collision are all live (section 1.4); extending the network multiplies load-time and per-frame cost.
+3f. Pre-existing, found 2026-10-23 (section 10), NOT fixed: on `hub-coast` about 1.79 km from its start (x ~1790,
+   z 256..512), where `highway-ring` passes overhead, the live terrain covers the right half of the road for a few
+   frames while the camera moves (rock/grass drawn over asphalt); held still, the road is clear. Same with road
+   streaming off, and gone with the terrain hidden, so it is terrain (carve or clipmap LOD near the overpass), not
+   road geometry.
+4. ~~Roads/collision are all live~~ FIXED 2026-10-23 (section 10): geometry and collision stream per cell; the
+   topology (junction search) at load is 36 ms instead of 21 s.
 5. Traffic: unpooled spawn/free, single car model, no lane model, spawn ring is a square around the player including
    in front of the camera, stuck-rescue can teleport a car into view.
 6. Float precision beyond ~8 km from origin (section 1.2).
@@ -222,7 +234,7 @@ Medium (3.5 GB card, ~1.26 GB measured at Medium today).
 | Region-streamed dressing | DONE v1 (2026-10-22) | RegionDresser in scene, biome kits, bake-gated, live-ring only |
 | Trees/props outside the hub | DONE v1 (one conifer set, one rock, power poles) | ZONE_FOLIAGE / region_preset |
 | Towns, buildings, signage, street furniture | MISSING | 2 pit buildings |
-| Road mesh/collision streaming | MISSING | add_road_def builds all |
+| Road mesh/collision streaming | DONE v1 (2026-10-23) | RoadChunkMesher + RoadNetwork.stream_geometry, far LOD; section 10 |
 | Intersections, rural tier, town grids | MISSING | |
 | Ambient traffic | PARTIAL (8 identical full-physics cars on centreline, no lanes) | traffic_spawner/driver |
 | Pedestrians, police, intersections logic | OUT OF SCOPE v1 (user decision) | |
@@ -452,3 +464,89 @@ longer sit on the massifs, so the "touge" is a hilltop circuit, not a summit run
 **Remaining.** The ring's flank between vertices 16 and 22 is a 20-30 m side-hill cut that renders as a rock-textured
 scar; the ring's east edge climb (vertex 6-7) is ~17 %; touge grades reach 21 % (terrain slope). `hub-coast` keeps its
 legacy end-Y (reads only a caller-supplied provider). No road yet climbs the massifs themselves.
+
+## 10. Stage 2 item 2 (2026-10-23): road meshes and collision stream per cell
+
+**Before.** `RoadNetwork.add_road_def` built one `TrackBuilder` per road at load: 19 roads, 4,256 points, 94.9 km,
+88 mesh instances / 89.9k triangles, 45 static bodies / 45.7k collision triangles, all live. Each road was one mesh with
+one AABB (the 25.6 km `highway-ring` too), so most of them were drawn and in the 60 m shadow pass from anywhere. Each
+`TrackBuilder` made its own materials, i.e. its own 512 px noise textures. Load (main thread, headless): build 140 ms,
+rails 81 ms and **`RoadGraph.build_topology` 21.2 s** (all segment pairs of all road pairs), inside
+`WorldDriver._bootstrap_roads` before the first await; every headless suite that loads the open world paid it too.
+
+**What was built** (`scripts/world/road_chunk_mesher.gd` new; `road_network.gd`, `road_graph.gd`, `world_driver.gd`,
+`track_builder.gd` (`frame_at` static), `open_world_root.tscn`):
+- `RoadNetwork.stream_geometry` (default off; on in the open-world scene). `add_road_def` registers the def only;
+  topology, nearest-road grid, maps, discovery, traffic and the terrain carve read the defs and are unchanged.
+  `recompute_rails` keeps each road's junction rail gaps for the cell builds.
+- Cells of 256 m (the seeder's region grid). Every segment (k -> k+1, plus a closed road's wrap) belongs to the cell of
+  its midpoint and is built from `TrackBuilder.frame_at`, the old frame math. The union of the cells is the old road,
+  triangle for triangle (surface, edge lines, dash phase carried on in double precision, rails and their gap ranges,
+  carriageway + rail collision with `create_trimesh_shape`'s 0.1 mm vertex weld); neighbouring cells share
+  bit-identical seam vertices. One mesh per material per cell, materials shared network-wide.
+- Cells within Chebyshev 2 of the car are built on `WorkerThreadPool` (max 2 in flight) and added nearest first under a
+  2 ms budget per frame; cells past 3 are freed (2 per frame). `sync_player_pos` (every physics tick from
+  `WorldDriver._push_player_position`, 4.3 us per call) builds any missing cell of the 3x3 block around the car
+  synchronously (spawn, fast travel, a car outrunning the worker). `prime_stream` builds the radius at load.
+- At load every material the network uses, and its shader pipelines (one hidden one-quad instance per material), is
+  created (60 ms in the loading screen). Without that, the first DIRT-tier cell met at a fast travel cost 160 ms.
+- Far LOD: one mesh of the whole network (carriageway + edge colours as vertex colour, 24.3k triangles, 6 cm under the
+  road, no collision, no shadow) so roads stay on the horizon past the stream radius (the vista does not paint roads).
+- Edge lines and lane dashes no longer cast shadows; carriageway and rails still do (a first version turned the
+  carriageway off too and an overpass lost its shadow on the road below; caught in the A/B captures, reverted).
+- `RoadGraph.build_topology`: segment boxes + a 64 m XZ grid per road; a road pair only visits segment pairs whose boxes
+  can be closer than the 15 m link threshold, in the same order with the same strict-< rule, so every junction is
+  identical to the all-pairs scan. Same 41 junctions, 21,217 ms -> 36 ms.
+
+**Measured** (GTX 970, 1080p, Medium, vsync off; A/B = same tree, `stream_geometry` off/on, back to back, after bug 3e
+landed; probes in the session scratchpad `rs\`: `probe_roads.gd`, `probe_drive.gd`, `rs_bench.gd`):
+
+| stage 1 pose | ms off -> on (2 runs each, mean) | prims off -> on | draws off -> on |
+|---|---|---|---|
+| a eye, field | 14.29 -> 14.24 | 655k -> 466k | 263 -> 179 |
+| b high, hub | 19.86 -> 19.85 | 932k -> 791k | 259 -> 205 |
+| c eye, road | 13.80 -> 13.84 | 659k -> 491k | 275 -> 201 |
+| d high, outward | 15.68 -> 15.67 | 528k -> 363k | 198 -> 102 |
+| f horizon NE | 17.11 -> 17.05 | 734k -> 570k | 290 -> 207 |
+
+- Frame time: no change beyond the +-0.2 ms run-to-run noise. On this GPU at Medium the open world is bound by
+  terrain/vista fragment work, not by road triangles or draw calls. The gain is headroom for a bigger network: cost now
+  scales with the roads near the car, not with network length.
+- Memory: static RAM 523.9 -> 502.2 MB at the hub (677 -> 656 MB after a drive), VRAM 1376 -> 1362 MB; nodes 1817 -> 1723.
+  Live road collision 43,586 -> 1,834 triangles (drive), 45 -> 16 bodies (hub).
+- Drive, `hub-coast` 6 km at 70 m/s (car moved kinematically, chase camera): avg 25.06 vs 25.27 ms, p99 47.1 vs 50.6,
+  frames > 33 ms 364 vs 391 (on vs off; the spikes in both come from terrain/dresser streaming). Road work on the main
+  thread: worst cell add 1.24 ms, worst frame 1.68 ms; worker build <= 1.3 ms per cell. `highway-ring` 8 km at 90 m/s:
+  worst frame 1.40 ms.
+- Collision continuity: rays for road collision under the car and 80 / 200 m ahead every 4th physics tick: 0 misses of
+  3,900 (hub-coast) and 4,032 (highway ring at 90 m/s). The test suite drives a ring at ~940 m/s equivalent: 0 misses.
+- Fast travel: the synchronous 3x3 road build costs 1.9-7.3 ms (the terrain seeder's own sync bake around it is
+  300-1000 ms). Load, roads only, main thread: before 140 + 81 + 21,217 ms; after 36 ms register/topology/rails +
+  18 ms tables + 35 ms far LOD + 60 ms materials + ~10 cells at ~1 ms (headless numbers for the first two).
+- Gate: 1716 tests, 1 failure (pre-existing `test_post_race_cinematic.gd:239`), 0 false greens (before: 1694 / same
+  failure). Gate wall time 300 s -> 179 s, mostly the topology fix (each open-world scene load was 21 s).
+
+**Tests.** `tests/suites/test_road_streaming.gd` (14): cells rebuild `TrackBuilder` exactly (4 roads: banked closed ring
+with junction gaps, 4-lane highway with a < 0.5 m segment, dirt, mixed asphalt/gravel with a one-side rail range; 64 m
+and one-chunk cells); every segment in exactly one cell; bit-identical seams; rail gaps equal the whole-road path;
+load/free around the car; shared materials and the shadow rule; fast-travel target has the 3x3 block and collision
+without waiting; drive two laps probing under and ahead; freeing with jobs in flight; materials warmed for every bucket;
+the open-world scene streams. `tests/suites/test_road_topology.gd` (2): junctions identical to the all-pairs scan.
+
+**Captures reviewed** (Claude, Read tool), scratchpad
+`D:\Temp\claude\d--AI-Projects-UltraDrive\2afc40e3-6ded-4a3e-bfa8-14f5654eec46\scratchpad\rs\cap\`: `p0_*` vs `p1_*` /
+`ab_*` (poses, off/on): identical near roads; far roads continue to the horizon on the far LOD. `crop_f_ab.png`: the
+distant highway reads a little lighter streamed, because the far LOD has no guard rails (they darken the line in the
+old view). `drive_ab_*.png` (hub-coast every 600 m, off left / on right): same road, no pop-in or gap seen at the
+cell borders crossed. `hold_grid.png`, `q0_grid.png` / `q1_grid.png` (terrain on / hidden) / `r0_grid.png` (streaming
+off): the transient terrain-over-road at the `highway-ring` overpass is pre-existing (3f).
+
+**Remaining weaknesses.**
+- Frame time did not improve at the stage 1 poses; the win is draws, triangles, collision and memory, plus load time.
+- The far LOD has no rails or lane dashes; past ~512-768 m roads are carriageway + edge colours only (slightly
+  lighter highway line at distance). It is one always-drawn mesh (24k triangles, 1 draw), also under the near roads.
+- Stream radius 2 cells = at least 512 m of full detail ahead in any direction; a high camera can see the step from full
+  detail to the far LOD (rails end) at that distance if it looks for it.
+- Cells are sized for today's 95 km network; the hub cell is the worst (3.8 ms worker build, ~1.5 ms add).
+- Not done here: the `MountainPassZone` scene keeps its own always-live `TrackBuilder` road; Low/High presets and VRAM
+  on High not measured; not driven by hand.
