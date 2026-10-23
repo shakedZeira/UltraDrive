@@ -1,5 +1,12 @@
 # Terrain Vista Plan
 
+> **AS BUILT 2026-10-23 (open-world stage 2, item 1).** Implemented and measured; see
+> "§9 AS BUILT" at the end for what changed against this plan, why, the numbers and the
+> captures. The sections below are the original plan, kept for reference. Where they
+> disagree with §9, §9 is right (notably: 32 m lattice not 64 m, exact ring-support sampling
+> at cell seams / biome edge / height clamp, regions pre-added blank, height `set_map` off the
+> main thread, colour-map mipmaps, camera far via a per-scene `far_clip` export).
+
 Target rig: **GeForce GTX 970** (Maxwell, 3.5 GB VRAM, Vulkan), 1920x1080,
 **Forward+**, Jolt, Terrain3D 1.0.2 (GDExtension), Godot **4.7.2**.
 Related: `docs/ROADMAP.md`; `docs/plans/open_world_optimization_plan.md`
@@ -306,12 +313,11 @@ green; frame budget held.
 | 0 | lattice base+dome 385² @64 m | — | 0.77 s | once, shared |
 | 0 | bulk get_image 1024² (8-bit) | — | 0.11 s + 2.54 s fill | breaks seed parity → rejected |
 | 0 | projected 9-region (threaded 3-4 workers) | — | est 7-9 s | Phase 2 target |
-| 1 | per-texel cost w/ (a)(b)(c) cuts | 3.5 us | est <2.5 us | Phase 1 |
-| 2 | cold start | ~3.3 s | | driveable-to-first-frame |
-| 2 | hitch max frame | baseline | | at first vista region landing |
-| 5 | perf Low avg/ml | 92.7/94.7 | | must stay ≥60 |
-| 5 | perf Medium avg/ml | 64.6/64.6 | | ≥30 |
-| 5 | VRAM | 763 MB | | +72 MB static expected |
+| 1 | region bake (heights+colour+control), 3 pool threads | 3.5 us | ~3.0 s/region wall (first ~6 s while loading) | 9 regions 28.9-31.8 s total, in the background |
+| 2 | cold start | ~3.3 s | +0.5 s | one-time `setup_ms` 494-542 (9 blank regions added inside the loading screen) |
+| 2 | hitch max frame | 26.5 ms | 26.9 ms | warm-up frames while the vista builds; 0 frames > 33 ms; max main-thread apply step 1.2 ms |
+| 5 | perf Medium, 4 hub poses (ms/frame) | 12.89 / 18.63 / 11.39 / 13.93 | 14.18 / 19.79 / 13.75 / 15.71 | see §9.4 |
+| 5 | VRAM | 1245 MB | 1376 MB | +131 MB (texture +122 MB: 9 x height RF + colour RGBA8 with mips + control) |
 
 ---
 
@@ -362,3 +368,120 @@ green; frame budget held.
 - [ ] Perf/hitch before/after table
 - [ ] 3 PNGs analyzed and saved to `D:\Temp\opencode\vista\`
 - [ ] Verbatim report (no commit)
+
+---
+
+## §9 AS BUILT (2026-10-23)
+
+### 9.1 Files
+
+- `scripts/world/terrain_vista_baker.gd` (`TerrainVistaBaker`, pure `RefCounted`, rewritten: the
+  previous file did not parse and had no road carve). Bands of 32 rows (one 256 m cell row),
+  each with its own noise objects, so bands run in parallel.
+- `scripts/world/terrain_vista.gd` (`TerrainVista`, new): owns the static `Terrain3D`
+  (`VistaTerrain3D`, 3x3 x 1024 px at 8 m, collision 0, no shadows, LITE shader, the live
+  terrain's `Terrain3DAssets` shared, world background NONE).
+- `scenes/world/open_world_root.tscn`: `TerrainVista` node (`node_paths` header for
+  `live_terrain`), `far_clip = 24000` on the Chase/Orbit/Hood/Cockpit cameras.
+- `scripts/world/world_driver.gd`: `_bootstrap_vista()` right after `_bootstrap_roads()`.
+- `scripts/camera/{chase,orbit,hood,cockpit}_camera.gd`: `@export var far_clip := 4000.0`
+  (the Godot default, so the tracks are unchanged; only the open world sets 24000).
+- `scripts/world/terrain_texturing.gd`: `apply(terrain, quality, shared_assets = null)`.
+- Tests: `tests/suites/test_terrain_vista_baker.gd` (12), `tests/suites/test_terrain_vista_wiring.gd` (6).
+
+### 9.2 Deviations from the plan, and why
+
+1. **Lattice 32 m, not 64 m, and of the biome weight sums.** The 64 m bilerp is up to ~1.3 m
+   off at the dome feet (convex smoothstep), more than the 1 m bias. Per band the baker builds a
+   32 m lattice of biome `acc`, biome `total` and dome height; base = `acc / total`, which keeps
+   the ring's hard fallback step where every biome weight reaches zero.
+2. **Exact ring-support sampling where the ring is not smooth** (`_support_min`). An 8-aligned
+   ring vertex X is a convex blend of the ring's 4 m coarse samples at X +- 2 m; the vista
+   samples X + 0.5 (their bilinear centre) except:
+   - on a live-cell seam (X or Z a multiple of 256) the ring clamps its coarse grid: its first
+     texel is this cell's +2 m sample, its last texels hold the previous cell's -2 m sample with
+     that cell's seed. Ring seams measured up to ~20 m in high relief (per-cell seeds, inherent).
+     Seam vertices take the minimum of both cells' samples and drop a further 2 m x slope
+     (the ring stays flat for 2 m and then rises, so the 8 m chord would otherwise cross it);
+   - near the biome-union step (0 < total < 6e-4; 260 m -> 1 m east of the highland plateau,
+     2 m -> 1 m round the spawn biome, -6 m -> 1 m round the sea): min of the four +-2 m
+     samples, then a 3x3 erosion so no 8 m chord spans the step;
+   - near the 2000 m height clamp (dome tops): min of the four +-2 m samples (the ring blends
+     already-clamped samples, so it sits up to several metres under a clamped centre sample).
+3. **Road carve** with the ring's rules (nearest segment, lower road wins near-ties, flat core,
+   smoothstep to 40 m), plus `ROAD_SAG_BIAS` = 0.05 m per metre of cut/fill depth inside the
+   blend (tapering 40-56 m): the 8 m chord over the cut/fill profile can rise above it.
+4. **Main-thread apply.** Adding regions one by one made Terrain3D re-create its whole map
+   texture arrays: 43-82 ms per region on the main thread. Now `start()` adds all nine regions
+   blank at once (~0.5 s, inside the loading screen), and `Terrain3DRegion.set_map(TYPE_HEIGHT)`
+   (19-28 ms: it scans the image) runs on the coordinator thread; nothing reads a vista
+   region's CPU images meanwhile (no collision, no height queries, region not edited). The main
+   thread then does one map per frame (height range + `update_maps(HEIGHT)`, colour, control):
+   **max 1.2 ms per frame**.
+5. **Colour-map mipmaps.** Without them the vista rendered pure black beyond ~5 km: the LITE
+   shader samples the colour map at a distance-based mip and an 8 m texel reaches mip 1 there
+   (live regions never get that far). Mipmaps are generated on the worker.
+6. **Live world background NONE** (set at `start()`, when the blank vista regions replace it).
+   This also removed the flat y = 0 plane, which by itself cost up to ~3 ms at high poses.
+7. **Camera far** via a per-scene `far_clip` export rather than hard-coding 24000 in chase/orbit
+   (that would have changed every track). Hood and cockpit cameras get it too.
+8. Headless runs skip the bake unless `bake_in_headless` (tests opt in), so the many headless
+   suites that load the open world do not spend 30 s of CPU on it.
+9. Phase 0 "placement" is verified in the wiring test: with `vertex_spacing = 8` and SIZE_1024,
+   `add_region_blankp(centre)` lands on the spaced grid and `data.get_height()` at world
+   (128, 128) returns the spawn pad minus the bias.
+
+### 9.3 Z-fight / seam proof
+
+`test_terrain_vista_baker.gd` bakes the real ring (`TerrainBaker.bake_region` at 1 m) for 14 live
+regions (hub, farmland, highland pass, dome foot / slope / legacy dome, height-clamped dome top,
+sea, plateau biome edge, spawn biome edge, a 20 m road cut and a 15 m fill) and checks every live
+vertex inside every vista quad against BOTH triangle splits: the vista is at least 0.1 m below
+the ring everywhere, and tracks it (vertex error < 0.6 m, mean < 0.15 m, off seams and edges) in
+smooth terrain. Captures (reviewed by Claude with the Read tool) are in the session scratchpad
+`D:\Temp\claude\d--AI-Projects-UltraDrive\2afc40e3-6ded-4a3e-bfa8-14f5654eec46\scratchpad\cap\`:
+`base_*` (before) vs `v4_*` (hub, after), `v5_*` (highland and far-camera views).
+
+### 9.4 Performance (GTX 970, 1080p, Medium, vsync off, the stage 1 fixed poses + 3 more)
+
+| pose | before (stage 1 baseline re-run) | after | delta | far 24000 only | background NONE, vista hidden |
+|---|---|---|---|---|---|
+| a eye, field | 12.89 | 14.18 | +1.29 | 13.14 | 13.31 |
+| b high, hub | 18.63 | 19.79 | +1.16 | 18.72 | 17.21 |
+| c eye, road | 11.39 | 13.75 | +2.36 | 11.54 | 11.25 |
+| d high, outward | 13.93 | 15.71 | +1.78 | 14.18 | 11.06 |
+| e seam, side | 13.19 | 14.00 | +0.81 | 13.46 | 12.69 |
+| f horizon NE | 15.40 | 17.06 | +1.66 | 15.75 | 12.51 |
+| g eye, west | 13.04 | 13.57 | +0.53 | 13.04 | 12.94 |
+| highland pass NE | 13.93 | 16.96 | +3.03 | | |
+| highland pass SW | 16.64 | 18.43 | +1.79 | | |
+
+Draws +45..+60, prims +170k..+200k, VRAM 1245 -> 1376 MB. The vista is fragment-bound: a
+probe-only variant with Terrain3D's `minimum.gdshader` (colour map only) on the vista ran
+c 12.30 / d 13.91 / f 15.25 ms (near the baseline), but looks wrong as-is because our colour
+map is a near-white tint (see 9.5). `mesh_lods` 6 instead of 7 changed nothing.
+
+Low preset (same poses, ms/frame, before -> after): a 7.59 -> 8.72, b 12.14 -> 13.08,
+c 6.37 -> 8.27, d 8.52 -> 9.71, e 7.71 -> 8.27, f 10.10 -> 11.36, g 7.49 -> 7.92. Every pose stays
+above 60 FPS (worst 13.08 ms = 76 FPS), but the regression is +6..+30 %, over this plan's own
+"> 5 % on Low = blocker to revisit" line in section 7. Not hidden: the decision (accept, make the
+vista a quality-ladder option, or do the colour-only shader first) is the user's.
+
+### 9.5 Open / not done
+
+- **GPU cost +0.5..+2.4 ms at the hub (+3 ms at the pass).** Cheapest next step: a colour-only
+  vista (bake per-layer average albedo x tint into the vista colour map, use a minimal shader);
+  measured potential ~1-2 ms, needs a seam colour-match check.
+- **Pre-existing, found here: the live ring cannot exist beyond +-4096 m.** Terrain3D's region
+  map allows locations -16..15 and the live ring uses 256 m regions, so every region past
+  4096 m fails (`Location (24, 20) out of bounds`, thousands of errors per second when the car
+  is there). The drivable world reaches x 9702 / z 8605. The vista now shows terrain there,
+  but there is still no live ground or collision except the road meshes.
+- **Pre-existing, found here: roads far below the heightfield in the east.** `touge-a` and
+  `touge-b` (y ~31 m under ~2000 m domes, cut 1969 m), `highway-ring` (cut 1586 m at
+  (6160, 5530)), `touge-highway-ramp` (1378 m). The ring's carve rule turns these into
+  km-deep, 40 m-wide canyons; the vista reproduces them faithfully (seen as blade-like walls
+  from inside the alpine area). Needs a CorridorPlanner / dome-placement fix, not a vista fix.
+- Vista ground layers are classified per 16 m (2x2 texel blocks) without road shoulders.
+- Not measured: High preset, a drive-through hitch probe while driving, RAM (the bake holds
+  ~40 MB per region transiently).

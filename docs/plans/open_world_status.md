@@ -3,6 +3,9 @@
 > **Update 2026-10-22 (later, open-world stage 1):** ground textures and region-streamed
 > dressing are now live. See section 6 for what changed, measurements and what is still
 > unverified; sections 0-5 are corrected inline where they described the old state.
+>
+> **Update 2026-10-23 (open-world stage 2, item 1):** the far-terrain vista is built; the
+> 384 m cliff is gone. See section 7, and two pre-existing world bugs it exposed (3d, 3e).
 
 Scope: what the free-roam world actually is today, measured or known sizes, what is
 done / partial / missing, perf budget and known bugs. Companion docs:
@@ -24,7 +27,7 @@ constants, not measured in-game.
 | `docs/research/world_compare.md` (2026-09-16) | 3 roads / 6.4 km, traffic/props not wired | Stale: 19 corridors, >= 60 km (test-pinned); one static Foliage + 5 PropScatterers + TrafficSpawner ARE in the scene |
 | `docs/plan_open_world_seeding.md` | Terrain3D regions 1024 m, 6x6 map | `TerrainSeeder.REGION_SIZE := 256`, live ring 3x3 = 768 m (`terrain_seeder.gd:21-22`); 1024 appears only in a stale const in `regional_climate.gd:75` |
 | `docs/ROADMAP.md` W.6 / W.7 "region-streamed dressing wired into open_world_root.tscn" | Shipped | Was NOT wired until 2026-10-22 (only a test pinning it absent). FIXED: `RegionDresser` is now in the scene and ROADMAP W.6/W.7 say so with the real date; the pinned test became `test_open_world_dressing_budget` |
-| `docs/plans/terrain_vista_plan.md` | Static far-terrain vista | Only `terrain_vista_baker.gd` exists. No `terrain_vista.gd` controller, no wiring in `world_driver.gd`, cameras still at default far 4000 |
+| `docs/plans/terrain_vista_plan.md` | Static far-terrain vista | Built 2026-10-23 (section 7; as-built notes in the plan's section 9). Before that only a non-parsing `terrain_vista_baker.gd` existed |
 | `docs/plans/open_world_optimization_plan.md` | Traffic = 15 cars | Scene now has `max_traffic = 8` (`open_world_root.tscn:196`); the spawner script default is also 8 |
 | `docs/HANDOFF_2026-10-22_session.md` | Open-world capture hung in endless `TrafficSpawner._spawn_vehicle` null loop | Log shows 2,841 errors that all start with `Compile Error: Identifier not found: RaceManager` in the capture tool; the later `log_openworld_after.txt` run is clean (0 errors). Likely a harness compile problem, not a traffic regression (not proven) |
 
@@ -80,7 +83,8 @@ inside the ring and almost none of it has content. The "6 km x 6 km" footprint i
   the Terrain3D **checkerboard**. Cause confirmed: with no `Terrain3DAssets` the addon shader falls back
   to its checker (the node's `show_checkered = false` alone does not remove it).
 - **Now** (section 6): textured, biome-driven ground from a per-region control map.
-- Horizon: terrain ends ~384 m out (ring) and falls to haze; the far-field vista is unimplemented.
+- Horizon: since 2026-10-23 a static vista (`TerrainVista`, 3x3 x 8192 m at 8 m, section 7) carries
+  the same field to x/z [-8192, 16384); the live ring's flat y = 0 background is switched off.
 
 ### 1.4 Roads
 
@@ -170,8 +174,8 @@ Medium (3.5 GB card, ~1.26 GB measured at Medium today).
    regressions; strengthen when RegionDresser is wired in. (2026-10-22: dresser is wired; the suite now also pins
    square per-cell placement, bake-gated spawns, biome zones, filters and draw distances, but still reads the
    side arrays, not the MultiMesh.)
-3. ~~Checkerboard terrain~~ FIXED 2026-10-22 (section 6). Still: no vista, camera far 4000, the live ring ends at
-   ~384 m in a visible cliff down to the flat y=0 background.
+3. ~~Checkerboard terrain~~ FIXED 2026-10-22 (section 6). ~~No vista, camera far 4000, cliff at ~384 m~~ FIXED
+   2026-10-23 (section 7).
 3a. FIXED 2026-10-22: live-ring regions were queued at PRIORITY_PREFETCH by `_prefetch_ring` and never promoted,
    so after spawn they sat blank and flat behind ~150 corridor pre-bake jobs for tens of seconds
    (`terrain_seeder.gd::_prefetch_ring` / `_promote_live`, test `test_live_ring_beats_the_corridor_prebake`).
@@ -182,6 +186,16 @@ Medium (3.5 GB card, ~1.26 GB measured at Medium today).
 3c. Pre-existing: irregular white flat patches beyond the highway north-east of the hub (~(700-900, 600-700)),
    visible in the untextured baseline too; source object not identified. The hub's static `Foliage` grass tufts are
    flat `PlaneMesh` quads that read as bright green squares (region grass is disabled for that reason).
+3d. Pre-existing, found 2026-10-23, NOT fixed: the live ring cannot exist beyond +-4096 m. Terrain3D's region map
+   allows locations -16..15 and `TerrainSeeder` uses 256 m regions, so any region past 4096 m fails
+   (`Terrain3DRegion set_location: Location (24, 20) out of bounds`, thousands of errors per second while the car
+   is there). The drivable world reaches x 9702 / z 8605, so the alpine and coast areas have no live ground or
+   terrain collision (road meshes keep their own collision). The vista now draws terrain there.
+3e. Pre-existing, found 2026-10-23, NOT fixed: some planned roads lie far below the heightfield. Measured
+   (natural height minus road y): `touge-a` / `touge-b` 1969 m, `highway-ring` 1586 m at (6160, 5530),
+   `touge-highway-ramp` 1378 m, `pass-highway-ramp` 116 m; everything inside +-4096 m is <= 63 m. The ring's carve
+   turns these into km-deep 40 m-wide canyons through the alpine domes; the vista reproduces them faithfully.
+   Needs CorridorPlanner elevations (or dome placement) to agree with the field.
 4. Roads/collision are all live (section 1.4); extending the network multiplies load-time and per-frame cost.
 5. Traffic: unpooled spawn/free, single car model, no lane model, spawn ring is a square around the player including
    in front of the camera, stuck-rescue can teleport a car into view.
@@ -200,7 +214,7 @@ Medium (3.5 GB card, ~1.26 GB measured at Medium today).
 | Surface grip, regional climate, day/night, weather FX | DONE | tests listed in ROADMAP |
 | Events + collectibles + speed traps | DONE v1 | event_registry, collectibles |
 | Ground textures / biome look | DONE v1 (2026-10-22) | 8 CC0 layers, control-map bake, LITE shader; captures in section 6 |
-| Far-field vista | PARTIAL | baker only, no controller, camera far 4000 |
+| Far-field vista | DONE v1 (2026-10-23) | TerrainVista + baker, camera far 24000 in the open world; section 7 |
 | Region-streamed dressing | DONE v1 (2026-10-22) | RegionDresser in scene, biome kits, bake-gated, live-ring only |
 | Trees/props outside the hub | DONE v1 (one conifer set, one rock, power poles) | ZONE_FOLIAGE / region_preset |
 | Towns, buildings, signage, street furniture | MISSING | 2 pit buildings |
@@ -286,3 +300,31 @@ work), the hub's own flat grass quads, the pre-existing white patches (3c), Rock
 Not played by hand or driven (no drive-through hitch probe); alpine / coast / highlands regions not captured
 (only the hub area: the car spawns there and the dresser/seeder follow the car); High/Low presets not
 measured; `QUALITY_FULL` not offered in the settings ladder (could map High -> FULL later).
+
+## 7. Stage 2 item 1 (2026-10-23): far-terrain vista
+
+Full as-built notes, deviations from the plan and the z-fight proof: `terrain_vista_plan.md` section 9.
+
+- **What**: `TerrainVista` (scene node) owns a second `Terrain3D`: 3x3 regions of 1024 px at 8 m
+  (x/z [-8192, 16384)), no collision, no shadows, the live terrain's texture set and LITE shader,
+  heights = the live ring's canonical field minus 1 m (exact ring-support sampling on cell seams,
+  the biome-union step and the 2000 m clamp; road carve with a sag allowance), colour map with
+  mipmaps, control map classified per 16 m. Built in the background on 3 WorkerThreadPool tasks,
+  nearest region first; started from `world_driver.gd` right after `_bootstrap_roads()`. Cameras
+  in the open world get `far_clip = 24000` (tracks keep 4000). The live terrain's flat world
+  background is switched off (it hid the vista and cost up to ~3 ms at high poses by itself).
+- **Main thread**: one-time ~0.5 s inside the loading screen (nine blank regions); then one map
+  write per frame, max 1.2 ms. Warm-up frames while the vista builds: max 26.9 ms vs 26.5 ms
+  baseline, 0 frames > 33 ms. All nine regions land in ~29-32 s (spawn region first, ~6 s).
+- **GPU (Medium, ms/frame, stage 1 poses)**: a 12.89 -> 14.18, b 18.63 -> 19.79, c 11.39 -> 13.75,
+  d 13.93 -> 15.71; highland pass +1.8..+3.0. Low: +0.4..+1.9 ms (worst pose 13.08 ms, still 76 FPS, but
+  +6..+30 %, over the plan's 5 % line). VRAM 1245 -> 1376 MB, draws +45..+60.
+- **Captures reviewed** (Claude, Read tool), scratchpad
+  `D:\Temp\claude\d--AI-Projects-UltraDriveafc40e3-6ded-4a3e-bfa8-14f5654eec46\scratchpad\cap\`:
+  the hub ring now continues into rolling vista terrain with no cliff, no gap, no z-fight band and no
+  colour step at the seam; the alpine range stands on the horizon in aerial haze (it was clipped
+  before); the flat-plane white blotches beyond the ring are gone (the ones inside the ring, 3c,
+  remain); highland pass merges into the vista mountain; coast reads as a sand plain to the sea.
+  From inside the alpine area the 3e road canyons show as blade-like walls.
+- **Open**: GPU cost (a colour-only vista shader measured ~1-2 ms cheaper but needs a colour-match
+  pass); bugs 3d and 3e; High preset and a driven hitch probe not measured.
