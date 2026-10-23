@@ -473,7 +473,8 @@ vista a quality-ladder option, or do the colour-only shader first) is the user's
   vista (bake per-layer average albedo x tint into the vista colour map, use a minimal shader);
   measured potential ~1-2 ms, needs a seam colour-match check.
 - ~~Pre-existing, found here: the live ring cannot exist beyond +-4096 m.~~ FIXED the same day, see 9.6.
-- **Pre-existing, found here: roads far below the heightfield in the east.** `touge-a` and
+- ~~**Pre-existing, found here: roads far below the heightfield in the east.**~~ FIXED 2026-10-23 in the corridor
+  planner (`open_world_status.md` section 9); the vista needed no change. Original note: `touge-a` and
   `touge-b` (y ~31 m under ~2000 m domes, cut 1969 m), `highway-ring` (cut 1586 m at
   (6160, 5530)), `touge-highway-ramp` (1378 m). The ring's carve rule turns these into
   km-deep, 40 m-wide canyons; the vista reproduces them faithfully (seen as blade-like walls

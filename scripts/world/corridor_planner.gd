@@ -119,6 +119,11 @@ static func plan(master_seed: int, height_provider: Callable = Callable(), tier_
 	var rng := RandomNumberGenerator.new()
 	rng.seed = master_seed
 	var defs: Array[RoadDef] = []
+	# Every elevation decision below reads the SAME field the terrain bake and the
+	# vista draw (TerrainBaker's natural heightfield) unless the caller supplies its
+	# own. An empty Callable used to mean "flat-Y fallback", which left the highway
+	# and both touge loops hundreds to ~2000 m under the alpine massifs (bug 3e).
+	var terrain: Callable = height_provider if height_provider.is_valid() else canonical_height_provider()
 
 	# -- Road-index invariant: defs 0..2 (byte-close to world_driver's
 	#    bootstrap: hub ring, Catmull-Rom connector, world-offset pass loop).
@@ -142,7 +147,7 @@ static func plan(master_seed: int, height_provider: Callable = Callable(), tier_
 
 	# -- HIGHWAY: perimeter long-arc circuit around the footprint. Seed-dependent
 	#    Y phasing only, so the road-index invariant above stays stable.
-	var ring := _highway_ring_points(rng)
+	var ring := _highway_ring_points(rng, terrain)
 	var highway := RoadDef.make(RoadDef.Tier.HIGHWAY, ring, "highway-ring", true,
 		_width_for(RoadDef.Tier.HIGHWAY, tier_defaults))
 	highway.banking = HIGHWAY_BANKING
@@ -158,10 +163,8 @@ static func plan(master_seed: int, height_provider: Callable = Callable(), tier_
 		false, _width_for(RoadDef.Tier.ARTERIAL, tier_defaults)))
 
 	# -- TOUGE: serrated switchback loops climbing the P1 alpine domes (closed).
-	var dome_a: Vector2 = TerrainBaker.DOME_FAMILY[0]["center"]
-	var dome_b: Vector2 = TerrainBaker.DOME_FAMILY[1]["center"]
-	var touge_a := _touge_loop(dome_a, 820.0, master_seed, height_provider)
-	var touge_b := _touge_loop(dome_b, 700.0, master_seed + 1, height_provider)
+	var touge_a := _touge_loop(TOUGE_A_CENTER, TOUGE_A_RADIUS, master_seed, terrain)
+	var touge_b := _touge_loop(TOUGE_B_CENTER, TOUGE_B_RADIUS, master_seed + 1, terrain)
 	defs.append(RoadDef.make(RoadDef.Tier.TOUGE, touge_a, "touge-a", true,
 		_width_for(RoadDef.Tier.TOUGE, tier_defaults)))
 	defs.append(RoadDef.make(RoadDef.Tier.TOUGE, touge_b, "touge-b", true,
@@ -186,7 +189,7 @@ static func plan(master_seed: int, height_provider: Callable = Callable(), tier_
 		"highway-hub-ramp", false, _width_for(RoadDef.Tier.ARTERIAL, tier_defaults)))
 	# Highway -> pass loop (reverse of pass-highway-ramp)
 	defs.append(RoadDef.make(RoadDef.Tier.ARTERIAL,
-		_highway_to_pass_ramp(ring, 65, pass_pts[12]),
+		_conform_chain_y(_highway_to_pass_ramp(ring, 65, pass_pts[12]), terrain, false, 1, 1),
 		"highway-pass-ramp", false, _width_for(RoadDef.Tier.ARTERIAL, tier_defaults)))
 
 	# -- ACCESS RAMPS (interchange): open paved spurs from the pass loop, the
@@ -201,16 +204,16 @@ static func plan(master_seed: int, height_provider: Callable = Callable(), tier_
 	#    the alongside stretch (_with_merge_rail_open), which is the only way to
 	#    stay open at both the approach and the merge lane.
 	defs.append(_with_merge_rail_open(RoadDef.make(RoadDef.Tier.ARTERIAL,
-		_access_ramp(pass_pts[12], ring, 65, Vector2(0.0, 350.0)),
+		_conform_access_ramp(_access_ramp(pass_pts[12], ring, 65, Vector2(0.0, 350.0)), terrain),
 		"pass-highway-ramp", false, _width_for(RoadDef.Tier.ARTERIAL, tier_defaults)), ring))
 	defs.append(_with_merge_rail_open(RoadDef.make(RoadDef.Tier.ARTERIAL,
 		_access_ramp(coast_b[0], ring, 174, Vector2(-320.0, 220.0)),
 		"coast-highway-ramp", false, _width_for(RoadDef.Tier.ARTERIAL, tier_defaults)), ring))
-	# Descent off a massif dome: alpine TOUGE tier (driveable ceiling 300, still
-	# asphalt) because the taper from the touge-loop altitude to the ring's ~22 m
-	# would exceed the ARTERIAL 120 m band.
+	# Descent off the highland shelf: alpine TOUGE tier (driveable ceiling 300,
+	# still asphalt) because the taper from the touge-loop altitude to the ring's
+	# ~22 m would exceed the ARTERIAL 120 m band.
 	defs.append(_with_merge_rail_open(RoadDef.make(RoadDef.Tier.TOUGE,
-		_access_ramp(touge_a[0], ring, 24, Vector2(-258.0, 153.0)),
+		_conform_access_ramp(_access_ramp(touge_a[0], ring, TOUGE_RAMP_RING_IDX, TOUGE_RAMP_BULGE), terrain),
 		"touge-highway-ramp", false, _width_for(RoadDef.Tier.TOUGE, tier_defaults)), ring))
 	# The spawn ramp runs the LONGEST merge lane: it comes off the hub basin and
 	# then parallels the ring for an extra SPAWN_MERGE_RUN_M before its taper
@@ -410,6 +413,128 @@ const RING_CENTER := Vector2(4400.0, 2250.0)
 const RING_AXIS_X := 4600.0
 const RING_AXIS_Z := 3550.0
 
+## -- Terrain awareness (bug 3e) ---------------------------------------------
+## Every corridor must sit on the ground it is carved into: the terrain bake turns
+## any road more than a few tens of metres off the heightfield into a trench or an
+## embankment (the 40 m blend turns a km of mismatch into a km-deep canyon).
+##
+## The corridor field is TerrainBaker's natural heightfield, i.e. exactly what the
+## live ring and the vista bake before roads are carved into them.
+const TERRAIN_SMOOTH_R := 100.0   ## stencil radius (m) of the "ground the road follows"
+## Corridor Ys are only touched where they are further than this from the smoothed
+## ground (cut side = road below the ground, fill side = road above it). Inside the
+## dead band the designed Y is kept, so every road that already agreed with the
+## terrain is bit-identical to the old plan.
+const CONFORM_DEAD_CUT := 10.0
+const CONFORM_DEAD_FILL := 40.0
+const CONFORM_SMOOTH_M := 450.0   ## arc length over which the Y correction is blended
+const CONFORM_TAPER_M := 300.0    ## correction fades to 0 over this distance at anchored ends
+## Highway ring deflection window (ring vertex indices, inclusive) and the rule: slide
+## inward until the ground within RING_CLEARANCE_M of the vertex is below
+## RING_ELEV_LIMIT. Outside the window the ring is the exact ellipse, so the ramps
+## anchored at ring 65/96/110/160/174 keep their geometry.
+const RING_DEFLECT_FIRST := 6
+const RING_DEFLECT_LAST := 50
+const RING_ELEV_LIMIT := 240.0
+const RING_CLEARANCE_M := 200.0
+const RING_MIN_SCALE := 0.3
+const RING_ERODE_N := 8
+const RING_BLUR_N := 6
+## Touge loops: on the highland shelf (ground 100-300 m), not on the massif tops.
+const TOUGE_A_CENTER := Vector2(7100.0, 1900.0)
+const TOUGE_A_RADIUS := 600.0
+const TOUGE_B_CENTER := Vector2(5500.0, 2100.0)
+const TOUGE_B_RADIUS := 450.0
+const TOUGE_Y_MIN := 20.0
+const TOUGE_Y_MAX := 300.0
+const TOUGE_RAMP_RING_IDX := 4
+const TOUGE_RAMP_BULGE := Vector2(0.0, 0.0)
+const ACCESS_RAMP_RUNNER_PTS := 15  ## merge-lane points at the tail of an access ramp (ring Y, never touched)
+
+## The canonical elevation provider: Callable(Vector2 xz) -> float over the same
+## deterministic field TerrainBaker bakes (no scene, no Terrain3D, headless-safe).
+static func canonical_height_provider() -> Callable:
+	var baker := TerrainBaker.new()
+	return func(xz: Vector2) -> float:
+		return baker.natural_height_at(xz.x, xz.y)
+
+## Ground height a road at `pos` should follow: the centre and four axis taps at
+## TERRAIN_SMOOTH_R, averaged, so a road does not chase the fBm detail.
+static func _terrain_smooth(terrain: Callable, pos: Vector2) -> float:
+	var r := TERRAIN_SMOOTH_R
+	var acc := float(terrain.call(pos))
+	acc += float(terrain.call(pos + Vector2(r, 0.0)))
+	acc += float(terrain.call(pos - Vector2(r, 0.0)))
+	acc += float(terrain.call(pos + Vector2(0.0, r)))
+	acc += float(terrain.call(pos - Vector2(0.0, r)))
+	return acc * 0.2
+
+## Highest ground at `pos` and four axis taps at `r`.
+static func _terrain_peak(terrain: Callable, pos: Vector2, r: float) -> float:
+	var m := float(terrain.call(pos))
+	m = maxf(m, float(terrain.call(pos + Vector2(r, 0.0))))
+	m = maxf(m, float(terrain.call(pos - Vector2(r, 0.0))))
+	m = maxf(m, float(terrain.call(pos + Vector2(0.0, r))))
+	m = maxf(m, float(terrain.call(pos - Vector2(0.0, r))))
+	return m
+
+## Pulls a chain's Ys toward the ground. Per vertex the correction is how far the
+## smoothed ground is outside the dead band (CONFORM_DEAD_CUT / _FILL); it is then
+## blended along the chain (CONFORM_SMOOTH_M) so grades stay driveable, and faded to
+## 0 over CONFORM_TAPER_M at anchored ends of an open chain. `head_keep` /
+## `tail_keep` count the leading / trailing vertices of an open chain that are
+## junction anchors or a merge lane and must keep their Y exactly. XZ never changes.
+static func _conform_chain_y(points: Array[Vector3], terrain: Callable, closed: bool, \
+		head_keep: int = 0, tail_keep: int = 0) -> Array[Vector3]:
+	var n := points.size()
+	if n < 2:
+		return points
+	var arc := PackedFloat32Array()
+	arc.resize(n)
+	for i in range(1, n):
+		arc[i] = arc[i - 1] + Vector2(points[i].x - points[i - 1].x, points[i].z - points[i - 1].z).length()
+	var total := arc[n - 1] + (Vector2(points[0].x - points[n - 1].x, points[0].z - points[n - 1].z).length() if closed else 0.0)
+	var first := 0 if closed else head_keep
+	var last := n if closed else n - tail_keep
+	var corr := PackedFloat32Array()
+	corr.resize(n)
+	for i in range(first, last):
+		var p := points[i]
+		var delta := _terrain_smooth(terrain, Vector2(p.x, p.z)) - p.y
+		if delta > CONFORM_DEAD_CUT:
+			corr[i] = delta - CONFORM_DEAD_CUT
+		elif delta < -CONFORM_DEAD_FILL:
+			corr[i] = delta + CONFORM_DEAD_FILL
+	var anchor_head := arc[maxi(head_keep - 1, 0)]
+	var anchor_tail := arc[mini(n - tail_keep, n - 1)] if not closed else 0.0
+	var out: Array[Vector3] = []
+	out.resize(n)
+	for i in n:
+		var acc := 0.0
+		var cnt := 0
+		for j in n:
+			var d := absf(arc[j] - arc[i])
+			if closed:
+				d = minf(d, total - d)
+			if d <= CONFORM_SMOOTH_M:
+				acc += corr[j]
+				cnt += 1
+		var c := acc / float(maxi(cnt, 1))
+		if not closed:
+			c *= smoothstep(0.0, CONFORM_TAPER_M, arc[i] - anchor_head)
+			c *= smoothstep(0.0, CONFORM_TAPER_M, anchor_tail - arc[i])
+			if i < first or i >= last:
+				c = 0.0
+		var p := points[i]
+		out[i] = Vector3(p.x, p.y + c, p.z)
+	return out
+
+## Access ramp = approach + a ring-parallel merge lane pinned to the ring's Y.
+## Conforms the approach only: the source vertex and the whole merge lane stay
+## exactly where the interchange geometry put them.
+static func _conform_access_ramp(chain: Array[Vector3], terrain: Callable) -> Array[Vector3]:
+	return _conform_chain_y(chain, terrain, false, 1, ACCESS_RAMP_RUNNER_PTS)
+
 ## Which side of the highway ring an access ramp's merge lane is held on:
 ## -1.0 when `source` sits INSIDE the ellipse, +1.0 when it sits outside.
 ## Resolved RELATIVE TO THE SOURCE, not "away from the ring centre": a ramp
@@ -545,24 +670,71 @@ static func _ring_outward(ring: Array[Vector3], idx: int) -> Vector2:
 	var ang := TAU * float(idx) / float(ring.size())
 	return Vector2(cos(ang), sin(ang))
 
-## Perimeter highway: a closed long-arc ellipse around the footprint
-## (hub+pass inside, the P1 alpine domes outside, and keeping > 400 m clear of
-## the P1 sea interior). Y is a gentle two-cycle bank (22 +/- 16) so the ring
-## never drops below the driveable band. Seed-dependent Y phasing only.
-static func _highway_ring_points(rng: RandomNumberGenerator) -> Array[Vector3]:
+## Perimeter highway: a closed long-arc ellipse around the footprint (hub+pass
+## inside, keeping > 400 m clear of the P1 sea interior). Y is a gentle two-cycle
+## bank (22 +/- 16) that is then conformed to the terrain (_conform_chain_y).
+## Seed-dependent Y phasing only.
+##
+## The P1 alpine massifs (DOME_FAMILY, up to the 2000 m clamp) are scenery, "far
+## from the driveable corridor", but the ellipse's south-east quarter runs straight
+## through their skirt: the old ring sat 1.4-1.6 km under the ground there (bug 3e).
+## Between ring vertices RING_DEFLECT_FIRST..LAST the ring is therefore pulled
+## radially inward to the foot of the massif (_ring_radial_scale); everything else
+## stays on the exact ellipse so every ramp built against the ellipse is unchanged.
+static func _highway_ring_points(rng: RandomNumberGenerator, terrain: Callable) -> Array[Vector3]:
 	const CENTER := RING_CENTER
 	const AXIS_X := RING_AXIS_X
 	const AXIS_Z := RING_AXIS_Z
 	const N := 192
 	var phase := rng.randf_range(0.0, TAU)
+	var radial := _ring_radial_scale(N, terrain)
 	var pts: Array[Vector3] = []
 	for i in N:
 		var ang := TAU * float(i) / float(N)
 		pts.append(Vector3(
-			CENTER.x + cos(ang) * AXIS_X,
+			CENTER.x + cos(ang) * AXIS_X * radial[i],
 			22.0 + 16.0 * sin(ang * 2.0 + 1.1 + phase),
-			CENTER.y + sin(ang) * AXIS_Z))
-	return pts
+			CENTER.y + sin(ang) * AXIS_Z * radial[i]))
+	return _conform_chain_y(pts, terrain, true)
+
+## Per-vertex radial scale (<= 1) of the ring ellipse. Inside the deflection window
+## each vertex slides toward the ring centre until the terrain around it drops below
+## RING_ELEV_LIMIT, then the profile is eroded (never pass nearer the massif than the
+## worst neighbour) and blurred so the path stays smooth, and faded back to exactly
+## 1.0 at both ends of the window.
+static func _ring_radial_scale(n: int, terrain: Callable) -> PackedFloat32Array:
+	var raw := PackedFloat32Array()
+	raw.resize(n)
+	raw.fill(1.0)
+	for i in range(RING_DEFLECT_FIRST, RING_DEFLECT_LAST + 1):
+		var ang := TAU * float(i) / float(n)
+		var s := 1.0
+		while s > RING_MIN_SCALE:
+			var pos := Vector2(
+				RING_CENTER.x + cos(ang) * RING_AXIS_X * s,
+				RING_CENTER.y + sin(ang) * RING_AXIS_Z * s)
+			if _terrain_peak(terrain, pos, RING_CLEARANCE_M) <= RING_ELEV_LIMIT:
+				break
+			s -= 0.01
+		raw[i] = s
+	var eroded := PackedFloat32Array()
+	eroded.resize(n)
+	for i in n:
+		var m := 1.0
+		for k in range(-RING_ERODE_N, RING_ERODE_N + 1):
+			m = minf(m, raw[posmod(i + k, n)])
+		eroded[i] = m
+	var out := PackedFloat32Array()
+	out.resize(n)
+	for i in n:
+		var acc := 0.0
+		for k in range(-RING_BLUR_N, RING_BLUR_N + 1):
+			acc += eroded[posmod(i + k, n)]
+		var blurred := acc / float(RING_BLUR_N * 2 + 1)
+		var w := smoothstep(float(RING_DEFLECT_FIRST - 1), float(RING_DEFLECT_FIRST + 3), float(i)) \
+			* (1.0 - smoothstep(float(RING_DEFLECT_LAST - 3), float(RING_DEFLECT_LAST + 1), float(i)))
+		out[i] = 1.0 - w * (1.0 - blurred)
+	return out
 
 ## Open Catmull-Rom chain through `control` with a 12 m arc-length resample and
 ## a linear Y ramp from control[0].y to the final control's y (the endpoint is
@@ -859,22 +1031,26 @@ static func _highway_to_pass_ramp(ring: Array[Vector3], ring_idx: int, pass_star
 	var control: Array[Vector3] = [start, mid, end]
 	return _open_chain(control)
 
-## Touge loop: a serrated closed circuit over an alpine dome. 36 base points on
-## a radius ring with a two-cycle Y profile (115 +/- 85, always driveable and
-## <= 300), folded into hairpin switchbacks by hairpin_fold (slope budget) and
-## closed back onto the first point. With a height_provider the Ys are instead
-## sampled from the terrain (clamped to the touge ceiling).
-static func _touge_loop(center: Vector2, radius: float, fold_seed: int, height_provider: Callable) -> Array[Vector3]:
+## Touge loop: a serrated closed circuit on the highland shelf. 36 base points on
+## a radius ring whose Ys are the terrain's own (smoothed) height clamped to the
+## touge band [20, 300], folded into hairpin switchbacks by hairpin_fold (slope
+## budget) and closed back onto the first point.
+##
+## It used to be centred on the alpine massifs with a free-floating Y profile
+## (115 +/- 85); once the massifs grew to 1100/850 m that left the loops ~1969 m
+## under the summit plateau (bug 3e), and the access ramp would have needed an
+## impossible 1.4 km climb. The loops now sit where the ground is in the touge
+## band (the highland shelf in front of the massifs), so the road IS the ground.
+static func _touge_loop(center: Vector2, radius: float, fold_seed: int, terrain: Callable) -> Array[Vector3]:
 	var pts: Array[Vector3] = []
 	var n := 36
 	for i in n:
 		var ang := TAU * float(i) / float(n)
 		var p := Vector3(
 			center.x + cos(ang) * radius,
-			115.0 + 85.0 * sin(ang * 2.0 + 1.4),
+			0.0,
 			center.y + sin(ang) * radius * 1.15)
-		if height_provider.is_valid():
-			p.y = clampf(float(height_provider.call(Vector2(p.x, p.z))), 20.0, 300.0)
+		p.y = clampf(_terrain_smooth(terrain, Vector2(p.x, p.z)), TOUGE_Y_MIN, TOUGE_Y_MAX)
 		pts.append(p)
 	var folded := Spline.hairpin_fold(pts, 420.0, 0.18, 28.0, fold_seed)
 	folded.append(pts[0])

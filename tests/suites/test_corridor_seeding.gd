@@ -213,12 +213,15 @@ func test_open_connector_has_no_phantom_chord() -> void:
 	var avg: float = CorridorPlanner.chain_length_m(conn) / float(conn.size() - 1)
 	assert_float(gap).is_greater(2.0 * avg)
 
-## (6) All road Ys stay driveable: every non-touge point in [-8, 120], every
-## touge point <= 300 (the washbed the terrain bake recesses into).
+## (6) All road Ys stay driveable: every non-touge point in [-8, 250], every
+## touge point in [-8, 300] (the washbed the terrain bake recesses into). The
+## non-touge ceiling was 120 until bug 3e: roads follow the ground now, so the
+## ring climbs onto the 150-230 m highland shelf where it skirts the alpine
+## massifs instead of sitting 1.5 km under them.
 func test_all_road_y_in_driveable_band() -> void:
 	var defs := _plan(CorridorPlanner.MASTER_SEED)
 	for def in defs:
-		var ceiling := 300.0 if def.tier == RoadDef.Tier.TOUGE else 120.0
+		var ceiling := 300.0 if def.tier == RoadDef.Tier.TOUGE else 250.0
 		for p in def.points:
 			assert_float(p.y).is_greater_equal(-8.0)
 			assert_float(p.y).is_less_equal(ceiling)

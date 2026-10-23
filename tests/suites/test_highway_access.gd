@@ -233,11 +233,13 @@ func test_ramps_are_deterministic() -> void:
 
 ## Sea-safety + driveable heights: non-COASTAL ramp points stay >= 2400 m clear
 ## of the P1 sea interior, and every ramp stays inside its tier's driveable band
-## (ARTERIAL <= 120, TOUGE <= 300, both >= -8).
+## (ARTERIAL <= 250, TOUGE <= 300, both >= -8). The arterial ceiling was 120
+## until bug 3e: the ring follows the ground now, and the lowland south-west of
+## the hub is 120-140 m, so the merge lanes at ring 51..65 sit at ~107-121 m.
 func test_ramps_avoid_sea_interior_and_stay_driveable() -> void:
 	var sea: Vector2 = TerrainBaker.BIOME_SEA_CENTER
 	for ramp in _ramp_defs():
-		var ceiling := 300.0 if ramp.tier == RoadDef.Tier.TOUGE else 120.0
+		var ceiling := 300.0 if ramp.tier == RoadDef.Tier.TOUGE else 250.0
 		for p in ramp.points:
 			var d := Vector2(p.x, p.z).distance_to(sea)
 			assert_float(d).is_greater_equal(2400.0)

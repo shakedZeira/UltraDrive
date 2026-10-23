@@ -195,11 +195,11 @@ Medium (3.5 GB card, ~1.26 GB measured at Medium today).
    (`Terrain3DRegion set_location: Location (24, 20) out of bounds`, 238 errors in 60 frames in a headless probe,
    thousands per second in game) and the alpine and coast areas had no ground collision. Now the ring's far
    locations are virtual (baked + dressed, never sent to Terrain3D) and the vista is the collision-bearing ground there.
-3e. Pre-existing, found 2026-10-23, NOT fixed: some planned roads lie far below the heightfield. Measured
-   (natural height minus road y): `touge-a` / `touge-b` 1969 m, `highway-ring` 1586 m at (6160, 5530),
-   `touge-highway-ramp` 1378 m, `pass-highway-ramp` 116 m; everything inside +-4096 m is <= 63 m. The ring's carve
-   turns these into km-deep 40 m-wide canyons through the alpine domes; the vista reproduces them faithfully.
-   Needs CorridorPlanner elevations (or dome placement) to agree with the field.
+3e. ~~Some planned roads lie far below the heightfield~~ FIXED 2026-10-23 (section 9). Was (natural height minus
+   road y): `touge-a` / `touge-b` 1969 m, `highway-ring` 1586 m at (6160, 5530), `touge-highway-ramp` 1378 m,
+   `pass-highway-ramp` 116 m; the carve turned these into km-deep 40 m-wide canyons through the alpine massifs, in
+   the live ring and the vista alike. Root cause: the planner's Ys were free-floating design values, never tied to the
+   field, and the P1 massifs (1100 / 850 m) sat on top of the touge loops and across the ring's south-east quarter.
 4. Roads/collision are all live (section 1.4); extending the network multiplies load-time and per-frame cost.
 5. Traffic: unpooled spawn/free, single car model, no lane model, spawn ring is a square around the player including
    in front of the camera, stuck-rescue can teleport a car into view.
@@ -410,4 +410,45 @@ trees standing on the ground, no visible seam), `alpine2_f400.png`, `coast_f400.
 - `FallbackGround` (a y = 0 slab under the world) is older than this fix and still exists: a car that is
   *spawned* (not driven) over sea-level far terrain releases its ground latch on it, ends up 1 m under the vista
   surface and stays there (the heightfield is one-sided). Driving in from the ring never does this.
-- 3e (roads far below the heightfield) is not touched; neither is float precision beyond ~8 km.
+- 3e (roads far below the heightfield) was still open here; fixed afterwards, see section 9. Float precision beyond ~8 km is untouched.
+
+## 9. Bug 3e fixed (2026-10-23): roads agree with the heightfield
+
+**Reproduced first** (`CorridorPlanner.plan` vs `TerrainBaker.natural_height_at`, max ground-minus-road per road, m):
+touge-a 1969, touge-b 1969, highway-ring 1586 (49 of 192 vertices > 65 m), touge-highway-ramp 1378,
+pass-highway-ramp 116; the rest <= 63. Along the ring the ground is 767-1593 m between vertices 18 and 42 (the ring's
+south-east quarter runs through the skirt of the two alpine massifs, `DOME_FAMILY[0]/[1]`, amp 1100 / 850, clamp 2000)
+while the ring sat at y 6-38.
+
+**Root cause.** Not units, not the sampler: the planner never read the field. `world_driver` and `event_session` call
+`CorridorPlanner.plan(seed, Callable(), ...)`, and an empty provider meant "flat-Y fallback": the ring got a 22 +/- 16 m
+bank, the touge loops 115 +/- 85 m, centred on the *massif centres* (`DOME_FAMILY[0]/[1]`). That was fine while the P1
+domes were a few hundred metres; they grew to 1100 / 850 m (P1 commit fbfb648, "driveable corridor bases preserved" only
+covered the 2 / 18 / 35 m biome bases) and nobody re-checked the corridors. Even with a provider the old touge code
+clamped Y to 300, and a ramp from a 22 m ring to a 1400 m summit loop could never be drivable.
+
+**Fix** (`scripts/world/corridor_planner.gd`, no change to the terrain, vista, domes or any carve rule):
+- `plan()` defaults the height provider to `canonical_height_provider()` (TerrainBaker's natural field, the same one the
+  live ring and vista bake). Callers need no change; a caller-supplied provider is used as before.
+- Touge loops moved to the highland shelf in front of the massifs (`TOUGE_A_CENTER` (7100, 1900) r600, `TOUGE_B_CENTER`
+  (5500, 2100) r450; ground 50-190 m, inside the touge band) with Ys sampled from the smoothed field.
+- The ring is deflected inward between vertices 6..50 to the foot of the massif (`_ring_radial_scale`: slide toward the
+  centre until the ground within 200 m is < 240 m, erode + blur, fade to the exact ellipse at both window ends). Every
+  other vertex is bit-identical, so the ramps anchored at ring 65/96/110/160/174 keep their geometry; the touge
+  on-ramp now lands on ring vertex 4 (was 24).
+- `_conform_chain_y`: wherever a road is more than 10 m (cut) / 40 m (fill) off the smoothed ground its Y is pulled
+  back, blended over 450 m, faded to 0 at anchored ends, merge lanes and junction vertices untouched. Applied to the
+  ring, the touge-highway / pass-highway / highway-pass ramps. Roads already inside the band are unchanged.
+
+**After** (same measurement, raw natural height, cut / fill in m): highway-ring 48 / 38 (worst: the lowland-edge descent
+at ring 60, the rest <= 30), touge-a 5 / 18, touge-b 10 / 6, touge-highway-ramp 1 / 38, pass-highway-ramp 56 / 33
+(its start is the pass loop's own 63 m cut, pre-existing), highway-pass-ramp 56 / 15. Max grade over 100 m: ring 17 %,
+touge ramp 12.5 %. Regression: `tests/suites/test_road_terrain_agreement.gd` (tolerance cut 70 / fill 45).
+
+**Side effects to know about.** The ring now climbs 30 -> ~190 m over the highland shelf between vertices 6 and 30
+(was a flat 6-38 m bank), so `test_all_road_y_in_driveable_band` allows 250 m for non-touge roads. The two touge loops no
+longer sit on the massifs, so the "touge" is a hilltop circuit, not a summit run; the massifs are scenery again.
+
+**Remaining.** The ring's flank between vertices 16 and 22 is a 20-30 m side-hill cut that renders as a rock-textured
+scar; the ring's east edge climb (vertex 6-7) is ~17 %; touge grades reach 21 % (terrain slope). `hub-coast` keeps its
+legacy end-Y (reads only a caller-supplied provider). No road yet climbs the massifs themselves.
