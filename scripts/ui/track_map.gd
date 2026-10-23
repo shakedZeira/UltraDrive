@@ -64,6 +64,12 @@ const PIN_FILL := Color(0.902, 0.698, 0.235)
 const PIN_SELECTED_FILL := Color(1.0, 0.83, 0.38)
 const PIN_HOVER_FILL := Color(1.0, 0.94, 0.68)
 const PIN_RADIUS: float = 6.0
+## Teardrop badge radii (px): the world overview is crowded, so its pins are smaller.
+const PIN_BADGE: float = 12.0
+const PIN_BADGE_WORLD: float = 8.5
+## Exponential smoothing rate (1/s) the drawn view uses to chase the zoom/pan target.
+const VIEW_SMOOTHING: float = 14.0
+const LAND_SHADER_PATH := "res://shaders/ui/map_land.gdshader"
 const PIN_SELECTED_RADIUS: float = 9.0
 const LABEL_COLOR := Color(0.95, 0.96, 0.98)
 
@@ -85,6 +91,7 @@ var selected_pin_id: String = "":
 		if value == selected_pin_id:
 			return
 		selected_pin_id = value
+		focus_on_pin(value)
 		queue_redraw()
 
 var _hovered_pin_id: String = ""
@@ -93,6 +100,15 @@ var _hovered_pin_id: String = ""
 var _base_fit: Dictionary = {}
 var _fit: Dictionary = {}
 var _last_size := Vector2(-1.0, -1.0)
+## DISPLAYED view (chases `_fit`): origin/scale animate so zoom and pan glide.
+var _view_origin := Vector2.ZERO
+var _view_scale := 0.0
+## The fit the current draw pass uses (set at the top of _draw()).
+var _df: Dictionary = {}
+var _ocean_layer: TextureRect = null
+var _land_layer: ColorRect = null
+var _land_mat: ShaderMaterial = null
+var _vignette_tex: Texture2D = null
 var _world_texture: Texture2D = null
 ## View state. `_zoom` is the scalar (>= MIN_ZOOM); `_pan` is a screen-space
 ## offset added to the centred-zoom fit. `_recompute_fit()` folds any pan clamp
@@ -106,6 +122,7 @@ var _press_button: int = MOUSE_BUTTON_NONE
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	_build_layers()
 	_update_projection()
 
 func _notification(what: int) -> void:
@@ -128,6 +145,8 @@ func _update_projection() -> void:
 	_last_size = size
 	_base_fit = WorldMapProjection.build_fit(region, size, _fallback_pin())
 	reset_view()
+	# A region switch or resize re-frames the map: show it at once, no glide.
+	snap_view()
 
 ## Rebuilds `_fit` from `_base_fit`, `_zoom` and `_pan`, then folds the pan clamp
 ## back into `_pan` so the pair stays an exact (unclamped-equivalent) view.
@@ -261,7 +280,9 @@ func hit_test(screen_pos: Vector2) -> String:
 	var best_id := ""
 	var best_d := PIN_HIT_RADIUS_PX
 	for pin_id: String in visible_pin_ids():
-		var d := pin_screen_position(pin_id).distance_to(screen_pos)
+		var tip := pin_screen_position(pin_id)
+		# The badge floats above the tip, so clicking either one picks the pin.
+		var d := minf(tip.distance_to(screen_pos), pin_badge_center(tip).distance_to(screen_pos))
 		if d <= best_d:
 			best_d = d
 			best_id = pin_id
@@ -370,49 +391,182 @@ func _handle_mouse_motion(motion: InputEventMouseMotion) -> void:
 		queue_redraw()
 		pin_hovered.emit(hovered)
 
+## Pin presentation: the circuit type picks the glyph (chequered flag, oval,
+## dirt zigzag, stopwatch) and the layout's class picks the colour (D cyan ...
+## S violet), so a pin tells you what it is without its label.
+func pin_style(pin_id: String) -> Dictionary:
+	var layout := TrackRegistry.get_track(TrackRegistry.track_for_pin(pin_id))
+	return {
+		"glyph": MapStyle.circuit_glyph(str(layout.get("circuit_type", ""))),
+		"color": MapStyle.class_color(str(layout.get("difficulty", ""))),
+	}
+
+## Badge radius (px) of a pin at the current zoom: smaller on the crowded world
+## overview, growing a little as the view zooms in.
+func pin_badge_radius() -> float:
+	var base := PIN_BADGE_WORLD if region == TrackRegistry.REGION_WORLD else PIN_BADGE
+	return base * (1.0 + 0.10 * minf(_zoom - 1.0, 4.0))
+
+## Where the badge sits for a pin whose TIP is at `tip` (the badge floats above it).
+func pin_badge_center(tip: Vector2) -> Vector2:
+	return tip + Vector2(0.0, -pin_badge_radius() * 1.9)
+
+## Gently bring a pin into view. With `zoom_level` > 0 the view zooms there first.
+## At the plain fit nothing moves (the whole region is already on screen).
+func focus_on_pin(pin_id: String, zoom_level: float = -1.0) -> void:
+	_ensure_projection()
+	if _fit.is_empty() or not TrackRegistry.has_pin(pin_id):
+		return
+	if zoom_level > 0.0:
+		set_zoom(zoom_level, size * 0.5)
+	if _zoom <= MIN_ZOOM + 0.001:
+		return
+	pan_by(size * 0.5 - pin_screen_position(pin_id))
+
+## Jump the displayed view to the target (region switch, tests, captures).
+func snap_view() -> void:
+	if _fit.is_empty():
+		return
+	_view_origin = _fit["origin"]
+	_view_scale = float(_fit["scale"])
+	queue_redraw()
+
+## The fit the DRAW pass uses: the displayed (animated) origin/scale on top of the
+## target fit's world bounds. Hit-tests and every public read stay on `_fit`.
+func _view_fit() -> Dictionary:
+	if _fit.is_empty() or _view_scale <= 0.0:
+		return _fit
+	var out := _fit.duplicate()
+	out["origin"] = _view_origin
+	out["scale"] = _view_scale
+	return out
+
+func _process(delta: float) -> void:
+	if not is_visible_in_tree() or _fit.is_empty():
+		return
+	var target_origin: Vector2 = _fit["origin"]
+	var target_scale := float(_fit["scale"])
+	if _view_scale <= 0.0:
+		snap_view()
+	var k := 1.0 - exp(-VIEW_SMOOTHING * maxf(delta, 0.0))
+	_view_origin = _view_origin.lerp(target_origin, k)
+	_view_scale = lerpf(_view_scale, target_scale, k)
+	if _view_origin.distance_to(target_origin) < 0.05 and absf(_view_scale - target_scale) < 0.00001 * maxf(target_scale, 1.0):
+		_view_origin = target_origin
+		_view_scale = target_scale
+	# Selected-pin pulse is time driven, so it redraws every frame (cheap: the
+	# land is a shader layer, the rest is ~40 pins).
+	queue_redraw()
+
 func _draw() -> void:
 	if _last_size != size:
 		_update_projection()
-	draw_rect(Rect2(Vector2.ZERO, size), OCEAN_COLOR)
 	if _fit.is_empty():
+		draw_rect(Rect2(Vector2.ZERO, size), OCEAN_COLOR)
 		return
-	if is_vector_backdrop():
+	_df = _view_fit()
+	var vector_tier := is_vector_backdrop()
+	_sync_layers(not vector_tier)
+	if vector_tier:
 		_draw_levant_backdrop()
-	else:
-		_draw_world_backdrop()
 	_draw_graticule()
+	_draw_captions()
+	_draw_vignette()
 	var labelled_ids := labelled_pin_ids()
 	var labelled: Dictionary = {}
 	for id: String in labelled_ids:
 		labelled[id] = true
-	for pin_id: String in visible_pin_ids():
-		_draw_pin(pin_id, labelled.has(pin_id))
+	# Back-to-front by screen y so a lower pin overlaps the one behind it; the
+	# selected and hovered pins always draw last (on top).
+	var order: Array[String] = visible_pin_ids()
+	order.sort_custom(func(a: String, b: String) -> bool:
+		return _pin_draw_pos(a).y < _pin_draw_pos(b).y)
+	for pin_id: String in order:
+		if pin_id != selected_pin_id and pin_id != _hovered_pin_id:
+			_draw_pin(pin_id, labelled.has(pin_id))
+	if _hovered_pin_id != "" and _hovered_pin_id != selected_pin_id:
+		_draw_pin(_hovered_pin_id, true)
+	if selected_pin_id != "" and TrackRegistry.has_pin(selected_pin_id):
+		_draw_pin(selected_pin_id, true)
+	_draw_legend()
 
-func _draw_world_backdrop() -> void:
-	var texture := _ensure_world_texture()
+func _pin_draw_pos(pin_id: String) -> Vector2:
+	return WorldMapProjection.project_pin(TrackRegistry.get_pin(pin_id), _df)
+
+## The ocean and (world tier only) land layers are children that draw BEHIND this
+## control, so they must be positioned before the pins and captions draw on top.
+func _sync_layers(world_tier: bool) -> void:
+	if _ocean_layer != null:
+		_ocean_layer.visible = true
+	if _land_layer == null:
+		return
+	var texture := _ensure_world_texture() if world_tier else null
+	_land_layer.visible = texture != null
 	if texture == null:
 		return
-	# Draw the raster CROPPED to the region framing box (see
-	# world_backdrop_draw_rects), not whole: the dest rect IS that box in screen
-	# space, so stretching the entire globe into it left every non-WORLD tier
-	# showing an unzoomed, aspect-squashed world while the pins/graticule
-	# projected at region-relative positions -- the continent never appeared to
-	# zoom and every pin sat off its landmass. With the crop, backdrop, pins,
-	# graticule and the vector Levant tier all follow the same affine
-	# lon/lat -> screen map, at every zoom/pan (the fit transforms them together).
 	var rects := world_backdrop_draw_rects(texture.get_size())
-	var dest: Rect2 = rects["dest"]
+	var dest := _content_rect_of(_df)
 	var src: Rect2 = rects["src"]
-	# NOTE the arg order: (texture, dest, src, modulate, tile, transpose) -- the
-	# region variant puts modulate BEFORE tile, unlike draw_texture_rect().
-	draw_texture_rect_region(texture, dest, src, WORLD_TINT, false)
+	var tex_size := texture.get_size()
+	_land_layer.position = dest.position
+	_land_layer.size = dest.size
+	var bounds := TrackRegistry.region_bounds(region)
+	var uv := Vector4(src.position.x / tex_size.x, src.position.y / tex_size.y,
+		src.size.x / tex_size.x, src.size.y / tex_size.y)
+	_land_mat.set_shader_parameter("land_tex", texture)
+	_land_mat.set_shader_parameter("src_uv", uv)
+	_land_mat.set_shader_parameter("px_uv", Vector2(uv.z / maxf(dest.size.x, 1.0), uv.w / maxf(dest.size.y, 1.0)))
+	_land_mat.set_shader_parameter("lat_top", float(bounds.get("max_lat", 90.0)))
+	_land_mat.set_shader_parameter("lat_bottom", float(bounds.get("min_lat", -90.0)))
+	_land_mat.set_shader_parameter("lon_left", float(bounds.get("min_lon", -180.0)))
+	_land_mat.set_shader_parameter("lon_right", float(bounds.get("max_lon", 180.0)))
 
-## The exact rects _draw_world_backdrop() feeds to draw_texture_rect_region():
+func _build_layers() -> void:
+	if _ocean_layer != null:
+		return
+	clip_contents = true
+	var gradient := Gradient.new()
+	gradient.set_color(0, Color(0.075, 0.215, 0.330))
+	gradient.set_color(1, OCEAN_COLOR)
+	var tex := GradientTexture2D.new()
+	tex.gradient = gradient
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.45)
+	tex.fill_to = Vector2(1.05, 1.05)
+	tex.width = 256
+	tex.height = 256
+	_ocean_layer = TextureRect.new()
+	_ocean_layer.name = "OceanLayer"
+	_ocean_layer.texture = tex
+	_ocean_layer.stretch_mode = TextureRect.STRETCH_SCALE
+	_ocean_layer.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_ocean_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ocean_layer.show_behind_parent = true
+	_ocean_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(_ocean_layer, false, Node.INTERNAL_MODE_FRONT)
+	_land_layer = ColorRect.new()
+	_land_layer.name = "LandLayer"
+	_land_layer.color = Color.WHITE
+	_land_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_land_layer.show_behind_parent = true
+	_land_layer.visible = false
+	_land_mat = ShaderMaterial.new()
+	_land_mat.shader = load(LAND_SHADER_PATH) as Shader
+	_land_layer.material = _land_mat
+	add_child(_land_layer, false, Node.INTERNAL_MODE_FRONT)
+
+func _draw_vignette() -> void:
+	if _vignette_tex == null:
+		_vignette_tex = ImageTexture.create_from_image(MapStyle.make_vignette_image(128, 0.50, 0.66))
+	draw_texture_rect(_vignette_tex, Rect2(Vector2.ZERO, size), false)
+
+## The exact rects _draw_world_backdrop() used to feed to draw_texture_rect_region():
 ##   "dest" - the fitted content rect (the region framing box in screen space),
 ##            over which the cropped raster is stretched;
 ##   "src"  - that same box as a texture-pixel crop of the world raster.
 ## Split out as a pure read of `region` + `_fit` so tests can lock the crop
-## without a draw pass (gdUnit headless never runs _draw()).
+## without a draw pass (gdUnit headless never runs _draw()). The land layer now
+## consumes the same two rects.
 func world_backdrop_draw_rects(texture_size: Vector2) -> Dictionary:
 	_ensure_projection()
 	var uv := WorldMapProjection.uv_rect_of_bounds(TrackRegistry.region_bounds(region))
@@ -421,18 +575,44 @@ func world_backdrop_draw_rects(texture_size: Vector2) -> Dictionary:
 		"src": Rect2(uv.position * texture_size, uv.size * texture_size),
 	}
 
+## The hand-authored Levant tier: shelf glow, a land fill graded from green in the
+## north to desert tan in the south, a pale coast line and the two inland seas.
 func _draw_levant_backdrop() -> void:
-	var land := _screen_ring(LevantOutline.land_ring())
-	if land.size() >= 3:
-		draw_colored_polygon(land, LAND_COLOR)
+	var land_ll := LevantOutline.land_ring()
+	var land := _screen_ring(land_ll)
+	if land.size() < 3:
+		return
+	var closed := land.duplicate()
+	closed.append(land[0])
+	for glow in [[34.0, 0.07], [22.0, 0.09], [12.0, 0.12], [5.0, 0.16]]:
+		draw_polyline(closed, Color(0.22, 0.60, 0.68, float(glow[1])), float(glow[0]), true)
+	var colors := PackedColorArray()
+	for vertex: Vector2 in land_ll:
+		colors.append(_levant_land_color(vertex.y, vertex.x))
+	draw_polygon(land, colors)
+	draw_polyline(closed, Color(0.93, 0.95, 0.86, 0.75), 1.8, true)
 	for water: PackedVector2Array in LevantOutline.water_rings():
 		var poly := _screen_ring(water)
 		if poly.size() >= 3:
-			draw_colored_polygon(poly, WATER_COLOR)
+			draw_colored_polygon(poly, Color(0.14, 0.40, 0.55))
+			var edge := poly.duplicate()
+			edge.append(poly[0])
+			draw_polyline(edge, Color(0.80, 0.92, 0.90, 0.6), 1.4, true)
+
+## North green, centre olive, south desert, with the Jordan rift a touch drier.
+static func _levant_land_color(lat: float, lon: float) -> Color:
+	var green := Color(0.33, 0.50, 0.27)
+	var olive := Color(0.52, 0.55, 0.31)
+	var tan := Color(0.78, 0.68, 0.47)
+	var c := tan.lerp(olive, clampf((lat - 30.4) / 1.4, 0.0, 1.0))
+	c = c.lerp(green, clampf((lat - 31.9) / 1.2, 0.0, 1.0))
+	if lon > 35.3:
+		c = c.lerp(tan, 0.18)
+	return c
 
 func _draw_graticule() -> void:
 	var bounds := TrackRegistry.region_bounds(region)
-	if bounds.is_empty() or _fit.is_empty():
+	if bounds.is_empty() or _df.is_empty():
 		return
 	var min_lon := float(bounds.get("min_lon", -180.0))
 	var min_lat := float(bounds.get("min_lat", -90.0))
@@ -441,58 +621,142 @@ func _draw_graticule() -> void:
 	var step := float(TrackRegistry.region_meta(region).get("graticule_step", 10.0))
 	var lon := ceilf(min_lon / step) * step
 	while lon <= max_lon + 0.0001:
-		var a := WorldMapProjection.lonlat_to_screen(max_lat, lon, _fit)
-		var b := WorldMapProjection.lonlat_to_screen(min_lat, lon, _fit)
+		var a := WorldMapProjection.lonlat_to_screen(max_lat, lon, _df)
+		var b := WorldMapProjection.lonlat_to_screen(min_lat, lon, _df)
 		draw_line(a, b, GRATICULE_COLOR, 1.0)
 		lon += step
 	var lat := ceilf(min_lat / step) * step
 	while lat <= max_lat + 0.0001:
-		var a := WorldMapProjection.lonlat_to_screen(lat, min_lon, _fit)
-		var b := WorldMapProjection.lonlat_to_screen(lat, max_lon, _fit)
+		var a := WorldMapProjection.lonlat_to_screen(lat, min_lon, _df)
+		var b := WorldMapProjection.lonlat_to_screen(lat, max_lon, _df)
 		draw_line(a, b, GRATICULE_COLOR, 1.0)
 		lat += step
 
+## Region captions: continent names on the world overview, editorial sea/desert
+## names on the Israel tier -- big, letter-spaced, low contrast so they read as part
+## of the map and never fight the pins.
+func region_captions() -> Array:
+	var out: Array = []
+	if is_vector_backdrop():
+		for caption: Dictionary in LevantOutline.captions():
+			out.append({"text": str(caption["text"]), "lat": float(caption["lat"]), "lon": float(caption["lon"]), "size": 16})
+		return out
+	if region != TrackRegistry.REGION_WORLD:
+		return out
+	for region_id: Variant in TrackRegistry.get_region_ids():
+		var id := str(region_id)
+		if id == TrackRegistry.REGION_WORLD or id == TrackRegistry.REGION_ISRAEL:
+			continue
+		var b := TrackRegistry.region_bounds(id)
+		out.append({
+			"text": TrackRegistry.region_label(id),
+			"lat": (float(b.get("min_lat", 0.0)) + float(b.get("max_lat", 0.0))) * 0.5,
+			"lon": (float(b.get("min_lon", 0.0)) + float(b.get("max_lon", 0.0))) * 0.5,
+			"size": 20,
+		})
+	return out
+
+func _draw_captions() -> void:
+	var font := get_theme_default_font()
+	if font == null:
+		return
+	for caption: Dictionary in region_captions():
+		var at := WorldMapProjection.lonlat_to_screen(float(caption["lat"]), float(caption["lon"]), _df)
+		if not Rect2(Vector2(-100.0, -40.0), size + Vector2(200.0, 80.0)).has_point(at):
+			continue
+		MapStyle.draw_spaced_label(self, font, str(caption["text"]), at, int(caption["size"]),
+			Color(1.0, 1.0, 1.0, 0.55), 6.0, Color(0.02, 0.06, 0.12, 0.5))
+
 func _draw_pin(pin_id: String, labelled: bool) -> void:
-	var screen := pin_screen_position(pin_id)
+	var tip := _pin_draw_pos(pin_id)
 	var is_selected := pin_id == selected_pin_id
 	var is_hovered := pin_id == _hovered_pin_id
-	var radius := PIN_SELECTED_RADIUS if is_selected else PIN_RADIUS
-	var fill := PIN_FILL
+	var style := pin_style(pin_id)
+	var r := pin_badge_radius()
+	var ring := MapStyle.PIN_RING
 	if is_selected:
-		fill = PIN_SELECTED_FILL
+		r += 4.0
+		ring = Color(1.0, 0.92, 0.55)
+		# Pulsing ground ring at the pin tip, mirroring the minimap marker idiom.
+		var pulse := 0.5 + 0.5 * sin(float(Time.get_ticks_msec()) * 0.005)
+		draw_circle(tip, r * 1.0 + pulse * 6.0, Color(1.0, 0.90, 0.45, 0.14 + 0.10 * (1.0 - pulse)))
+		draw_arc(tip, r * 1.0 + pulse * 6.0, 0.0, TAU, 40, Color(1.0, 0.92, 0.55, 0.7 * (1.0 - pulse) + 0.2), 2.0, true)
 	elif is_hovered:
-		fill = PIN_HOVER_FILL
-	if is_selected:
-		# Slow halo pulse on the selected pin, mirroring the minimap marker idiom.
-		var pulse := 0.5 + 0.5 * sin(float(Time.get_ticks_msec()) * 0.006)
-		var halo := Color(PIN_FILL.r, PIN_FILL.g, PIN_FILL.b, 0.10 + 0.08 * pulse)
-		draw_circle(screen, radius + 6.0 + pulse * 4.0, halo)
-	draw_circle(screen, radius + 2.0, PIN_OUTLINE)
-	draw_circle(screen, radius, fill)
-	draw_circle(screen, maxf(radius - 3.0, 1.5), Color(1.0, 1.0, 1.0, 0.85))
-	if labelled:
-		var label := str(TrackRegistry.get_pin(pin_id).get("label", pin_id))
-		draw_string(
-			get_theme_default_font(),
-			screen + Vector2(radius + 6.0, -radius - 4.0),
-			label,
-			HORIZONTAL_ALIGNMENT_LEFT,
-			-1.0,
-			13,
-			LABEL_COLOR)
+		r += 2.0
+	var center := MapStyle.draw_teardrop(self, tip, r, style["color"], str(style["glyph"]), Color.WHITE, ring)
+	if not labelled:
+		return
+	var font := get_theme_default_font()
+	if font == null:
+		return
+	var label := str(TrackRegistry.get_pin(pin_id).get("label", pin_id))
+	if is_selected or is_hovered:
+		MapStyle.draw_pill_label(self, font, label.to_upper() if is_selected else label,
+			center + Vector2(r + 8.0, 0.0), 13)
+	else:
+		var at := center + Vector2(r + 7.0, 5.0)
+		draw_string_outline(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, 4, Color(0.02, 0.05, 0.10, 0.85))
+		draw_string(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, LABEL_COLOR)
+
+## Legend: the four circuit types (glyph) and the class ladder (colour), bottom-left.
+func legend_entries() -> Array:
+	var out: Array = []
+	for circuit_type: String in ["CIRCUIT", "OVAL", "DIRT RX", "ENDURANCE"]:
+		out.append({"glyph": MapStyle.circuit_glyph(circuit_type), "label": circuit_type.capitalize() if circuit_type != "DIRT RX" else "Rallycross"})
+	return out
+
+func legend_classes() -> Array[String]:
+	var seen: Array[String] = []
+	for track_id: Variant in TrackRegistry.tracks:
+		var klass := str(TrackRegistry.get_track(str(track_id)).get("difficulty", ""))
+		if klass != "" and not seen.has(klass):
+			seen.append(klass)
+	seen.sort()
+	seen.reverse()
+	return seen
+
+func _draw_legend() -> void:
+	var font := get_theme_default_font()
+	if font == null:
+		return
+	var entries := legend_entries()
+	var classes := legend_classes()
+	var row_h := 24.0
+	var panel := Rect2(Vector2(14.0, size.y - (float(entries.size()) * row_h + 56.0) - 14.0),
+		Vector2(150.0, float(entries.size()) * row_h + 56.0))
+	var box := StyleBoxFlat.new()
+	box.bg_color = MapStyle.PANEL_DARK
+	box.border_color = MapStyle.PANEL_EDGE
+	box.set_border_width_all(1)
+	box.set_corner_radius_all(10)
+	draw_style_box(box, panel)
+	var y := panel.position.y + 18.0
+	for entry in entries:
+		MapStyle.draw_badge(self, Vector2(panel.position.x + 22.0, y), 8.0, MapStyle.ACCENT.darkened(0.15), str(entry["glyph"]))
+		draw_string(font, Vector2(panel.position.x + 40.0, y + 5.0), str(entry["label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, MapStyle.TEXT_LIGHT)
+		y += row_h
+	draw_string(font, Vector2(panel.position.x + 14.0, y + 10.0), "CLASS", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, MapStyle.TEXT_DIM)
+	var x := panel.position.x + 58.0
+	for klass in classes:
+		draw_circle(Vector2(x, y + 6.0), 8.0, MapStyle.class_color(klass))
+		draw_string(font, Vector2(x - 4.0, y + 10.5), klass, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.05, 0.07, 0.10))
+		x += 21.0
 
 func _content_rect() -> Rect2:
+	return _content_rect_of(_fit)
+
+func _content_rect_of(fit: Dictionary) -> Rect2:
 	# Mirror the map_roads.gd indexing idiom; compute_fit() always sets these.
-	var origin: Vector2 = _fit["origin"]
-	var world_min: Vector2 = _fit["world_min"]
-	var world_max: Vector2 = _fit["world_max"]
-	var scale: float = _fit["scale"]
+	var origin: Vector2 = fit["origin"]
+	var world_min: Vector2 = fit["world_min"]
+	var world_max: Vector2 = fit["world_max"]
+	var scale: float = fit["scale"]
 	return Rect2(origin, (world_max - world_min) * scale)
 
 func _screen_ring(lonlat: PackedVector2Array) -> PackedVector2Array:
 	var out := PackedVector2Array()
 	for vertex: Vector2 in lonlat:
-		out.append(WorldMapProjection.lonlat_to_screen(vertex.y, vertex.x, _fit))
+		out.append(WorldMapProjection.lonlat_to_screen(vertex.y, vertex.x, _df))
 	return out
 
 ## The world SVG as a texture. Primary path is the normal imported texture (the

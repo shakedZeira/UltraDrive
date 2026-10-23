@@ -528,3 +528,21 @@ never assign a `Variant`-returning call to an inferred `:=`; scene suites need
 - Should WORLD-view pins be visually distinguished from Israel pins (e.g. a "home
   region" ring)? Cheap, and a nice-to-have.
 - Pan/zoom beyond region framing stays Phase 5.
+
+---
+
+## Addendum 2026-10-23: Forza Horizon-style restyle of all three 2D maps
+
+Shared pieces: `scripts/ui/map_style.gd` (road hierarchy by `RoadDef.Tier`, event family colour+glyph, class colours,
+badge/teardrop/route-ribbon/legend drawing), `scripts/ui/map_terrain.gd` + `shaders/ui/map_terrain.gdshader` (one height
+texture baked once on a worker thread, shaded per pixel; replaces the 64x64 block grid, which stays as headless fallback),
+`shaders/ui/map_land.gdshader` (race-menu land by latitude band + shelf glow).
+- Pause map (`world_map.gd`): smooth relief, class-ranked roads merged into continuous runs, glyph badges, region captions
+  from landmark stages, legend, compass, vignette, GPS ribbon with destination flag, zoom (wheel, +/-/0, shoulders), drag pan,
+  smooth glide, `focus_on_world/player/poi`, hover card, right-click sets GPS. Click-to-fast-travel now fires on release
+  (a drag is a pan). `MapOverlay` mouse_filter is IGNORE so these events reach the map.
+- Minimap: relief disc, tiered roads, bezel + N tag, glyph collectibles, GPS ribbon. Still north-up.
+- Race menu (`track_map.gd`): ocean gradient, latitude-tinted land, Levant vector tier graded north-green to south-tan,
+  teardrop pins (glyph = circuit type, colour = class), pill label for the selected/hovered pin, captions, legend,
+  vignette, animated zoom/pan, selection pans a zoomed view to the pin. Hit-test also accepts the badge.
+Capture tool: `tools/map_ui_capture.tscn -- --tag=x --what=menu|world --out=<dir>` (windowed Godot).

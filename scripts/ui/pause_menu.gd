@@ -55,6 +55,8 @@ func _on_quit_to_menu_pressed() -> void:
 	SceneTransition.flash_to_scene("res://scenes/ui/main_menu.tscn")
 
 func _on_map_pressed() -> void:
+	world_map.reset_view()
+	world_map.snap_view()
 	world_map.refresh()
 	map_overlay.show()
 	panel.hide()

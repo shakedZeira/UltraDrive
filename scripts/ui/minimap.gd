@@ -52,6 +52,11 @@ const RIVAL_FILL := MapRoads.RIVAL_FILL
 const RIVAL_OUTLINE := MapRoads.RIVAL_OUTLINE
 const RIVAL_SIZE := MapRoads.RIVAL_SIZE
 
+## Road width on the HUD disc relative to the pause map widths.
+const MINIMAP_ROAD_SCALE := 0.72
+## Relief is dimmed and slightly desaturated so the white road net owns the eye.
+const RELIEF_DIM := 0.80
+const RELIEF_SATURATION := 0.85
 const _CULL_OVERLAP := 1.1
 const _ROUTE_CACHE_CELL := 25.0
 ## Cell size (m) of the per-chain spatial index used to WINDOW a chain before the
@@ -64,6 +69,18 @@ var _player_car: VehiclePhysics
 var _road_source: Node = null
 var _road_signature := ""
 var _scene_roads: Array = []  # cached chains for the current signature
+## RoadDef.Tier per cached chain (index-parallel with _scene_roads): the class that
+## picks each road width and colour (highway > main road > mountain > dirt).
+var _scene_tiers: Array = []
+## Road pieces gathered by one draw pass: each {"pts", "tier", "visited"}. They are
+## drawn together (all casings, then all cores) so crossings stay clean.
+var _frame_runs: Array = []
+## Shared shader relief under the roads (see MapTerrain). Built in code; it draws
+## behind this control so the roads, pins and marker land on top of it.
+var _terrain_layer: ColorRect = null
+var _terrain_mat: ShaderMaterial = null
+var _relief_checked := false
+var _relief_rect := Rect2()
 ## One PointGridIndex per `_scene_roads` chain (XZ vertex grid), rebuilt beside
 ## `_scene_roads`. Used to cull the per-redraw transform to the visible span.
 var _chain_indexes: Array = []
@@ -96,7 +113,9 @@ func _ready() -> void:
 	_road_source = MapRoads.resolve_road_source(self) as Node
 	_road_signature = MapRoads.signature(_road_source)
 	_scene_roads = MapRoads.get_roads(_road_source)
+	_scene_tiers = MapRoads.get_road_tiers(_road_source)
 	_rebuild_chain_indexes()
+	_build_terrain_layer()
 	_discovery_source = MapRoads.resolve_discovery_source(self) as WorldDiscovery
 	_collect_collectibles()
 	_rivals = MapRoads.live_rivals(rival_source)
@@ -123,7 +142,12 @@ func _draw() -> void:
 		return
 
 	var center := size / 2.0
-	draw_circle(center, minimap_radius, Color(0.0, 0.0, 0.0, 0.3))
+	var relief_on := _sync_terrain_layer(center)
+	# Soft drop shadow so the disc lifts off the 3D scene, and a dark base for the
+	# roads-only case (no shader relief: a circuit scene, or the bake not done yet).
+	draw_circle(center + Vector2(0.0, 3.0), minimap_radius + 3.0, Color(0.0, 0.0, 0.0, 0.35))
+	if not relief_on:
+		draw_circle(center, minimap_radius, Color(0.03, 0.06, 0.11, 0.62))
 	_draw_roads(center)
 	_draw_route(center)
 	_draw_collectibles(center)
@@ -131,8 +155,67 @@ func _draw() -> void:
 
 	# Player chevron: the same marker the pause map uses, so the player reads as
 	# one unmistakable object on the HUD minimap. Pointing the way the car faces.
+	var accent := MapRoads.MARKER_ACCENT
+	draw_circle(center, MARKER_SIZE * 1.9, Color(accent.r, accent.g, accent.b, 0.13))
 	MapRoads.draw_player_marker(self, center, _marker_angle, _pulse_time, MARKER_SIZE)
-	draw_arc(center, minimap_radius, 0.0, TAU, 64, ring_color, 1.5)
+	_draw_bezel(center)
+
+## FH-style bezel: a dark ring, a hairline light edge and a fixed "N" tag at the
+## top (the map is north-up, so north never moves).
+func _draw_bezel(center: Vector2) -> void:
+	draw_arc(center, minimap_radius - 1.5, 0.0, TAU, 72, Color(0.02, 0.04, 0.08, 0.92), 3.5, true)
+	draw_arc(center, minimap_radius - 3.5, 0.0, TAU, 72, Color(1.0, 1.0, 1.0, 0.22), 1.0, true)
+	draw_arc(center, minimap_radius, 0.0, TAU, 72, ring_color, 1.5, true)
+	var font := get_theme_default_font()
+	if font != null:
+		var tag := center + Vector2(0.0, -minimap_radius + 11.0)
+		draw_circle(tag, 8.0, Color(0.02, 0.04, 0.08, 0.92))
+		draw_string(font, tag + Vector2(-4.2, 4.4), "N", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1.0, 0.45, 0.40))
+
+## Join the shared relief bake before the HUD goes (see WorldMap._exit_tree).
+func _exit_tree() -> void:
+	MapTerrain.reset()
+
+func _build_terrain_layer() -> void:
+	if _terrain_layer != null:
+		return
+	_terrain_layer = ColorRect.new()
+	_terrain_layer.name = "TerrainLayer"
+	_terrain_layer.color = Color.WHITE
+	_terrain_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_terrain_layer.show_behind_parent = true
+	_terrain_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_terrain_layer.visible = false
+	_terrain_mat = MapTerrain.make_material()
+	_terrain_layer.material = _terrain_mat
+	add_child(_terrain_layer, false, Node.INTERNAL_MODE_FRONT)
+
+## Ask for the shared relief once a road source exists, but only where a world
+## terrain source exists too (the open world): circuit scenes stay roads-only and
+## never start a bake. The scene-tree walks happen ONCE here, not per frame.
+func _request_relief() -> void:
+	if _relief_checked or _road_source == null or get_tree() == null:
+		return
+	_relief_checked = true
+	if MapRoads.resolve_seeder(self) == null and not MapRoads.height_from_terrain(self).is_valid():
+		return
+	_relief_rect = MapTerrain.world_rect_for_roads(_scene_roads)
+	MapTerrain.request(_relief_rect)
+
+## Aim the shader at the player: world xz under the control's top-left px is the
+## player minus the centre offset, at `zoom` px per metre. Returns whether the
+## relief is on screen.
+func _sync_terrain_layer(center: Vector2) -> bool:
+	if _terrain_layer == null:
+		return false
+	var ok := _relief_rect.size.x > 0.0 and MapTerrain.is_ready() and MapTerrain.rect() == _relief_rect
+	_terrain_layer.visible = ok
+	if not ok:
+		return false
+	var p := _player_car.global_position
+	MapTerrain.apply_view(_terrain_mat, size, Vector2(p.x, p.z) - center / zoom, zoom,
+		minimap_radius, RELIEF_DIM, RELIEF_SATURATION, 1.0)
+	return true
 
 ## Live rival blips: the shared orange heading triangle at the SAME world->screen
 ## mapping the roads use (MapRoads.minimap_point_screen is a single-vertex
@@ -214,6 +297,7 @@ func _draw_roads(center: Vector2) -> void:
 	var player_xz := Vector2(player_pos.x, player_pos.z)
 	var radius_world := minimap_radius / zoom * _CULL_OVERLAP
 	var radius_world_sq := radius_world * radius_world
+	_frame_runs = []
 	for road_id in _scene_roads.size():
 		var chain: Array = _scene_roads[road_id]
 		# Only the in-view span is transformed and clipped: the whole 13.6 km
@@ -224,13 +308,15 @@ func _draw_roads(center: Vector2) -> void:
 		var win := _chain_window(road_id, chain, player_xz, radius_world)
 		if win.x < 0:
 			continue
+		var tier := int(_scene_tiers[road_id]) if road_id < _scene_tiers.size() else MapRoads.UNKNOWN_TIER
 		var mask: Array[bool] = []
 		if _discovery_source != null:
 			mask = _discovery_source.segment_visited_mask(road_id)
 		if mask.is_empty() or (mask.size() != chain.size() - 1 and mask.size() != chain.size()):
-			_draw_chain_polyline(player_pos, center, chain, win.x, win.y)
+			_draw_chain_polyline(player_pos, center, chain, win.x, win.y, tier)
 			continue
-		_draw_chain_by_color_runs(player_pos, center, chain, mask, radius_world_sq)
+		_draw_chain_by_color_runs(player_pos, center, chain, mask, radius_world_sq, tier)
+	_flush_runs()
 
 func _chain_stays_outside(player_xz: Vector2, chain: Array, radius_world_sq: float) -> bool:
 	for w in chain:
@@ -243,7 +329,7 @@ func _point_inside(player_xz: Vector2, w: Vector3, radius_world_sq: float) -> bo
 	var dz := w.z - player_xz.y
 	return dx * dx + dz * dz <= radius_world_sq
 
-func _draw_chain_polyline(player_pos: Vector3, center: Vector2, chain: Array, from_i: int, to_i: int) -> void:
+func _draw_chain_polyline(player_pos: Vector3, center: Vector2, chain: Array, from_i: int, to_i: int, tier: int = MapRoads.UNKNOWN_TIER) -> void:
 	# One point outside the span on each side keeps the circle entry/exit
 	# crossing point a full-chain clip would have inserted on the boundary
 	# segment, so the drawn polyline is identical to clipping the whole chain.
@@ -255,9 +341,30 @@ func _draw_chain_polyline(player_pos: Vector3, center: Vector2, chain: Array, fr
 	var local := MapRoads.world_to_local_points(sub, player_pos, center, zoom)
 	var clipped := MapRoads.clip_circle(local, center, minimap_radius)
 	if clipped.size() >= 2:
-		draw_polyline(clipped, road_color, road_width)
+		_frame_runs.append({"pts": clipped, "tier": tier, "visited": true})
 
-func _draw_chain_by_color_runs(player_pos: Vector3, center: Vector2, chain: Array, mask: Array[bool], radius_world_sq: float) -> void:
+## Draws the gathered road pieces: lowest class first, all casings before all
+## cores, so highways ride on top and a junction has no dark seam through it.
+func _flush_runs() -> void:
+	if _frame_runs.is_empty():
+		return
+	_frame_runs.sort_custom(func(a, b):
+		if bool(a["visited"]) != bool(b["visited"]):
+			return not bool(a["visited"])
+		return MapStyle.road_rank(int(a["tier"])) < MapStyle.road_rank(int(b["tier"])))
+	for pass_index in 2:
+		for run in _frame_runs:
+			var tier := int(run["tier"])
+			var visited := bool(run["visited"])
+			var pts: PackedVector2Array = run["pts"]
+			var width := MapStyle.road_width(tier) * MINIMAP_ROAD_SCALE
+			if pass_index == 0:
+				draw_polyline(pts, MapStyle.road_casing(tier, visited), width + 2.0, true)
+			else:
+				draw_polyline(pts, MapStyle.road_core(tier, visited), width, true)
+	_frame_runs = []
+
+func _draw_chain_by_color_runs(player_pos: Vector3, center: Vector2, chain: Array, mask: Array[bool], radius_world_sq: float, tier: int = MapRoads.UNKNOWN_TIER) -> void:
 	var player_xz := Vector2(player_pos.x, player_pos.z)
 	var run_start := 0
 	while run_start < mask.size():
@@ -265,10 +372,10 @@ func _draw_chain_by_color_runs(player_pos: Vector3, center: Vector2, chain: Arra
 		var run_end := run_start + 1
 		while run_end < mask.size() and mask[run_end] == visited:
 			run_end += 1
-		_draw_chain_run(player_pos, player_xz, center, chain, run_start, run_end, visited, radius_world_sq)
+		_draw_chain_run(player_pos, player_xz, center, chain, run_start, run_end, visited, radius_world_sq, tier)
 		run_start = run_end
 
-func _draw_chain_run(player_pos: Vector3, player_xz: Vector2, center: Vector2, chain: Array, from_seg: int, to_seg: int, visited: bool, radius_world_sq: float) -> void:
+func _draw_chain_run(player_pos: Vector3, player_xz: Vector2, center: Vector2, chain: Array, from_seg: int, to_seg: int, visited: bool, radius_world_sq: float, tier: int = MapRoads.UNKNOWN_TIER) -> void:
 	var idxs := PackedInt32Array()
 	for i in range(from_seg, to_seg):
 		idxs.append(i)
@@ -290,7 +397,7 @@ func _draw_chain_run(player_pos: Vector3, player_xz: Vector2, center: Vector2, c
 	var local := MapRoads.world_to_local_points(sub, player_pos, center, zoom)
 	var clipped := MapRoads.clip_circle(local, center, minimap_radius)
 	if clipped.size() >= 2:
-		draw_polyline(clipped, road_color if visited else unvisited_road_color, road_width)
+		_frame_runs.append({"pts": clipped, "tier": tier, "visited": visited})
 
 func _seg_next(seg: int, point_count: int) -> int:
 	return seg + 1 if seg + 1 < point_count else 0
@@ -310,18 +417,9 @@ func _draw_collectibles(center: Vector2) -> void:
 		var screen := center + Vector2(world_pos.x - player_pos.x, world_pos.z - player_pos.z) * zoom
 		if screen.distance_to(center) > minimap_radius:
 			continue
-		draw_circle(screen, collectible_dot_radius + 1.0, collectible_dot_outline)
-		draw_circle(screen, collectible_dot_radius, collectible_dot_color(str(entry["kind"])))
-		draw_arc(
-			screen,
-			maxf(collectible_dot_radius - 2.4, 1.0),
-			0.0,
-			TAU,
-			16,
-			collectible_dot_ring,
-			collectible_dot_ring_width,
-			true
-		)
+		var badge_r := collectible_dot_radius + 1.5
+		MapStyle.draw_badge(self, screen, badge_r, collectible_dot_color(str(entry["kind"])),
+			str(MapStyle.COLLECTIBLE_GLYPHS.get(str(entry["kind"]), "")), Color.WHITE)
 
 ## The collectible entries that _draw_collectibles would actually put a dot on
 ## for a player at `player_xz`, in draw order: claim-filtered (a banked one is
@@ -378,7 +476,7 @@ func _draw_route(center: Vector2) -> void:
 	var local := MapRoads.world_to_local_points(route, _player_car.global_position, center, zoom)
 	var clipped := MapRoads.clip_circle(local, center, minimap_radius)
 	if clipped.size() >= 2:
-		draw_polyline(clipped, route_color, road_width + 1.5)
+		MapStyle.draw_route_ribbon(self, clipped, route_color, 3.4, _pulse_time)
 
 func _cached_route_world() -> Array[Vector3]:
 	var player := _player_car.global_position
@@ -404,7 +502,12 @@ func _process(delta: float) -> void:
 	if current_signature != _road_signature:
 		_road_signature = current_signature
 		_scene_roads = MapRoads.get_roads(_road_source)
+		_scene_tiers = MapRoads.get_road_tiers(_road_source)
 		_rebuild_chain_indexes()
+		_relief_checked = false
+	_request_relief()
+	if _relief_rect.size.x > 0.0 and not MapTerrain.is_ready() and MapTerrain.poll():
+		_last_redraw_pos = Vector3(INF, INF, INF)
 	if _player_car == null:
 		_last_redraw_pos = Vector3(INF, INF, INF)
 		_last_heading = INF

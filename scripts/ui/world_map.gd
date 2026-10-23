@@ -45,7 +45,9 @@ const ROAD_WIDTH := 2.5
 const MARKER_CORE := MapRoads.MARKER_CORE
 const MARKER_ACCENT := MapRoads.MARKER_ACCENT
 const MARKER_OUTLINE := MapRoads.MARKER_OUTLINE
-const MARKER_SIZE := MapRoads.MARKER_SIZE * 1.15
+## FH-style: the player is the biggest object on the map, so the pause map draws
+## the shared chevron noticeably larger than the HUD minimap does.
+const MARKER_SIZE := MapRoads.MARKER_SIZE * 1.8
 ## Shared rival-blip accents (same single-source-of-truth rule as the marker).
 const RIVAL_FILL := MapRoads.RIVAL_FILL
 const RIVAL_OUTLINE := MapRoads.RIVAL_OUTLINE
@@ -77,6 +79,27 @@ const INSET := 32.0
 ## Cells per axis of the terrain grid. 64x64 = 4096 draw_rect calls per _draw
 ## pass, rebuilt only when the map reopens, so it stays cheap on any GPU.
 const TERRAIN_CELLS := 64
+
+## FH-style presentation (see MapStyle). Pin badge radii in px at zoom 1: a
+## landmark is the biggest pin, an event next, a collectible the smallest, so
+## the 5 places a player drives to outrank the ~30 things they hit on the way.
+const BADGE_LANDMARK := 11.0
+const BADGE_EVENT := 9.5
+const BADGE_COLLECTIBLE := 7.5
+const BADGE_ZOOM_GROWTH := 0.22
+## View limits for the zoomable map. 1.0 is the plain fit and never zooms out.
+const MIN_ZOOM := 1.0
+const MAX_ZOOM := 8.0
+const ZOOM_STEP := 1.3
+## A press that moves further than this (px) is a PAN, not a click, so a plain
+## click still fast-travels.
+const DRAG_THRESHOLD_PX := 5.0
+## Exponential smoothing rate (1/s) the displayed view uses to chase the target.
+const VIEW_SMOOTHING := 14.0
+const HOVER_RADIUS_PX := 14.0
+const REGION_LABEL_SIZE := 17
+const REGION_LABEL_TRACKING := 5.0
+const VIGNETTE_STRENGTH := 0.55
 
 ## Road NAMES on the pause map. EVERY named road is a candidate now: the seven
 ## curated majors plus the ramps, returns, shoreline ribbons and dirt cuts that
@@ -150,6 +173,33 @@ var _pulse_time := 0.0
 var _last_pulse_tick := -1
 var _discovery_source: WorldDiscovery = null
 var _collectible_source: CollectibleField = null
+## Road polylines with their class: each {"pts": PackedVector2Array, "tier": int,
+## "visited": bool}, sorted so a highway draws over an arterial over a dirt track.
+## `_paths` / `_grey_paths` above hold the same polylines split by reveal state.
+var _road_runs: Array = []
+var _terrain_layer: ColorRect = null
+var _terrain_mat: ShaderMaterial = null
+var _terrain_rect := Rect2()
+
+## VIEW STATE. `_zoom`/`_pan` are the TARGET (what hit-tests and clicks read);
+## `_view_zoom`/`_view_pan` are the DISPLAYED values that chase it each frame, so
+## zoom, pan and focus glide instead of snapping. The base fit `_fit` is never
+## touched by the view: with zoom 1 / pan 0 every position equals the old map.
+var _zoom := 1.0
+var _pan := Vector2.ZERO
+var _view_zoom := 1.0
+var _view_pan := Vector2.ZERO
+var _press_pos := Vector2.ZERO
+var _pressing := false
+var _dragged := false
+var _hover_poi_id := ""
+var _hover_pos := Vector2.ZERO
+var _route_goal_screen := Vector2.ZERO
+var _has_route_goal := false
+var _vignette_tex: Texture2D = null
+var _region_labels: Array = []
+## True while the shared relief for this map's rect is still baking on a worker.
+var _terrain_waiting := false
 
 ## AAA-3 map filters: per-category gates default to full visibility plus an
 ## optional region substring and travel-eligibility gate, so the shipped map
@@ -265,6 +315,30 @@ func _ready() -> void:
 	# The pause menu pauses the tree while the map is open; keep ticking so the
 	# player marker's halo pulse stays alive on screen.
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	clip_contents = true
+	_build_terrain_layer()
+
+## The shared relief bake runs on a worker thread; leaving the tree must join it,
+## or a process that quits mid-bake (a test run, a fast scene change) crashes.
+func _exit_tree() -> void:
+	MapTerrain.reset()
+
+## The shader-shaded relief sits in a child that draws BEHIND this control's own
+## _draw(), so roads, pins and labels land on top of it. Built in code, so the
+## pause_menu scene needs no extra node.
+func _build_terrain_layer() -> void:
+	if _terrain_layer != null:
+		return
+	_terrain_layer = ColorRect.new()
+	_terrain_layer.name = "TerrainLayer"
+	_terrain_layer.color = Color.WHITE
+	_terrain_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_terrain_layer.show_behind_parent = true
+	_terrain_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_terrain_layer.visible = false
+	_terrain_mat = MapTerrain.make_material()
+	_terrain_layer.material = _terrain_mat
+	add_child(_terrain_layer, false, Node.INTERNAL_MODE_FRONT)
 
 ## Animates the player marker's halo while the pause map is open and keeps the
 ## LIVE rival blips current. Redraws are throttled to MapRoads.MARKER_PULSE_STEP
@@ -273,6 +347,12 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if not is_visible_in_tree():
 		return
+	if _advance_view(delta):
+		queue_redraw()
+	if _terrain_waiting and MapTerrain.poll():
+		_terrain_waiting = false
+		queue_redraw()
+	_pan_with_stick(delta)
 	var rival_sig := _roster_signature() if show_rivals else ""
 	var rivals_moved := rival_sig != _last_rival_sig
 	_last_rival_sig = rival_sig
@@ -281,10 +361,11 @@ func _process(delta: float) -> void:
 	if not _has_player:
 		return
 	_pulse_time += delta
-	var tick := int(_pulse_time / MapRoads.MARKER_PULSE_STEP)
-	if tick != _last_pulse_tick:
-		_last_pulse_tick = tick
-		queue_redraw()
+	# The beacon ring and the route chevrons are time-driven, so they redraw every
+	# frame to glide; the pass is only polylines and ~100 badges now (the
+	# 4,096-rect terrain grid is a shader), so that is cheap.
+	_last_pulse_tick = int(_pulse_time / MapRoads.MARKER_PULSE_STEP)
+	queue_redraw()
 
 ## Sets the GPS route destination (stored in MapRoads static state shared with
 ## the minimap) and rebuilds the map.
@@ -300,44 +381,214 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
 		_dirty = true
 
+# ---------------------------------------------------------------------------
+# View: zoom / pan / focus. All of it is a screen-space affine on top of the base
+# fit, so the cached content (roads, pins, labels) is never rebuilt by a view change.
+# ---------------------------------------------------------------------------
+
+## base map px -> view px for a zoom/pan pair (zoom about the control centre).
+func _view_xform(zoom_value: float, pan_value: Vector2) -> Transform2D:
+	var focus := size * 0.5
+	return Transform2D(Vector2(zoom_value, 0.0), Vector2(0.0, zoom_value),
+		focus * (1.0 - zoom_value) + pan_value)
+
+## The pan limit that keeps the zoomed map covering the whole control (never a
+## void past an edge). Zero at zoom 1, so the plain fit cannot be dragged at all.
+func _clamp_pan(pan_value: Vector2, zoom_value: float) -> Vector2:
+	var limit := size * 0.5 * maxf(zoom_value - 1.0, 0.0)
+	return Vector2(clampf(pan_value.x, -limit.x, limit.x), clampf(pan_value.y, -limit.y, limit.y))
+
+func get_zoom() -> float:
+	return _zoom
+
+## A base-fit screen position as the TARGET view shows it (what a click or a
+## hit-test must use).
+func base_to_view(base_pos: Vector2) -> Vector2:
+	return _view_xform(_zoom, _pan) * base_pos
+
+## Inverse of base_to_view: a screen position inside the control back to base-fit
+## coordinates, which MapRoads.screen_to_world() understands.
+func view_to_base(view_pos: Vector2) -> Vector2:
+	return _view_xform(_zoom, _pan).affine_inverse() * view_pos
+
+## Zoom the TARGET view to `value` (clamped) keeping the map point under `focus`
+## (a control-local px) where it is.
+func set_zoom_at(value: float, focus: Vector2) -> void:
+	var target := clampf(value, MIN_ZOOM, MAX_ZOOM)
+	if is_equal_approx(target, _zoom):
+		return
+	var base_point := view_to_base(focus)
+	_zoom = target
+	_pan = _clamp_pan(focus - base_point * target - size * 0.5 * (1.0 - target), target)
+	queue_redraw()
+
+func zoom_by(factor: float, focus: Vector2) -> void:
+	if factor > 0.0:
+		set_zoom_at(_zoom * factor, focus)
+
+func pan_by(delta: Vector2) -> void:
+	_pan = _clamp_pan(_pan + delta, _zoom)
+	queue_redraw()
+
+func reset_view() -> void:
+	_zoom = 1.0
+	_pan = Vector2.ZERO
+	queue_redraw()
+
+## Jump the displayed view straight to the target (tests, first open, captures).
+func snap_view() -> void:
+	_view_zoom = _zoom
+	_view_pan = _pan
+	queue_redraw()
+
+## Glide to a world position at `zoom_level`: that point ends centred in the map.
+func focus_on_world(world_pos: Vector3, zoom_level: float = 3.0) -> void:
+	if _dirty:
+		_rebuild()
+	if _fit.is_empty():
+		return
+	var base_point := MapRoads.world_to_screen(world_pos, _fit)
+	_zoom = clampf(zoom_level, MIN_ZOOM, MAX_ZOOM)
+	_pan = _clamp_pan(_zoom * (size * 0.5 - base_point), _zoom)
+	queue_redraw()
+
+func focus_on_player(zoom_level: float = 3.0) -> void:
+	var car := VehicleManager.get_player_car()
+	if car != null:
+		focus_on_world(car.global_position, zoom_level)
+
+## Focus a registered POI by id (unknown ids are ignored).
+func focus_on_poi(poi_id: String, zoom_level: float = 3.5) -> void:
+	if not POIRegistry.has_poi(poi_id):
+		return
+	focus_on_world(POIRegistry.get_poi(poi_id).get("position", Vector3.ZERO) as Vector3, zoom_level)
+
+## Chase the target view. True while the displayed view still moves.
+func _advance_view(delta: float) -> bool:
+	var dz := _zoom - _view_zoom
+	var dp := _pan - _view_pan
+	if absf(dz) < 0.0005 and dp.length() < 0.2:
+		if _view_zoom == _zoom and _view_pan == _pan:
+			return false
+		_view_zoom = _zoom
+		_view_pan = _pan
+		return true
+	var k := 1.0 - exp(-VIEW_SMOOTHING * maxf(delta, 0.0))
+	_view_zoom += dz * k
+	_view_pan += dp * k
+	return true
+
+func _pan_with_stick(delta: float) -> void:
+	if _zoom <= 1.0:
+		return
+	var axis := Vector2(Input.get_joy_axis(0, JOY_AXIS_RIGHT_X), Input.get_joy_axis(0, JOY_AXIS_RIGHT_Y))
+	if axis.length() < 0.25:
+		return
+	pan_by(-axis * 720.0 * delta)
+
+# ---------------------------------------------------------------------------
+# Draw
+# ---------------------------------------------------------------------------
+
 func _draw() -> void:
 	if _dirty:
 		_rebuild()
-	draw_rect(Rect2(Vector2.ZERO, size), BACKDROP_COLOR)
 	if _fit.is_empty():
+		draw_rect(Rect2(Vector2.ZERO, size), MapStyle.OCEAN_DEEP)
 		return
-	for cell in _terrain_cells:
-		draw_rect(cell["rect"], cell["color"], true)
-	for path in _grey_paths:
-		if path.size() >= 2:
-			_draw_road_path(path, UNVISITED_ROAD_COLOR, ROAD_WIDTH)
-	for path in _paths:
-		if path.size() >= 2:
-			_draw_road_path(path, ROAD_COLOR, ROAD_WIDTH)
+	var xf := _view_xform(_view_zoom, _view_pan)
+	var terrain_on := _sync_terrain_layer(xf)
+	# The shader layer draws BEHIND this control, so the flat ocean fill is only
+	# laid down when there is no relief (it would cover the layer otherwise).
+	if not terrain_on:
+		draw_rect(Rect2(Vector2.ZERO, size), MapStyle.OCEAN_DEEP)
+	if not terrain_on and not _terrain_waiting_for_relief():
+		# No shader relief (no baked image: a headless gate, a stubbed reader):
+		# keep the legacy cell grid so the map still reads as terrain.
+		draw_set_transform_matrix(xf)
+		for cell in _terrain_cells:
+			draw_rect(cell["rect"], cell["color"], true)
+		draw_set_transform_matrix(Transform2D.IDENTITY)
+	_draw_roads(xf)
 	if _route_path.size() >= 2:
-		_draw_road_path(_route_path, ROUTE_COLOR, ROAD_WIDTH + 2.0)
-	_draw_road_labels()
-	for entry in _poi_entries:
-		_draw_poi(entry["screen"], entry["poi"])
+		MapStyle.draw_route_ribbon(self, xf * _route_path, ROUTE_COLOR, 4.5, _pulse_time)
+		if _has_route_goal:
+			MapStyle.draw_destination(self, xf * _route_goal_screen, ROUTE_COLOR, 11.0)
+	_draw_vignette()
+	_draw_region_labels(xf)
+	_draw_road_labels(xf)
+	_draw_pois(xf)
 	# Live rival blips: read from the CURRENT roster on every pass (never cached
 	# with the content above), drawn under the player marker so the player still
 	# reads as the most obvious object on the map.
 	for entry in rival_blips():
 		var blip: Dictionary = entry
-		var screen: Vector2 = blip["screen"]
-		var angle := float(blip["angle"])
-		MapRoads.draw_rival_blip(self, screen, angle)
+		var screen: Vector2 = xf * (blip["screen"] as Vector2)
+		MapRoads.draw_rival_blip(self, screen, float(blip["angle"]), MapRoads.RIVAL_SIZE * 1.5)
 	if _has_player:
-		# The player has no reveal gate: draw the chevron over everything (it is
-		# always known, so it must be the most obvious thing on the map).
-		MapRoads.draw_player_marker(self, _player_screen, _player_angle, _pulse_time, MARKER_SIZE)
+		_draw_player(xf * _player_screen)
+	_draw_hover_card()
+	_draw_overlay_ui()
 	draw_rect(Rect2(Vector2.ZERO, size), BORDER_COLOR, false, 2.0)
 
-## Draws a road polyline with a dark casing underneath so the network stays
-## readable over the terrain composite.
-func _draw_road_path(path: PackedVector2Array, color: Color, width: float) -> void:
-	draw_polyline(path, ROAD_CASING, width + 2.5)
-	draw_polyline(path, color, width)
+## True while a worker bake is running and there is nothing but the ocean to draw.
+func _terrain_waiting_for_relief() -> bool:
+	return _terrain_rect.size.x > 0.0 and MapTerrain.is_pending()
+
+## Point the shader layer at the current displayed view. Visible only when the
+## shared relief for THIS map's world rect is baked.
+func _sync_terrain_layer(xf: Transform2D) -> bool:
+	if _terrain_layer == null:
+		return false
+	var ok := _terrain_rect.size.x > 0.0 and MapTerrain.is_ready() and MapTerrain.rect() == _terrain_rect
+	_terrain_layer.visible = ok
+	if not ok:
+		return false
+	var base_origin := xf.affine_inverse() * Vector2.ZERO
+	var fit_scale := float(_fit["scale"])
+	var world_min: Vector2 = _fit["world_min"]
+	var fit_origin: Vector2 = _fit["origin"]
+	var view_world_min := world_min + (base_origin - fit_origin) / fit_scale
+	MapTerrain.apply_view(_terrain_mat, size, view_world_min, fit_scale * _view_zoom,
+		0.0, 1.0, 1.0, 1.0)
+	return true
+
+## Roads in two passes (all casings, then all cores) so a crossing never gets a
+## dark seam cut through it, drawn lowest class first so highways ride on top.
+## Widths grow gently with zoom but are compensated for the canvas scale.
+func _draw_roads(xf: Transform2D) -> void:
+	var z := _view_zoom
+	var grow := (1.0 + 0.22 * (z - 1.0)) / z
+	draw_set_transform_matrix(xf)
+	for pass_index in 2:
+		for run in _road_runs:
+			var tier := int(run["tier"])
+			var visited := bool(run["visited"])
+			var pts: PackedVector2Array = run["pts"]
+			if pts.size() < 2:
+				continue
+			var width := MapStyle.road_width(tier) * grow
+			if pass_index == 0:
+				draw_polyline(pts, MapStyle.road_casing(tier, visited), width + 2.6 * grow, true)
+			else:
+				draw_polyline(pts, MapStyle.road_core(tier, visited), width, true)
+	draw_set_transform_matrix(Transform2D.IDENTITY)
+
+func _draw_vignette() -> void:
+	if _vignette_tex == null:
+		_vignette_tex = ImageTexture.create_from_image(MapStyle.make_vignette_image(128, 0.55, VIGNETTE_STRENGTH))
+	draw_texture_rect(_vignette_tex, Rect2(Vector2.ZERO, size), false)
+
+## The player: a pulsing beacon (so the eye finds it across the whole island), then
+## the shared white-and-cyan chevron at pause-map size.
+func _draw_player(at: Vector2) -> void:
+	var pulse := 0.5 + 0.5 * sin(TAU * _pulse_time / MapRoads.MARKER_PULSE_PERIOD)
+	var beacon := MARKER_SIZE * (1.9 + 0.9 * pulse)
+	var accent := MapRoads.MARKER_ACCENT
+	draw_circle(at, beacon, Color(accent.r, accent.g, accent.b, 0.10 + 0.08 * (1.0 - pulse)))
+	draw_arc(at, beacon, 0.0, TAU, 48, Color(1, 1, 1, 0.55 * (1.0 - pulse) + 0.15), 2.0, true)
+	draw_circle(at, MARKER_SIZE * 1.25, Color(0.0, 0.0, 0.0, 0.35))
+	MapRoads.draw_player_marker(self, at, _player_angle, _pulse_time, MARKER_SIZE)
 
 ## The live rival blips in screen space ({"screen": Vector2, "angle": float}),
 ## recomputed from the CURRENT roster on every draw pass: the fit is cached, the
@@ -374,12 +625,15 @@ func _roster_signature() -> String:
 ## line, and tinted by whether the road under it is revealed -- an unexplored
 ## road is named, not stamped as driven. The outline is the road casing colour,
 ## which is what keeps a name readable over snow, water and the highway ring.
-## The canvas transform is reset afterwards, so the border and the player marker
-## that draw later are unaffected.
-func _draw_road_labels() -> void:
+## Positions go through the view transform; the glyphs themselves stay at their
+## native size, so zooming never blurs or inflates the text. The canvas transform
+## is reset afterwards, so the pins and the player marker that draw later are
+## unaffected.
+func _draw_road_labels(xf: Transform2D = Transform2D.IDENTITY) -> void:
 	var font := _label_font()
 	if font == null:
 		return
+	var bounds := Rect2(Vector2(-40.0, -40.0), size + Vector2(80.0, 80.0))
 	for entry in _road_labels:
 		var label: Dictionary = entry
 		var text: String = label["text"]
@@ -387,40 +641,233 @@ func _draw_road_labels() -> void:
 		if not _is_measurable(text_size):
 			continue
 		var color: Color = ROAD_LABEL_COLOR if bool(label["revealed"]) else UNVISITED_ROAD_LABEL_COLOR
-		var at: Vector2 = label["screen"]
+		var at: Vector2 = xf * (label["screen"] as Vector2)
+		if not bounds.has_point(at):
+			continue
 		# The draw origin is the BASELINE left, so the box centre plus the ascent
 		# is what puts the glyphs in the middle of their own collision box.
 		var origin := Vector2(-text_size.x * 0.5,
 			-text_size.y * 0.5 + font.get_ascent(ROAD_LABEL_FONT_SIZE))
 		draw_set_transform(at, float(label["angle"]), Vector2.ONE)
 		draw_string_outline(font, origin, text, HORIZONTAL_ALIGNMENT_LEFT, -1,
-			ROAD_LABEL_FONT_SIZE, 4, ROAD_LABEL_OUTLINE)
+			ROAD_LABEL_FONT_SIZE, 5, ROAD_LABEL_OUTLINE)
 		draw_string(font, origin, text, HORIZONTAL_ALIGNMENT_LEFT, -1,
 			ROAD_LABEL_FONT_SIZE, color)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-## Draws a POI as a small satellite-style pin: dark outline ring around a
-## zone/tier-coloured fill with a bright core, readable over any terrain tint.
-## A claimed collectible (AAA-16) drops the bright core and fades, so banked and
-## un-banked collectibles are distinguishable straight off the map.
-##
-## Collectibles get their own treatment: the family palette
-## (Collectibles.KIND_DOT_COLOR) at COLLECTIBLE_RADIUS with a HOLLOW ring in
-## place of the solid core, so a speed trap reads as a target to drive at rather
-## than as one more landmark blob. A banked one keeps the ring in the dimmed
-## claimed tint, so the spent state is still unmistakable.
-func _draw_poi(screen: Vector2, poi: Dictionary) -> void:
-	var collectible := _is_collectible_poi(poi)
-	var claimed := _is_claimed_collectible(poi)
-	var radius := COLLECTIBLE_RADIUS if collectible else POI_RADIUS
-	draw_circle(screen, radius + 2.0, POI_OUTLINE)
-	draw_circle(screen, radius, poi_dot_color(poi))
-	if collectible:
-		var ring := POI_CLAIMED_TINT if claimed else COLLECTIBLE_RING
-		draw_arc(screen, maxf(radius - 2.6, 1.0), 0.0, TAU, 20, ring, COLLECTIBLE_RING_WIDTH, true)
+## Region captions: each named stage (Festival Plains, Alpine Overlook, ...) as a
+## big letter-spaced uppercase caption above its landmark, the way FH names its
+## biomes on the map. Derived from the landmark POIs, so a new stage reaches the map
+## with no UI change. Base-fit coordinates; the view transform is applied at draw.
+func region_labels() -> Array:
+	return _region_labels
+
+func _compute_region_labels() -> Array:
+	var out: Array = []
+	var seen := {}
+	for poi_id: String in POIRegistry.get_poi_ids():
+		var poi := POIRegistry.get_poi(poi_id)
+		if poi.has("kind") or Collectibles.is_collectible_id(poi_id):
+			continue
+		var stage := str(poi.get("stage", "")).strip_edges()
+		if stage.is_empty() or seen.has(stage):
+			continue
+		seen[stage] = true
+		out.append({
+			"text": stage.to_upper(),
+			"screen": MapRoads.world_to_screen(poi.get("position", Vector3.ZERO) as Vector3, _fit),
+		})
+	return out
+
+func _draw_region_labels(xf: Transform2D) -> void:
+	var font := _label_font()
+	if font == null:
 		return
-	if not claimed:
-		draw_circle(screen, POI_RADIUS - 2.2, POI_CORE)
+	var bounds := Rect2(Vector2(-80.0, -40.0), size + Vector2(160.0, 80.0))
+	var font_size := REGION_LABEL_SIZE + int(roundf(minf(_view_zoom - 1.0, 3.0) * 1.5))
+	for entry in _region_labels:
+		var at: Vector2 = xf * (entry["screen"] as Vector2) + Vector2(0.0, -36.0 - 4.0 * minf(_view_zoom, 3.0))
+		if not bounds.has_point(at):
+			continue
+		MapStyle.draw_spaced_label(self, font, str(entry["text"]), at, font_size,
+			Color(1.0, 1.0, 1.0, 0.82), REGION_LABEL_TRACKING, Color(0.02, 0.05, 0.10, 0.65))
+
+## Layer a POI draws on: collectibles under events under landmarks.
+func _poi_layer(poi: Dictionary) -> int:
+	if _is_collectible_poi(poi):
+		return 0
+	if poi.has("kind"):
+		return 1
+	return 2
+
+## Badge radius (px, at the current zoom) of a POI's pin.
+func poi_badge_radius(poi: Dictionary, zoom_value: float = 1.0) -> float:
+	var base := BADGE_COLLECTIBLE
+	match _poi_layer(poi):
+		1:
+			base = BADGE_EVENT
+		2:
+			base = BADGE_LANDMARK
+	return base * (1.0 + BADGE_ZOOM_GROWTH * minf(zoom_value - 1.0, 3.0))
+
+func _draw_pois(xf: Transform2D) -> void:
+	var bounds := Rect2(Vector2(-30.0, -30.0), size + Vector2(60.0, 60.0))
+	for layer in 3:
+		for entry in _poi_entries:
+			var poi: Dictionary = entry["poi"]
+			if _poi_layer(poi) != layer:
+				continue
+			var at: Vector2 = xf * (entry["screen"] as Vector2)
+			if bounds.has_point(at):
+				_draw_poi(at, poi)
+
+## Draws a POI as a bold FH-style badge: white ring, family-coloured fill and an
+## event-type glyph (chequered flag, duel chevrons, drift S, radar, camera, ...),
+## so a pin never depends on colour alone. A landmark is the biggest, an event the
+## next size, a collectible the smallest.
+##
+## A claimed collectible (AAA-16) keeps its badge but drops its brightness: the
+## fill is the dimmed family tint, the ring is the muted tint and the glyph fades,
+## so banked and un-banked collectibles read apart straight off the map.
+func _draw_poi(screen: Vector2, poi: Dictionary) -> void:
+	var claimed := _is_claimed_collectible(poi)
+	var radius := poi_badge_radius(poi, _view_zoom)
+	var hovered := str(poi.get("id", "")) == _hover_poi_id and not _hover_poi_id.is_empty()
+	if hovered:
+		radius += 2.5
+	var ring := POI_CLAIMED_TINT if claimed else MapStyle.PIN_RING
+	var glyph_color := Color(1, 1, 1, 0.55) if claimed else Color.WHITE
+	MapStyle.draw_badge(self, screen, radius, poi_dot_color(poi), MapStyle.poi_glyph(poi), glyph_color, ring)
+	if hovered:
+		draw_arc(screen, radius + 5.0, 0.0, TAU, 32, Color(1, 1, 1, 0.8), 1.6, true)
+
+## The id of the POI pin under a control-local `view_pos`, "" when none. Reads the
+## TARGET view (the one clicks use) and prefers the bigger pin where two overlap.
+func poi_at(view_pos: Vector2) -> String:
+	var best := ""
+	var best_score := INF
+	for entry in _poi_entries:
+		var poi: Dictionary = entry["poi"]
+		var at := base_to_view(entry["screen"] as Vector2)
+		var reach := maxf(HOVER_RADIUS_PX, poi_badge_radius(poi, _zoom) + 4.0)
+		var d := at.distance_to(view_pos)
+		if d > reach:
+			continue
+		var score := d - float(_poi_layer(poi)) * 3.0
+		if score < best_score:
+			best_score = score
+			best = str(poi.get("id", ""))
+	return best
+
+## Human type of a POI for the hover card ("Speed Trap", "Touge Duel", "Landmark").
+func poi_type_label(poi: Dictionary) -> String:
+	var kind := str(poi.get("kind", ""))
+	if Collectibles.KIND_LABEL.has(kind):
+		return str(Collectibles.KIND_LABEL[kind])
+	if poi.has("kind"):
+		return str(MapStyle.event_style(kind)["label"])
+	return str(MapStyle.LANDMARK_STYLE["label"])
+
+func _draw_hover_card() -> void:
+	if _hover_poi_id.is_empty():
+		return
+	var font := _label_font()
+	if font == null:
+		return
+	for entry in _poi_entries:
+		var poi: Dictionary = entry["poi"]
+		if str(poi.get("id", "")) != _hover_poi_id:
+			continue
+		var at := base_to_view(entry["screen"] as Vector2)
+		var radius := poi_badge_radius(poi, _zoom)
+		var text := "%s  -  %s" % [str(poi.get("name", _hover_poi_id)), poi_type_label(poi)]
+		var width := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x + 14.0
+		var anchor := at + Vector2(radius + 8.0, 0.0)
+		if anchor.x + width > size.x - 8.0:
+			anchor.x = at.x - radius - 8.0 - width
+		MapStyle.draw_pill_label(self, font, text, anchor, 14)
+		return
+
+# ---------------------------------------------------------------------------
+# Legend, compass, controls hint (screen-fixed overlay).
+# ---------------------------------------------------------------------------
+
+## The legend rows, in draw order: two columns, pins on the left and line work
+## on the right. Public so the gate can assert the legend covers every pin family
+## the map can draw and every road class.
+func legend_entries() -> Array:
+	return [
+		{"col": 0, "kind": "pin", "label": "Landmark", "glyph": "star", "color": MapStyle.LANDMARK_STYLE["color"]},
+		{"col": 0, "kind": "pin", "label": "Race event", "glyph": "flag", "color": MapStyle.event_color("touge_duel")},
+		{"col": 0, "kind": "pin", "label": "Bonus board", "glyph": "board", "color": Collectibles.kind_color(Collectibles.KIND_BONUS, POI_COLOR)},
+		{"col": 0, "kind": "pin", "label": "Speed trap", "glyph": "radar", "color": Collectibles.kind_color(Collectibles.KIND_SPEED_TRAP, POI_COLOR)},
+		{"col": 0, "kind": "pin", "label": "Photo spot", "glyph": "camera", "color": Collectibles.kind_color(Collectibles.KIND_PHOTO, POI_COLOR)},
+		{"col": 0, "kind": "player", "label": "You", "glyph": "", "color": MapRoads.MARKER_ACCENT},
+		{"col": 1, "kind": "road", "label": "Highway", "tier": RoadDef.Tier.HIGHWAY, "visited": true},
+		{"col": 1, "kind": "road", "label": "Main road", "tier": RoadDef.Tier.ARTERIAL, "visited": true},
+		{"col": 1, "kind": "road", "label": "Mountain road", "tier": RoadDef.Tier.TOUGE, "visited": true},
+		{"col": 1, "kind": "road", "label": "Dirt track", "tier": RoadDef.Tier.DIRT, "visited": true},
+		{"col": 1, "kind": "road", "label": "Unexplored", "tier": RoadDef.Tier.ARTERIAL, "visited": false},
+		{"col": 1, "kind": "route", "label": "GPS route", "glyph": "", "color": ROUTE_COLOR},
+	]
+
+const LEGEND_ROW_H := 23.0
+const LEGEND_COL_W := 142.0
+const LEGEND_PAD := 11.0
+
+func _draw_overlay_ui() -> void:
+	var font := _label_font()
+	if font == null:
+		return
+	# Legend panel.
+	var entries := legend_entries()
+	var rows := [0, 0]
+	for entry in entries:
+		rows[int(entry["col"])] += 1
+	var panel_h := float(maxi(rows[0], rows[1])) * LEGEND_ROW_H + LEGEND_PAD * 2.0 - 4.0
+	var panel := Rect2(Vector2(14.0, size.y - panel_h - 14.0), Vector2(LEGEND_COL_W * 2.0 + LEGEND_PAD * 2.0 - 8.0, panel_h))
+	var box := StyleBoxFlat.new()
+	box.bg_color = MapStyle.PANEL_DARK
+	box.border_color = MapStyle.PANEL_EDGE
+	box.set_border_width_all(1)
+	box.set_corner_radius_all(10)
+	draw_style_box(box, panel)
+	var row_index := [0, 0]
+	for entry in entries:
+		var col := int(entry["col"])
+		var y := panel.position.y + LEGEND_PAD + float(row_index[col]) * LEGEND_ROW_H + LEGEND_ROW_H * 0.5 - 2.0
+		row_index[col] += 1
+		var x := panel.position.x + LEGEND_PAD + float(col) * LEGEND_COL_W
+		_draw_legend_row(font, entry, Vector2(x, y))
+	# Compass, top-right.
+	var c := Vector2(size.x - 40.0, 40.0)
+	draw_circle(c, 22.0, MapStyle.PANEL_DARK)
+	draw_arc(c, 22.0, 0.0, TAU, 32, MapStyle.PANEL_EDGE, 1.2, true)
+	draw_colored_polygon(PackedVector2Array([c + Vector2(0.0, -17.0), c + Vector2(-5.0, 2.0), c + Vector2(5.0, 2.0)]), Color(0.96, 0.32, 0.30))
+	draw_colored_polygon(PackedVector2Array([c + Vector2(0.0, 17.0), c + Vector2(-5.0, 2.0), c + Vector2(5.0, 2.0)]), Color(0.86, 0.90, 0.96, 0.8))
+	draw_string(font, c + Vector2(-4.5, -26.0), "N", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, MapStyle.TEXT_LIGHT)
+	# Controls hint, bottom-right.
+	var hint := "SCROLL zoom    DRAG pan    CLICK fast travel    RIGHT-CLICK set GPS"
+	var hint_w := font.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+	draw_string_outline(font, Vector2(size.x - hint_w - 18.0, size.y - 16.0), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, 4, Color(0, 0, 0, 0.6))
+	draw_string(font, Vector2(size.x - hint_w - 18.0, size.y - 16.0), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, MapStyle.TEXT_DIM)
+
+func _draw_legend_row(font: Font, entry: Dictionary, at: Vector2) -> void:
+	var text_x := at.x + 30.0
+	match str(entry["kind"]):
+		"pin":
+			MapStyle.draw_badge(self, at + Vector2(9.0, 0.0), 7.0, entry["color"], str(entry["glyph"]))
+		"player":
+			MapRoads.draw_player_marker(self, at + Vector2(9.0, 0.0), -PI / 2.0, 0.0, 7.5)
+		"road":
+			var tier := int(entry["tier"])
+			var visited := bool(entry["visited"])
+			var line := PackedVector2Array([at + Vector2(-1.0, 3.0), at + Vector2(19.0, -3.0)])
+			draw_polyline(line, MapStyle.road_casing(tier, visited), MapStyle.road_width(tier) + 2.6, true)
+			draw_polyline(line, MapStyle.road_core(tier, visited), MapStyle.road_width(tier), true)
+		"route":
+			MapStyle.draw_route_ribbon(self, PackedVector2Array([at + Vector2(-1.0, 3.0), at + Vector2(19.0, -3.0)]), entry["color"], 3.0, 0.0)
+	draw_string(font, Vector2(text_x, at.y + 5.0), str(entry["label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, MapStyle.TEXT_LIGHT)
 
 ## True for a collectible entry (bonus board / speed trap / photo spot): the
 ## three families that are permanent gameplay rather than a place to visit, so
@@ -465,6 +912,10 @@ func _is_claimed_collectible(poi: Dictionary) -> bool:
 func _poi_fill_color(poi: Dictionary) -> Color:
 	if _is_collectible_poi(poi):
 		return Collectibles.kind_color(str(poi.get("kind", "")), POI_COLOR)
+	# An event marker takes its FAMILY colour (touge blue, drag red, drift violet...),
+	# the same one its glyph and the legend use; a landmark keeps its stage colour.
+	if poi.has("kind"):
+		return MapStyle.event_color(str(poi.get("kind", "")))
 	var stage := str(poi.get("stage", "")).to_lower()
 	if stage.contains("festival") or stage.contains("plains"):
 		return Color(0.96, 0.72, 0.2)
@@ -817,11 +1268,23 @@ func _rebuild() -> void:
 		provider = _resolve_height_reader()
 	if provider.is_valid():
 		_terrain_cells = MapRoads.terrain_cells(_fit, provider, TERRAIN_CELLS, TERRAIN_CELLS)
+	# Smooth shader relief: only for a REAL world terrain source. An injected
+	# `height_provider` (tests) keeps the legacy cell grid, so a stubbed field can
+	# never leak into the shared, cached relief image.
+	_terrain_rect = Rect2()
+	_terrain_waiting = false
+	if provider.is_valid() and not height_provider.is_valid():
+		_terrain_rect = MapTerrain.world_rect_for_roads(roads)
+		MapTerrain.request(_terrain_rect)
+		_terrain_waiting = not MapTerrain.poll()
 	_paths = []
 	_grey_paths = []
+	_road_runs = []
 	_road_labels = []
+	var tiers := MapRoads.get_road_tiers(source)
 	for road_index in roads.size():
 		var chain: Array = roads[road_index]
+		var tier := int(tiers[road_index]) if road_index < tiers.size() else MapRoads.UNKNOWN_TIER
 		var screens := PackedVector2Array()
 		for p in chain:
 			screens.append(MapRoads.world_to_screen(p, _fit))
@@ -831,17 +1294,31 @@ func _rebuild() -> void:
 		if mask.is_empty() or (mask.size() != chain.size() - 1 and mask.size() != chain.size()):
 			# No usable discovery data: draw the whole chain as one visited path.
 			if screens.size() >= 2:
-				_paths.append(screens)
+				_add_road_run(screens, tier, true)
 			continue
+		# Consecutive segments in the same reveal state merge into ONE polyline, so
+		# a road is a continuous ribbon (joined corners) and not a string of
+		# butt-capped two-point sticks with a gap at every vertex.
+		var run := PackedVector2Array()
+		var run_state := mask[0]
 		for seg in mask.size():
 			var seg_next := seg + 1
 			if seg_next >= screens.size():
 				seg_next = 0  # closing segment on a closed chain
-			var segment := PackedVector2Array([screens[seg], screens[seg_next]])
-			if mask[seg]:
-				_paths.append(segment)
-			else:
-				_grey_paths.append(segment)
+			if mask[seg] != run_state and run.size() >= 2:
+				_add_road_run(run, tier, run_state)
+				run = PackedVector2Array()
+				run_state = mask[seg]
+			if run.is_empty():
+				run.append(screens[seg])
+			run.append(screens[seg_next])
+		if run.size() >= 2:
+			_add_road_run(run, tier, run_state)
+	_road_runs.sort_custom(func(a, b):
+		# Unexplored under explored, then low class under high class.
+		if bool(a["visited"]) != bool(b["visited"]):
+			return not bool(a["visited"])
+		return MapStyle.road_rank(int(a["tier"])) < MapStyle.road_rank(int(b["tier"])))
 	# Road NAMES, same pass: the ids AND the curated names come from the same
 	# source in the same order as the chains (both index-aligned with `roads`, so
 	# the discovery mask indexed by road_index above is the one the label tints
@@ -860,6 +1337,9 @@ func _rebuild() -> void:
 			route_pts.append(MapRoads.world_to_screen(p, _fit))
 		if route_pts.size() >= 2:
 			_route_path = route_pts
+	_has_route_goal = MapRoads.has_route and with_world and _route_path.size() >= 2
+	_route_goal_screen = MapRoads.world_to_screen(MapRoads.route_target, _fit) if _has_route_goal else Vector2.ZERO
+	_region_labels = _compute_region_labels() if with_world else []
 	_poi_entries = []
 	for i in raw_pois.size():
 		_poi_entries.append({
@@ -867,6 +1347,15 @@ func _rebuild() -> void:
 			"poi": raw_poi_dicts[i],
 		})
 	_player_screen = MapRoads.world_to_screen(player_pos, _fit) if _has_player else Vector2.ZERO
+
+## One merged polyline of a road, in base-fit px, with its class and reveal
+## state. `_paths` / `_grey_paths` keep the legacy visited / unvisited split.
+func _add_road_run(points: PackedVector2Array, tier: int, visited: bool) -> void:
+	if visited:
+		_paths.append(points)
+	else:
+		_grey_paths.append(points)
+	_road_runs.append({"pts": points, "tier": tier, "visited": visited})
 
 ## Height reader (Callable(Vector2 xz) -> float) for the pause-map composite.
 ## Preloads the deterministic TerrainBaker natural field once per fit (64x64
@@ -894,12 +1383,86 @@ func _resolve_height_reader() -> Callable:
 			world_min, world_max, TERRAIN_CELLS, TERRAIN_CELLS)
 	return MapRoads.height_from_image(_preload_image, _preload_rect.position, _preload_texel)
 
-## Left-click on the visible pause map fast-travels to the clicked road point
-## when the WorldDriver accepts it (the point must be on a revealed road).
+## Pause-map input. Wheel zooms about the cursor; a left drag pans; a left CLICK
+## (press and release without crossing DRAG_THRESHOLD_PX) fast-travels to the
+## clicked road point when the WorldDriver accepts it (the point must be on a
+## revealed road); a right click sets the GPS destination (right-clicking the
+## flag clears it). +/-/0 zoom and reset, F finds the player, the shoulders zoom.
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.pressed \
-			and event.button_index == MOUSE_BUTTON_LEFT:
-		_handle_map_click(event as InputEventMouseButton)
+	if not is_visible_in_tree():
+		return
+	if event is InputEventMouseButton:
+		_on_mouse_button(event as InputEventMouseButton)
+	elif event is InputEventMouseMotion:
+		_on_mouse_motion(event as InputEventMouseMotion)
+	elif event is InputEventKey:
+		_on_key(event as InputEventKey)
+	elif event is InputEventJoypadButton:
+		var pad := event as InputEventJoypadButton
+		if pad.pressed and pad.button_index == JOY_BUTTON_RIGHT_SHOULDER:
+			zoom_by(ZOOM_STEP, size * 0.5)
+			get_viewport().set_input_as_handled()
+		elif pad.pressed and pad.button_index == JOY_BUTTON_LEFT_SHOULDER:
+			zoom_by(1.0 / ZOOM_STEP, size * 0.5)
+			get_viewport().set_input_as_handled()
+
+func _on_mouse_button(button: InputEventMouseButton) -> void:
+	var rect := get_global_rect()
+	if button.button_index == MOUSE_BUTTON_LEFT and not button.pressed:
+		var was_click := _pressing and not _dragged
+		_pressing = false
+		_dragged = false
+		if was_click:
+			_handle_map_click(button)
+		return
+	if not rect.has_point(button.position) or not button.pressed:
+		return
+	var local := button.position - rect.position
+	match button.button_index:
+		MOUSE_BUTTON_WHEEL_UP:
+			zoom_by(ZOOM_STEP, local)
+			get_viewport().set_input_as_handled()
+		MOUSE_BUTTON_WHEEL_DOWN:
+			zoom_by(1.0 / ZOOM_STEP, local)
+			get_viewport().set_input_as_handled()
+		MOUSE_BUTTON_LEFT:
+			_pressing = true
+			_dragged = false
+			_press_pos = local
+		MOUSE_BUTTON_RIGHT:
+			_handle_route_click(local)
+
+func _on_mouse_motion(motion: InputEventMouseMotion) -> void:
+	var rect := get_global_rect()
+	var local := motion.position - rect.position
+	if _pressing and (motion.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+		if not _dragged and local.distance_to(_press_pos) > DRAG_THRESHOLD_PX:
+			_dragged = true
+		if _dragged:
+			pan_by(motion.relative)
+			get_viewport().set_input_as_handled()
+			return
+	var hovered := poi_at(local) if rect.has_point(motion.position) else ""
+	if hovered != _hover_poi_id:
+		_hover_poi_id = hovered
+		_hover_pos = local
+		queue_redraw()
+
+func _on_key(key: InputEventKey) -> void:
+	if not key.pressed or key.echo:
+		return
+	match key.keycode:
+		KEY_EQUAL, KEY_PLUS, KEY_KP_ADD:
+			zoom_by(ZOOM_STEP, size * 0.5)
+		KEY_MINUS, KEY_KP_SUBTRACT:
+			zoom_by(1.0 / ZOOM_STEP, size * 0.5)
+		KEY_0, KEY_KP_0:
+			reset_view()
+		KEY_F:
+			focus_on_player()
+		_:
+			return
+	get_viewport().set_input_as_handled()
 
 func _handle_map_click(click: InputEventMouseButton) -> void:
 	if not is_visible_in_tree() or _fit.is_empty():
@@ -907,8 +1470,18 @@ func _handle_map_click(click: InputEventMouseButton) -> void:
 	var rect := get_global_rect()
 	if not rect.has_point(click.position):
 		return
-	var world := MapRoads.screen_to_world(click.position - rect.position, _fit)
+	var world := MapRoads.screen_to_world(view_to_base(click.position - rect.position), _fit)
 	_try_fast_travel(world)
+
+## Right click: drop a GPS destination at the clicked point, or clear the route
+## when the click lands on the destination flag itself.
+func _handle_route_click(local: Vector2) -> void:
+	if _fit.is_empty():
+		return
+	if _has_route_goal and base_to_view(_route_goal_screen).distance_to(local) <= 14.0:
+		clear_route()
+		return
+	set_route_destination(MapRoads.screen_to_world(view_to_base(local), _fit))
 
 func _try_fast_travel(world_pos: Vector3) -> void:
 	var driver := _resolve_driver()

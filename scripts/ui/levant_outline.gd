@@ -76,3 +76,14 @@ static func water_rings() -> Array[PackedVector2Array]:
 	out.append(sea_of_galilee_ring())
 	out.append(dead_sea_ring())
 	return out
+
+## Editorial map captions (text, lon, lat) for the ISRAEL tier: seas and regions a
+## reader orients by. Positions are stylised, like the outline itself.
+static func captions() -> Array[Dictionary]:
+	return [
+		{"text": "MEDITERRANEAN SEA", "lon": 34.05, "lat": 32.35},
+		{"text": "GALILEE", "lon": 35.30, "lat": 33.05},
+		{"text": "NEGEV", "lon": 34.75, "lat": 30.55},
+		{"text": "SINAI", "lon": 33.70, "lat": 29.85},
+		{"text": "RED SEA", "lon": 35.55, "lat": 29.30},
+	]

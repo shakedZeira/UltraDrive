@@ -209,6 +209,22 @@ static func get_road_names(source: Object) -> Array:
 		names[index] = typed.name
 	return names
 
+## RoadDef.Tier per chain, same index-parity contract as get_road_ids(). A chain
+## with no def (tree-walked source, short def list) reports UNKNOWN_TIER so the
+## style table falls back to its default road look instead of guessing a class.
+const UNKNOWN_TIER := -1
+
+static func get_road_tiers(source: Object) -> Array:
+	var chains := _road_chains(source)
+	var defs := _road_defs(source)
+	var tiers: Array = []
+	tiers.resize(chains.size())
+	for index in chains.size():
+		tiers[index] = UNKNOWN_TIER
+		if index < defs.size() and defs[index] is RoadDef:
+			tiers[index] = int((defs[index] as RoadDef).tier)
+	return tiers
+
 ## The source's RoadDef list when it exposes one, else []. Duck-typed on purpose
 ## (no cast to RoadNetwork): resolve_road_source() may hand back any node with a
 ## get_roads() method, and a map must not care which of the two shapes it got.
